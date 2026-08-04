@@ -258,7 +258,11 @@ input, textarea { font-family: inherit; }
 }
 .rail-new-btn:hover { background: var(--accent-soft); color: var(--accent); }
 
-/* 展开内容区（收起时淡出） */
+/* 收起态 rail：默认隐藏，.collapsed 时显示（修复：此前 min-width media query 把 rail 强制隐藏导致空白） */
+.sidebar-rail { display: none; }
+.sidebar.collapsed .sidebar-rail { display: flex; }
+
+/* 展开内容区（收起时隐藏） */
 .sb-expanded { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .sidebar.collapsed .sb-expanded { display: none; }
 
@@ -267,9 +271,6 @@ input, textarea { font-family: inherit; }
   .sidebar { width: 56px; }
   .sidebar .sb-expanded { display: none; }
   .sidebar .sidebar-rail { display: flex; }
-}
-@media (min-width: 1181px) {
-  .sidebar .sidebar-rail { display: none; }
 }
 
 /* 聊天区 */
