@@ -1099,20 +1099,21 @@ input, textarea { font-family: inherit; }
 .perm-rule .act.ask { background: var(--warn-soft); color: var(--warn); }
 .perm-rule .act.deny { background: var(--danger-soft); color: var(--danger); }
 
-/* v0.22：设置页 footer（版本信息 + 检查更新/关于） */
+/* v0.22：设置页 footer（版本信息 + 检查更新/关于）——v0.23 紧凑化防换行 */
 .settings-foot {
   max-width: 640px; margin: 6px auto 0;
-  padding: 16px 22px 10px;
+  padding: 14px 22px 10px;
   border-top: 1px solid var(--line);
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  display: flex; align-items: center; gap: 10px; flex-wrap: nowrap;
 }
-.sf-item { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); }
+.sf-item { font-size: 11px; color: var(--text-faint); font-family: var(--font-mono); white-space: nowrap; }
 .sf-item b { color: var(--text-low); font-weight: 500; }
-.sf-spacer { flex: 1; }
+.sf-spacer { flex: 1; min-width: 8px; }
 .sf-btn {
-  padding: 5px 12px; border-radius: 8px;
-  font-size: 11px; color: var(--text-low);
+  padding: 5px 10px; border-radius: 8px;
+  font-size: 10.5px; color: var(--text-low);
   border: 1px solid var(--line);
+  white-space: nowrap;
   transition: all 0.15s;
 }
 .sf-btn:hover { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
@@ -1933,8 +1934,8 @@ input, textarea { font-family: inherit; }
     <!-- v0.23：设置页 footer（版本信息 + 变更日志/检查更新/关于） -->
     <div class="settings-foot">
       <span class="sf-item">分形 <b>v0.1.0</b></span>
-      <span class="sf-item">引擎 <b>opencode v1.18.13</b></span>
-      <span class="sf-item">模型 <b>deepseek-v4-flash</b></span>
+      <span class="sf-item">引擎 <b>v1.18.13</b></span>
+      <span class="sf-item">模型 <b>v4-flash</b></span>
       <span class="sf-spacer"></span>
       <button class="sf-btn" onclick="openChangelog()">变更日志</button>
       <button class="sf-btn" onclick="alert('原型演示：检查更新（引擎二进制随应用版本发布）')">检查更新</button>
