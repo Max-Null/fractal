@@ -1,0 +1,1359 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分形 — 高保真原型 v0.4（简约风 · 消息排布可配置）</title>
+<style>
+/* ══════════════════════════════════════════════════════════
+   分形 oc-gui 高保真原型 v0.2
+   设计语言：现代简约（Minimal & Refined）
+   原则：克制色彩 · 充足留白 · 清晰层级 · 细腻微动效
+   ══════════════════════════════════════════════════════════ */
+
+:root {
+  /* 中性色阶（暖灰蓝底） */
+  --bg: #0e1116;
+  --bg-soft: #14181f;
+  --bg-card: #1a1f28;
+  --bg-hover: #212734;
+  --bg-active: #2a3140;
+
+  --line: rgba(255,255,255,0.07);
+  --line-strong: rgba(255,255,255,0.13);
+
+  --text-hi: #f2f4f7;
+  --text-mid: #a8b0bc;
+  --text-low: #6d7684;
+  --text-faint: #4a525f;
+
+  /* 品牌色：克制的青绿 */
+  --accent: #34d399;
+  --accent-dim: #0d9488;
+  --accent-soft: rgba(52,211,153,0.12);
+  --accent-line: rgba(52,211,153,0.35);
+
+  /* 语义色 */
+  --warn: #fbbf24;
+  --warn-soft: rgba(251,191,36,0.10);
+  --danger: #f87171;
+  --danger-soft: rgba(248,113,113,0.10);
+  --violet: #a78bfa;
+  --violet-soft: rgba(167,139,250,0.12);
+  --blue: #60a5fa;
+  --blue-soft: rgba(96,165,250,0.12);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", Consolas, monospace;
+
+  --shadow-pop: 0 24px 60px rgba(0,0,0,0.45), 0 4px 16px rgba(0,0,0,0.25);
+}
+
+[data-theme="light"] {
+  --bg: #f7f8fa;
+  --bg-soft: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #eef1f5;
+  --bg-active: #e4e8ee;
+
+  --line: rgba(15,23,42,0.08);
+  --line-strong: rgba(15,23,42,0.16);
+
+  --text-hi: #0f172a;
+  --text-mid: #475569;
+  --text-low: #8494a8;
+  --text-faint: #b0bcc9;
+
+  --accent: #059669;
+  --accent-dim: #047857;
+  --accent-soft: rgba(5,150,105,0.08);
+  --accent-line: rgba(5,150,105,0.3);
+
+  --warn: #d97706;
+  --danger: #dc2626;
+  --violet: #7c3aed;
+  --blue: #2563eb;
+
+  --shadow-pop: 0 24px 60px rgba(15,23,42,0.12), 0 4px 16px rgba(15,23,42,0.06);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--bg);
+  color: var(--text-mid);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  transition: background 0.3s, color 0.3s;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 3px; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; font-size: inherit; }
+input, textarea { font-family: inherit; }
+
+/* ── 应用框架 ── */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.hidden { display: none !important; }
+
+/* ── 顶栏 ── */
+.app-bar {
+  height: 52px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-soft) 80%, transparent);
+  backdrop-filter: blur(12px);
+}
+.app-bar-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand-mark {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--accent);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.brand-name { font-size: 15px; font-weight: 700; color: var(--text-hi); letter-spacing: 0.02em; }
+.ws-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-card);
+  font-size: 12px; color: var(--text-mid);
+  max-width: 300px; transition: border-color 0.2s, background 0.2s;
+}
+.ws-pill:hover { border-color: var(--line-strong); background: var(--bg-hover); color: var(--text-hi); }
+.ws-pill .folder { color: var(--text-low); }
+.ws-pill .path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; }
+.app-bar-right { display: flex; align-items: center; gap: 6px; }
+.model-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 5px 12px; border-radius: 999px;
+  background: var(--bg-card); border: 1px solid var(--line);
+  font-size: 11.5px; font-family: var(--font-mono); color: var(--text-mid);
+}
+.model-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.icon-btn {
+  width: 32px; height: 32px; border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-low); transition: all 0.18s;
+}
+.icon-btn:hover { background: var(--bg-hover); color: var(--text-hi); }
+
+/* ── 主体三栏 ── */
+.body { display: flex; flex: 1; min-height: 0; }
+
+/* 会话侧栏：可折叠（展开列表 / 收起 rail 双态，适配小平笔记本） */
+.sidebar {
+  width: 232px; flex-shrink: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-soft);
+  display: flex; flex-direction: column; min-height: 0;
+  transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+.sidebar.collapsed { width: 56px; }
+.sidebar-head {
+  padding: 16px 16px 8px;
+  display: flex; align-items: center; justify-content: space-between;
+  white-space: nowrap;
+}
+.sidebar-head .collapse-btn {
+  width: 24px; height: 24px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: 12px;
+  transition: all 0.15s;
+}
+.sidebar-head .collapse-btn:hover { background: var(--bg-hover); color: var(--text-mid); }
+.sidebar-title { font-size: 11px; font-weight: 600; letter-spacing: 0.08em; color: var(--text-low); text-transform: uppercase; }
+.sidebar-new {
+  width: 26px; height: 26px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-low); font-size: 15px;
+  transition: all 0.18s;
+}
+.sidebar-new:hover { background: var(--accent-soft); color: var(--accent); }
+.sidebar-search { padding: 4px 16px 10px; }
+.sidebar-search input {
+  width: 100%; padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-card); border: 1px solid var(--line);
+  color: var(--text-mid); font-size: 12px; outline: none;
+  transition: border-color 0.2s;
+}
+.sidebar-search input::placeholder { color: var(--text-faint); }
+.sidebar-search input:focus { border-color: var(--accent-line); }
+.sidebar-list { flex: 1; overflow-y: auto; padding: 0 8px 12px; }
+.sidebar-group { padding: 12px 8px 4px; font-size: 10.5px; color: var(--text-faint); letter-spacing: 0.06em; }
+.sess-item {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 9px 10px; border-radius: var(--radius-sm);
+  cursor: pointer; transition: background 0.15s;
+  border: 1px solid transparent;
+}
+.sess-item:hover { background: var(--bg-hover); }
+.sess-item.active {
+  background: var(--accent-soft); border-color: var(--accent-line);
+}
+.sess-title {
+  font-size: 12.5px; color: var(--text-mid); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sess-item.active .sess-title { color: var(--text-hi); }
+.sess-meta { display: flex; gap: 8px; font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); }
+.sidebar-foot {
+  padding: 12px 16px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-low);
+  white-space: nowrap;
+}
+.engine-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+
+/* ── 收起态 rail ── */
+.sidebar-rail {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 12px 0 14px; gap: 6px;
+  height: 100%;
+}
+.rail-expand-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: 13px;
+  transition: all 0.15s;
+}
+.rail-expand-btn:hover { background: var(--bg-hover); color: var(--text-hi); }
+.rail-dots { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; overflow-y: auto; width: 100%; padding: 4px 0; }
+.rail-dot {
+  width: 34px; height: 34px; border-radius: 11px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; font-weight: 600; color: var(--text-low);
+  cursor: pointer; transition: all 0.18s;
+  border: 1px solid transparent;
+}
+.rail-dot:hover { background: var(--bg-hover); color: var(--text-hi); }
+.rail-dot.active {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--accent-line);
+}
+.rail-dot .tip {
+  position: absolute; left: 46px; padding: 4px 10px;
+  background: var(--bg-card); border: 1px solid var(--line-strong);
+  border-radius: 7px; font-size: 11px; color: var(--text-mid);
+  white-space: nowrap; opacity: 0; pointer-events: none;
+  transform: translateX(-4px); transition: all 0.18s;
+  z-index: 50; font-weight: 400;
+}
+.rail-dot:hover .tip { opacity: 1; transform: none; }
+.rail-dot { position: relative; }
+.rail-new-btn {
+  width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-faint); font-size: 16px;
+  transition: all 0.15s;
+}
+.rail-new-btn:hover { background: var(--accent-soft); color: var(--accent); }
+
+/* 展开内容区（收起时淡出） */
+.sb-expanded { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.sidebar.collapsed .sb-expanded { display: none; }
+
+/* 响应式：小屏自动收起（小平笔记本适配） */
+@media (max-width: 1180px) {
+  .sidebar { width: 56px; }
+  .sidebar .sb-expanded { display: none; }
+  .sidebar .sidebar-rail { display: flex; }
+}
+@media (min-width: 1181px) {
+  .sidebar .sidebar-rail { display: none; }
+}
+
+/* 聊天区 */
+.main { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.chat-scroll { flex: 1; overflow-y: auto; }
+.chat-inner { max-width: 760px; margin: 0 auto; padding: 40px 32px 24px; display: flex; flex-direction: column; gap: 28px; }
+
+/* 消息 */
+.msg { display: flex; gap: 14px; animation: rise 0.35s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.avatar {
+  width: 30px; height: 30px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
+}
+.avatar.user { background: var(--bg-active); color: var(--text-mid); }
+.avatar.ai { background: var(--accent-soft); color: var(--accent); }
+.msg-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.msg-meta { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--text-faint); }
+.msg-meta .who { color: var(--text-mid); font-weight: 600; }
+.msg-content { font-size: 14px; color: var(--text-mid); line-height: 1.75; }
+
+/* ── 消息排布配置：全部靠左（默认） vs 左右分列 ── */
+/* 左右分列：用户消息镜像到右侧（头像右、内容右对齐、气泡底色） */
+.chat-inner.layout-split .msg.user { flex-direction: row-reverse; }
+.chat-inner.layout-split .msg.user .msg-body { align-items: flex-end; }
+.chat-inner.layout-split .msg.user .msg-content {
+  text-align: left; max-width: 78%;
+  background: var(--bg-card); border: 1px solid var(--line);
+  border-radius: 14px 14px 4px 14px; padding: 10px 14px;
+  color: var(--text-mid);
+}
+.chat-inner.layout-split .msg.user .msg-meta { flex-direction: row-reverse; }
+/* AI 消息在左右分列下也可加气泡（左侧） */
+.chat-inner.layout-split .msg.ai .msg-content { max-width: 86%; }
+.chat-inner.layout-split .msg.ai .think { max-width: 86%; }
+.chat-inner.layout-split .msg.ai .tool, .chat-inner.layout-split .msg.ai .tool-result { max-width: 86%; }
+.msg-content p { margin-bottom: 10px; }
+.msg-content p:last-child { margin-bottom: 0; }
+.msg-content strong { color: var(--text-hi); font-weight: 600; }
+.msg-content .em { color: var(--accent); }
+.msg-content code {
+  font-family: var(--font-mono); font-size: 12.5px;
+  background: var(--bg-card); border: 1px solid var(--line);
+  padding: 1px 6px; border-radius: 5px; color: var(--warn);
+}
+.stream-cursor {
+  display: inline-block; width: 2px; height: 1.1em;
+  background: var(--accent); margin-left: 2px;
+  vertical-align: text-bottom; animation: blink 0.9s infinite;
+}
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+/* 思考 */
+.think {
+  border-left: 2px solid var(--warn);
+  background: var(--warn-soft);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 8px 14px;
+  font-size: 12.5px; color: var(--text-low); line-height: 1.7;
+}
+
+/* 表格（消息内） */
+.msg-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 12.5px; margin: 4px 0 10px;
+  border-radius: var(--radius-sm); overflow: hidden;
+  border: 1px solid var(--line);
+}
+.msg-table th {
+  background: var(--bg-card); color: var(--text-hi);
+  font-weight: 600; text-align: left; padding: 7px 12px;
+  font-size: 11.5px; border-bottom: 1px solid var(--line);
+}
+.msg-table td { padding: 6px 12px; border-bottom: 1px solid var(--line); color: var(--text-mid); font-family: var(--font-mono); font-size: 12px; }
+.msg-table tr:last-child td { border-bottom: none; }
+.msg-table .hl { color: var(--danger); font-weight: 600; }
+
+/* 工具卡片 */
+.tool {
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--bg-card); overflow: hidden;
+  transition: border-color 0.2s;
+}
+.tool:hover { border-color: var(--line-strong); }
+.tool-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px; font-size: 12px;
+}
+.tool-icon { width: 18px; height: 18px; border-radius: 5px; background: var(--violet-soft); color: var(--violet); display: flex; align-items: center; justify-content: center; font-size: 9px; }
+.tool-name { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-hi); font-weight: 500; }
+.tool-state { margin-left: auto; font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); }
+.tool-state.done { color: var(--text-low); }
+.tool-state.done .ok { color: var(--accent); }
+.tool-state.running { color: var(--accent); }
+.spinner { width: 10px; height: 10px; border: 1.5px solid var(--line-strong); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.tool-body {
+  padding: 10px 14px; border-top: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-low);
+  line-height: 1.7; white-space: pre-wrap; word-break: break-all;
+}
+.tool-body .path { color: var(--blue); }
+.tool-result {
+  border: 1px dashed var(--line-strong); border-radius: var(--radius-sm);
+  padding: 8px 12px; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-low); background: var(--bg-soft);
+}
+
+/* 输入栏 */
+.composer-wrap { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--bg-soft) 80%, transparent); padding: 14px 24px 18px; backdrop-filter: blur(12px); }
+.composer {
+  max-width: 760px; margin: 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  padding: 6px 8px 8px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.composer:focus-within { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
+.composer-tools { display: flex; align-items: center; gap: 4px; padding: 2px 6px; }
+.composer-tool {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 9px; border-radius: 6px;
+  font-size: 11px; color: var(--text-low);
+  transition: all 0.15s;
+}
+.composer-tool:hover { background: var(--bg-hover); color: var(--text-mid); }
+.composer-tool.on { background: var(--accent-soft); color: var(--accent); }
+.composer-tools .grow { flex: 1; }
+.composer-select {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 6px;
+  font-size: 11px; color: var(--text-low);
+  border: 1px solid var(--line);
+}
+.composer-select:hover { background: var(--bg-hover); }
+.composer-input {
+  width: 100%; border: none; background: transparent; resize: none;
+  outline: none; padding: 8px 10px 2px;
+  color: var(--text-hi); font-size: 14px; line-height: 1.7;
+  min-height: 42px; max-height: 160px;
+}
+.composer-input::placeholder { color: var(--text-faint); }
+.composer-foot { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 0; }
+.composer-hint { font-size: 10.5px; color: var(--text-faint); font-family: var(--font-mono); }
+.send {
+  display: flex; align-items: center; gap: 6px;
+  padding: 7px 16px; border-radius: 9px;
+  background: var(--accent); color: #052e1f;
+  font-weight: 600; font-size: 12.5px;
+  transition: all 0.2s;
+}
+.send:hover { background: #4adea0; transform: translateY(-1px); }
+.send:active { transform: none; }
+.send.stop { background: var(--danger); color: #fff; }
+
+/* 右侧面板 */
+.panel {
+  width: 312px; flex-shrink: 0;
+  border-left: 1px solid var(--line);
+  background: var(--bg-soft);
+  display: flex; flex-direction: column; min-height: 0;
+}
+.panel-tabs { display: flex; padding: 0 8px; gap: 2px; border-bottom: 1px solid var(--line); }
+.panel-tab {
+  position: relative;
+  flex: 1; padding: 12px 2px 10px;
+  font-size: 12px; color: var(--text-low); text-align: center;
+  transition: color 0.18s;
+}
+.panel-tab::after {
+  content: ""; position: absolute; left: 20%; right: 20%; bottom: 0;
+  height: 2px; border-radius: 2px; background: var(--accent);
+  opacity: 0; transform: scaleX(0.5); transition: all 0.22s;
+}
+.panel-tab:hover { color: var(--text-mid); }
+.panel-tab.active { color: var(--text-hi); }
+.panel-tab.active::after { opacity: 1; transform: scaleX(1); }
+.panel-tab .nb {
+  position: absolute; top: 7px; right: 6px;
+  min-width: 15px; height: 15px; padding: 0 4px;
+  border-radius: 8px; background: var(--danger); color: #fff;
+  font-size: 9px; display: flex; align-items: center; justify-content: center;
+  font-weight: 600;
+}
+.panel-body { flex: 1; overflow-y: auto; padding: 16px 14px; display: flex; flex-direction: column; gap: 12px; }
+
+/* 记忆 */
+.search-row { display: flex; gap: 8px; }
+.search-row input {
+  flex: 1; padding: 8px 12px;
+  background: var(--bg-card); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); color: var(--text-mid); font-size: 12px;
+  outline: none; transition: border-color 0.2s;
+}
+.search-row input:focus { border-color: var(--accent-line); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  padding: 4px 11px; border-radius: 999px;
+  font-size: 11px; color: var(--text-low);
+  border: 1px solid var(--line);
+  transition: all 0.18s;
+}
+.chip:hover { color: var(--text-mid); }
+.chip.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.mem {
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--bg-card); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+  animation: rise 0.3s ease both;
+}
+.mem.pending { border-color: var(--warn); }
+.mem-desc { font-size: 12.5px; color: var(--text-mid); line-height: 1.6; }
+.mem-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-faint); font-family: var(--font-mono); }
+.tag {
+  padding: 2px 8px; border-radius: 5px; font-size: 10px; font-family: var(--font-sans); font-weight: 500;
+}
+.tag.pending { background: var(--warn-soft); color: var(--warn); }
+.tag.auto { background: var(--accent-soft); color: var(--accent); }
+.tag.suggest { background: var(--violet-soft); color: var(--violet); }
+.mem-actions { display: flex; gap: 6px; }
+.mini-btn {
+  padding: 4px 10px; border-radius: 6px;
+  font-size: 11px; color: var(--text-low);
+  border: 1px solid var(--line);
+  transition: all 0.15s;
+}
+.mini-btn:hover { background: var(--bg-hover); color: var(--text-mid); }
+.mini-btn.confirm { border-color: var(--accent-line); color: var(--accent); }
+.mini-btn.confirm:hover { background: var(--accent-soft); }
+
+/* 状态 */
+.stat-card {
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--bg-card); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 7px;
+}
+.stat-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; color: var(--text-hi); }
+.stat-ico { width: 22px; height: 22px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; }
+.stat-ico.g { background: var(--accent-soft); color: var(--accent); }
+.stat-ico.a { background: var(--warn-soft); color: var(--warn); }
+.stat-ico.r { background: var(--danger-soft); color: var(--danger); }
+.stat-ico.v { background: var(--violet-soft); color: var(--violet); }
+.stat-row { display: flex; justify-content: space-between; font-size: 11.5px; }
+.stat-row .k { color: var(--text-low); }
+.stat-row .v { color: var(--text-mid); font-family: var(--font-mono); }
+.stat-desc { font-size: 11.5px; color: var(--text-low); line-height: 1.6; }
+.stat-desc .w { color: var(--warn); }
+.meter { display: flex; gap: 3px; align-items: center; }
+.meter i { width: 12px; height: 5px; border-radius: 2px; background: var(--bg-active); }
+.meter i.f { background: var(--warn); }
+.meter i.hot { background: var(--danger); }
+
+/* 计划 */
+.plan {
+  border: 1px solid var(--line); border-radius: var(--radius-md);
+  background: var(--bg-card); padding: 14px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.plan-title { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--text-hi); }
+.plan-status {
+  font-size: 10px; padding: 2px 8px; border-radius: 999px; font-weight: 500;
+}
+.plan-status.active { background: var(--accent-soft); color: var(--accent); }
+.plan-status.paused { background: var(--bg-active); color: var(--text-low); }
+.plan-bar { display: flex; align-items: center; gap: 10px; }
+.bar-track { flex: 1; height: 4px; border-radius: 2px; background: var(--bg-active); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.6s ease; }
+.plan-pct { font-size: 11px; color: var(--accent); font-family: var(--font-mono); }
+.plan-desc { font-size: 11.5px; color: var(--text-low); line-height: 1.6; }
+.plan-steps { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.pstep { display: flex; gap: 8px; align-items: baseline; color: var(--text-low); }
+.pstep .cb { font-size: 11px; width: 14px; font-family: var(--font-mono); }
+.pstep.done { color: var(--text-low); text-decoration: line-through; text-decoration-color: var(--line-strong); }
+.pstep.done .cb { color: var(--accent); text-decoration: none; }
+.pstep.cur { color: var(--text-hi); }
+
+/* 预置 */
+.pgroup { font-size: 10.5px; letter-spacing: 0.08em; color: var(--text-faint); text-transform: uppercase; padding: 6px 2px 0; }
+.pitem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: var(--radius-md);
+  border: 1px solid var(--line); background: var(--bg-card);
+}
+.pitem-ico { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.pitem-ico.agent { background: var(--accent-soft); color: var(--accent); }
+.pitem-ico.skill { background: var(--violet-soft); color: var(--violet); }
+.pitem-ico.plugin { background: var(--warn-soft); color: var(--warn); }
+.pitem-ico.mcp { background: var(--blue-soft); color: var(--blue); }
+.pitem-info { flex: 1; min-width: 0; }
+.pitem-name { font-size: 12.5px; color: var(--text-mid); font-weight: 500; }
+.pitem-sub { font-size: 10.5px; color: var(--text-faint); }
+.switch { width: 34px; height: 20px; border-radius: 10px; background: var(--bg-active); position: relative; transition: background 0.2s; flex-shrink: 0; }
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-low); transition: all 0.2s;
+}
+.switch.on { background: var(--accent-dim); }
+.switch.on::after { left: 16px; background: #fff; }
+
+/* 文件树 */
+.frow { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: 6px; font-size: 12.5px; color: var(--text-low); cursor: pointer; }
+.frow:hover { background: var(--bg-hover); color: var(--text-mid); }
+.frow .fico { width: 16px; text-align: center; font-size: 11px; }
+.frow.dir { color: var(--text-mid); }
+.frow .fst { margin-left: auto; font-size: 9.5px; font-family: var(--font-mono); }
+.frow .fst.m { color: var(--warn); }
+.frow .fst.n { color: var(--accent); }
+
+/* 弹窗 */
+.mask {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(4,6,10,0.6);
+  backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadein 0.2s ease;
+}
+@keyframes fadein { from { opacity: 0; } }
+.dialog {
+  width: 460px; max-width: 92vw;
+  background: var(--bg-card);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-pop);
+  overflow: hidden;
+  animation: pop 0.25s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes pop { from { opacity: 0; transform: translateY(10px) scale(0.97); } }
+.dialog-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--line);
+}
+.dialog-title { font-size: 14px; font-weight: 600; color: var(--text-hi); display: flex; align-items: center; gap: 8px; }
+.dialog-title .ic { width: 24px; height: 24px; border-radius: 7px; background: var(--warn-soft); color: var(--warn); display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.dialog-body { padding: 18px 20px; max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+.perm-tool {
+  display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
+  padding: 4px 11px; border-radius: 6px;
+  background: var(--bg-soft); border: 1px solid var(--line);
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--violet);
+}
+.perm-input {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 12px 14px;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-low);
+  white-space: pre-wrap; line-height: 1.7;
+}
+.perm-input .hl { color: var(--warn); }
+.dialog-foot {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 20px; border-top: 1px solid var(--line);
+  background: var(--bg-soft);
+}
+.remember { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-low); margin-right: auto; cursor: pointer; }
+.remember input { accent-color: var(--accent); width: 14px; height: 14px; }
+.btn { padding: 7px 16px; border-radius: 9px; font-size: 12.5px; font-weight: 500; transition: all 0.18s; }
+.btn.ghost { color: var(--text-low); border: 1px solid var(--line); }
+.btn.ghost:hover { background: var(--bg-hover); color: var(--text-mid); }
+.btn.primary { background: var(--accent); color: #052e1f; font-weight: 600; }
+.btn.primary:hover { background: #4adea0; }
+.btn.danger { background: var(--danger); color: #fff; }
+
+/* 设置视图 */
+.settings-scroll { flex: 1; overflow-y: auto; padding: 36px 28px; }
+.settings-wrap { max-width: 640px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+.set-card {
+  border: 1px solid var(--line); border-radius: var(--radius-lg);
+  background: var(--bg-card); padding: 20px 22px;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.set-card-title { font-size: 13.5px; font-weight: 600; color: var(--text-hi); display: flex; align-items: center; gap: 8px; }
+.set-card-title .hint { font-size: 11px; color: var(--text-low); font-weight: 400; }
+.set-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.set-label { font-size: 12.5px; color: var(--text-mid); }
+.set-label .desc { display: block; font-size: 10.5px; color: var(--text-faint); margin-top: 2px; }
+.set-row input[type="password"], .set-row select {
+  width: 250px; padding: 8px 12px;
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); color: var(--text-mid); font-size: 12px;
+  font-family: var(--font-mono); outline: none;
+}
+.set-row select { cursor: pointer; }
+.mode-group { display: flex; gap: 6px; }
+.mode-btn {
+  padding: 6px 13px; border-radius: 8px; font-size: 11.5px;
+  border: 1px solid var(--line); color: var(--text-low);
+  transition: all 0.18s;
+}
+.mode-btn:hover { color: var(--text-mid); }
+.mode-btn.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.test-btn {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 8px;
+  border: 1px solid var(--accent-line); color: var(--accent); font-size: 12px;
+  transition: all 0.2s;
+}
+.test-btn:hover { background: var(--accent-soft); }
+.test-btn.ok { border-color: var(--line); color: var(--accent); }
+.json-editor {
+  background: var(--bg-soft); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.8;
+  color: var(--text-mid); white-space: pre; overflow-x: auto;
+}
+.json-editor .k { color: var(--violet); }
+.json-editor .s { color: var(--warn); }
+.json-editor .c { color: var(--text-faint); }
+
+/* 引导页 */
+.ob {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+}
+.ob-card { width: 400px; max-width: 92vw; display: flex; flex-direction: column; gap: 26px; }
+.ob-logo { display: flex; align-items: center; gap: 14px; }
+.ob-mark {
+  width: 46px; height: 46px; border-radius: 14px;
+  background: var(--accent-soft); border: 1px solid var(--accent-line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; color: var(--accent);
+  box-shadow: 0 0 30px var(--accent-soft);
+}
+.ob-logo h1 { font-size: 22px; font-weight: 700; color: var(--text-hi); letter-spacing: 0.02em; }
+.ob-logo .sub { font-size: 12px; color: var(--text-low); }
+.ob-steps { display: flex; gap: 8px; }
+.ob-step {
+  flex: 1; padding: 8px 6px; text-align: center;
+  border-radius: 10px; font-size: 11.5px; color: var(--text-faint);
+  border: 1px solid var(--line);
+  transition: all 0.25s;
+}
+.ob-step.active { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.ob-step.done { border-color: var(--accent-line); color: var(--accent); }
+.ob-field label { display: block; font-size: 12.5px; color: var(--text-mid); margin-bottom: 8px; }
+.ob-field input {
+  width: 100%; padding: 12px 14px;
+  background: var(--bg-card); border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md); color: var(--text-hi); font-size: 13px;
+  font-family: var(--font-mono); outline: none;
+  transition: border-color 0.2s;
+}
+.ob-field input:focus { border-color: var(--accent-line); }
+.ob-actions { display: flex; align-items: center; gap: 10px; }
+.ob-skip { color: var(--text-faint); font-size: 12px; margin-right: auto; }
+.ob-skip:hover { color: var(--text-low); }
+.ob-success { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 26px 0; text-align: center; }
+.ob-check {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: var(--accent-soft); border: 2px solid var(--accent-line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; color: var(--accent);
+  animation: pop 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.3);
+}
+.ob-success h2 { font-size: 17px; color: var(--text-hi); }
+.ob-success p { font-size: 12.5px; color: var(--text-low); line-height: 1.7; }
+
+/* 空态 */
+.empty { text-align: center; padding: 72px 0 30px; animation: rise 0.4s ease; }
+.empty .big { font-size: 40px; opacity: 0.7; }
+.empty h3 { font-size: 16px; color: var(--text-hi); margin-top: 16px; font-weight: 600; }
+.empty p { font-size: 12px; color: var(--text-low); margin-top: 6px; }
+.empty .quick { display: flex; justify-content: center; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 引导页 ═══════════ -->
+<div class="ob" id="ob">
+  <div class="ob-card">
+    <div class="ob-logo">
+      <div class="ob-mark">✦</div>
+      <div>
+        <h1>分形</h1>
+        <div class="sub">你的 AI 工作助手 · 开箱即用</div>
+      </div>
+    </div>
+    <div class="ob-steps">
+      <div class="ob-step active" id="obS1">1 · 填入 API Key</div>
+      <div class="ob-step" id="obS2">2 · 测试连接</div>
+      <div class="ob-step" id="obS3">3 · 完成</div>
+    </div>
+    <div class="ob-field" id="obBody">
+      <label>DeepSeek API Key（唯一必填 · 仅存本机钥匙串）</label>
+      <input type="password" id="obKey" placeholder="sk-..." value="sk-demo-••••••••••••">
+    </div>
+    <div class="ob-actions">
+      <button class="ob-skip" onclick="finishOb()">跳过，稍后配置</button>
+      <button class="btn primary" id="obNext" onclick="obNext()">测试连接</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 主界面 ═══════════ -->
+<div class="app hidden" id="app">
+
+  <!-- 顶栏 -->
+  <header class="app-bar">
+    <div class="app-bar-left">
+      <div class="brand">
+        <div class="brand-mark">✦</div>
+        <span class="brand-name">分形</span>
+      </div>
+      <button class="ws-pill" title="切换工作区">
+        <span class="folder">▤</span>
+        <span class="path">~/WorkSpace/报销单整理</span>
+      </button>
+    </div>
+    <div class="app-bar-right">
+      <div class="model-pill" title="当前模型（会话级可切换）"><span class="dot"></span><span>deepseek-v4-flash</span></div>
+      <button class="icon-btn" title="新建会话" onclick="newSession()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <button class="icon-btn" title="切换主题" onclick="toggleTheme()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.9" y1="4.9" x2="6.3" y2="6.3"/><line x1="17.7" y1="17.7" x2="19.1" y2="19.1"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.9" y1="19.1" x2="6.3" y2="17.7"/><line x1="17.7" y1="6.3" x2="19.1" y2="4.9"/></svg>
+      </button>
+      <button class="icon-btn" title="设置" onclick="openSettings()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="body">
+
+    <!-- 会话侧栏（可折叠：展开列表 / 收起 rail） -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sb-expanded">
+        <div class="sidebar-head">
+          <span class="sidebar-title">会话</span>
+          <div style="display:flex;align-items:center;gap:2px">
+            <button class="sidebar-new" onclick="newSession()" title="新建会话">＋</button>
+            <button class="collapse-btn" onclick="toggleSidebar()" title="收起侧栏">«</button>
+          </div>
+        </div>
+        <div class="sidebar-search"><input placeholder="搜索会话…"></div>
+        <div class="sidebar-list">
+          <div class="sidebar-group">今天</div>
+          <div class="sess-item active" onclick="selectSession(this)">
+            <span class="sess-title">帮我把这个月报销单整理成表格</span>
+            <span class="sess-meta"><span>10:42</span><span>v4-flash</span></span>
+          </div>
+          <div class="sess-item" onclick="selectSession(this)">
+            <span class="sess-title">把 docs 目录全部翻译成英文</span>
+            <span class="sess-meta"><span>09:15</span><span>v4-flash</span></span>
+          </div>
+          <div class="sidebar-group">昨天</div>
+          <div class="sess-item" onclick="selectSession(this)">
+            <span class="sess-title">生成项目周报</span>
+            <span class="sess-meta"><span>17:03</span><span>v4-pro</span></span>
+          </div>
+          <div class="sess-item" onclick="selectSession(this)">
+            <span class="sess-title">修复报销脚本的中文乱码</span>
+            <span class="sess-meta"><span>14:22</span><span>v4-flash</span></span>
+          </div>
+        </div>
+        <div class="sidebar-foot">
+          <span class="engine-dot"></span>
+          <span>引擎运行中 · v1.18.13</span>
+          <span style="margin-left:auto;font-family:var(--font-mono);font-size:10px">隔离</span>
+        </div>
+      </div>
+
+      <!-- 收起态 rail -->
+      <div class="sidebar-rail">
+        <button class="rail-expand-btn" onclick="toggleSidebar()" title="展开侧栏">»</button>
+        <div class="rail-dots">
+          <div class="rail-dot active" title="报销单整理" onclick="selectRail(this)">报<span class="tip">帮我把这个月报销单整理成表格</span></div>
+          <div class="rail-dot" title="翻译项目文档" onclick="selectRail(this)">翻<span class="tip">把 docs 目录全部翻译成英文</span></div>
+          <div class="rail-dot" title="生成周报" onclick="selectRail(this)">周<span class="tip">生成项目周报</span></div>
+          <div class="rail-dot" title="修复报销脚本" onclick="selectRail(this)">修<span class="tip">修复报销脚本的中文乱码</span></div>
+        </div>
+        <button class="rail-new-btn" onclick="newSession()" title="新建会话">＋</button>
+      </div>
+    </aside>
+
+    <!-- 聊天区 -->
+    <main class="main" id="mainView">
+      <div class="chat-scroll" id="chatScroll">
+        <div class="chat-inner" id="chatInner">
+
+          <!-- 用户消息 -->
+          <div class="msg user">
+            <div class="avatar user">我</div>
+            <div class="msg-body">
+              <div class="msg-meta"><span class="who">你</span><span>10:42</span></div>
+              <div class="msg-content">
+                <p>帮我把这个月报销单整理成表格，按部门汇总金额，标出超过 5000 元的条目。</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 助手：思考 -->
+          <div class="msg ai">
+            <div class="avatar ai">✦</div>
+            <div class="msg-body">
+              <div class="msg-meta"><span class="who">分形</span><span>10:42</span><span style="font-family:var(--font-mono)">3.2s</span></div>
+              <div class="think">先读取报销目录确认文件格式，再按部门汇总。会用到文件工具和表格处理能力。</div>
+              <div class="msg-content"><p>好的，我来处理。先看一下这个月的报销文件：</p></div>
+            </div>
+          </div>
+
+          <!-- 工具 -->
+          <div class="msg ai">
+            <div class="avatar ai">✦</div>
+            <div class="msg-body">
+              <div class="tool">
+                <div class="tool-head">
+                  <span class="tool-icon">⌘</span>
+                  <span class="tool-name">glob</span>
+                  <span class="tool-state done"><span class="ok">●</span> 完成 · 12ms</span>
+                </div>
+                <div class="tool-body"><span class="path">报销单/2026-07/销售部.xlsx</span>
+<span class="path">报销单/2026-07/市场部.xlsx</span>
+<span class="path">报销单/2026-07/研发部.xlsx</span></div>
+              </div>
+              <div class="tool-result">3 个文件匹配</div>
+            </div>
+          </div>
+
+          <!-- 流式结果 -->
+          <div class="msg ai">
+            <div class="avatar ai">✦</div>
+            <div class="msg-body">
+              <div class="msg-meta"><span class="who">分形</span><span>10:43</span></div>
+              <div class="msg-content" id="streamText">
+                <p>已读取 3 个部门的报销表，汇总结果如下：</p>
+                <table class="msg-table">
+                  <tr><th>部门</th><th>笔数</th><th>总额</th><th>超 5000 条目</th></tr>
+                  <tr><td>销售部</td><td>23</td><td>¥41,280</td><td>4</td></tr>
+                  <tr><td>市场部</td><td>17</td><td>¥28,950</td><td>2</td></tr>
+                  <tr><td>研发部</td><td>31</td><td>¥66,730</td><td>7</td></tr>
+                </table>
+                <p>已生成汇总表 <code>报销汇总-7月.xlsx</code>，超额条目已标红，右侧「文件」面板可预览。</p><span class="stream-cursor"></span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 输入栏 -->
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="composer-tools">
+            <button class="composer-tool">📎 附件</button>
+            <button class="composer-tool on">✦ 文档助手</button>
+            <div class="grow"></div>
+            <div class="composer-select">🛡 default ▾</div>
+            <div class="composer-select">effort · high ▾</div>
+          </div>
+          <textarea class="composer-input" id="inputText" placeholder="给分形发消息…（Shift+Enter 换行）"></textarea>
+          <div class="composer-foot">
+            <span class="composer-hint">DeepSeek v4-flash · 引擎隔离运行</span>
+            <button class="send" id="sendBtn" onclick="sendMessage()">发送 ↑</button>
+          </div>
+        </div>
+      </div>
+    </main>
+
+    <!-- 右侧面板 -->
+    <aside class="panel">
+      <div class="panel-tabs">
+        <button class="panel-tab" data-tab="files" onclick="switchTab('files')">文件</button>
+        <button class="panel-tab" data-tab="mem" onclick="switchTab('mem')">记忆 <span class="nb">2</span></button>
+        <button class="panel-tab" data-tab="status" onclick="switchTab('status')">状态</button>
+        <button class="panel-tab" data-tab="plan" onclick="switchTab('plan')">计划</button>
+        <button class="panel-tab" data-tab="preset" onclick="switchTab('preset')">预置</button>
+      </div>
+
+      <div class="panel-body" id="tab-files">
+        <div class="frow dir"><span class="fico">▾</span>报销单</div>
+        <div class="frow dir" style="padding-left:24px"><span class="fico">▾</span>2026-07</div>
+        <div class="frow" style="padding-left:40px"><span class="fico">▣</span>销售部.xlsx <span class="fst m">M</span></div>
+        <div class="frow" style="padding-left:40px"><span class="fico">▣</span>市场部.xlsx</div>
+        <div class="frow" style="padding-left:40px"><span class="fico">▣</span>研发部.xlsx</div>
+        <div class="frow" style="padding-left:40px"><span class="fico">▣</span>报销汇总-7月.xlsx <span class="fst n">+</span></div>
+        <div class="frow dir" style="padding-left:24px"><span class="fico">▸</span>发票扫描件</div>
+      </div>
+
+      <div class="panel-body hidden" id="tab-mem">
+        <div class="search-row">
+          <input placeholder="搜索记忆…（本地检索）">
+          <button class="mini-btn">＋</button>
+        </div>
+        <div class="chips">
+          <button class="chip active">全部</button>
+          <button class="chip">待确认</button>
+          <button class="chip">已生效</button>
+          <button class="chip">观察中</button>
+        </div>
+        <div class="mem pending">
+          <div class="mem-desc">报销表整理后先备份原表，再生成汇总</div>
+          <div class="mem-meta"><span class="tag pending">待确认</span><span>全局</span><span>置信度高</span></div>
+          <div class="mem-actions">
+            <button class="mini-btn confirm">✓ 确认生效</button>
+            <button class="mini-btn">设为建议</button>
+            <button class="mini-btn">忽略</button>
+          </div>
+        </div>
+        <div class="mem pending">
+          <div class="mem-desc">表格汇总用千分位格式，超额条目标红</div>
+          <div class="mem-meta"><span class="tag pending">待确认</span><span>本项目</span><span>置信度中</span></div>
+          <div class="mem-actions">
+            <button class="mini-btn confirm">✓ 确认生效</button>
+            <button class="mini-btn">设为建议</button>
+            <button class="mini-btn">忽略</button>
+          </div>
+        </div>
+        <div class="mem">
+          <div class="mem-desc">修改代码前先跑类型检查（已确认习惯）</div>
+          <div class="mem-meta"><span class="tag auto">已生效</span><span>全局</span><span>命中 12 次</span></div>
+        </div>
+        <div class="mem">
+          <div class="mem-desc">提交前先审查 diff 再 commit</div>
+          <div class="mem-meta"><span class="tag auto">已生效</span><span>全局</span><span>命中 8 次</span></div>
+        </div>
+        <div class="mem">
+          <div class="mem-desc">网络问题优先查官方文档而非猜测</div>
+          <div class="mem-meta"><span class="tag suggest">观察中</span><span>全局</span><span>命中 3 次</span></div>
+        </div>
+      </div>
+
+      <div class="panel-body hidden" id="tab-status">
+        <div class="stat-card">
+          <div class="stat-head"><span class="stat-ico g">◎</span>引擎</div>
+          <div class="stat-row"><span class="k">serve</span><span class="v">127.0.0.1:6x41</span></div>
+          <div class="stat-row"><span class="k">版本</span><span class="v">opencode v1.18.13</span></div>
+          <div class="stat-row"><span class="k">隔离</span><span class="v" style="color:var(--accent)">独立配置 ✓</span></div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-head"><span class="stat-ico a">◈</span>联网查证</div>
+          <div class="stat-row"><span class="k">断言计数</span><span class="v">2 / 3</span></div>
+          <div class="stat-row"><span class="k">等级</span><span class="meter"><i class="f"></i><i class="f"></i><i></i></span></div>
+          <div class="stat-desc">最近断言「<span class="w">xlsx 不支持公式</span>」未查证 —— 已注入温和提醒</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-head"><span class="stat-ico g">◫</span>编辑审查</div>
+          <div class="stat-row"><span class="k">待审查队列</span><span class="v">0 条</span></div>
+          <div class="stat-desc">最近编辑：报销汇总-7月.xlsx ✓ 已审查</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-head"><span class="stat-ico r">◉</span>无反馈环</div>
+          <div class="stat-row"><span class="k">连续编辑无验证</span><span class="v">0 轮</span></div>
+          <div class="stat-desc">状态正常</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-head"><span class="stat-ico v">❖</span>知识提取</div>
+          <div class="stat-row"><span class="k">最近提交</span><span class="v">2 小时前</span></div>
+          <div class="stat-desc">已从 3 次提交中提取 1 条候选记忆</div>
+        </div>
+      </div>
+
+      <div class="panel-body hidden" id="tab-plan">
+        <div class="plan">
+          <div class="plan-title">📋 报销流程自动化 <span class="plan-status active">执行中</span></div>
+          <div class="plan-bar"><div class="bar-track"><div class="bar-fill" style="width:75%"></div></div><span class="plan-pct">3/4</span></div>
+          <div class="plan-desc">读取三类报销单 → 按部门汇总 → 生成 Excel → 输出预览</div>
+          <div class="plan-steps">
+            <div class="pstep done"><span class="cb">✓</span>读取 2026-07 报销文件</div>
+            <div class="pstep done"><span class="cb">✓</span>解析并校验数据格式</div>
+            <div class="pstep cur"><span class="cb">·</span>按部门汇总 + 标红超额</div>
+            <div class="pstep"><span class="cb">○</span>生成预览并确认交付</div>
+          </div>
+        </div>
+        <div class="plan">
+          <div class="plan-title">📋 翻译项目文档 <span class="plan-status paused">暂停</span></div>
+          <div class="plan-bar"><div class="bar-track"><div class="bar-fill" style="width:25%"></div></div><span class="plan-pct">1/4</span></div>
+          <div class="plan-steps">
+            <div class="pstep done"><span class="cb">✓</span>扫描 docs 目录</div>
+            <div class="pstep"><span class="cb">○</span>批量翻译</div>
+            <div class="pstep"><span class="cb">○</span>术语一致性检查</div>
+            <div class="pstep"><span class="cb">○</span>输出双语对照</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel-body hidden" id="tab-preset">
+        <div class="pgroup">Agent 协作</div>
+        <div class="pitem"><span class="pitem-ico agent">✦</span><div class="pitem-info"><div class="pitem-name">双星</div><div class="pitem-sub">主助手 · 四阶段编排</div></div><span class="switch on"></span></div>
+        <div class="pitem"><span class="pitem-ico agent">工</span><div class="pitem-info"><div class="pitem-name">工匠</div><div class="pitem-sub">编码执行 · LSP 感知</div></div><span class="switch on"></span></div>
+        <div class="pgroup">技能 · 14 个</div>
+        <div class="pitem"><span class="pitem-ico skill">📝</span><div class="pitem-info"><div class="pitem-name">文档助手</div><div class="pitem-sub">写报告 / 总结文档</div></div><span class="switch on"></span></div>
+        <div class="pitem"><span class="pitem-ico skill">📊</span><div class="pitem-info"><div class="pitem-name">表格处理</div><div class="pitem-sub">报销 / 数据整理流程</div></div><span class="switch on"></span></div>
+        <div class="pitem"><span class="pitem-ico skill">🔍</span><div class="pitem-info"><div class="pitem-name">提交审查</div><div class="pitem-sub">commit 前审查工作流</div></div><span class="switch on"></span></div>
+        <div class="pgroup">守护插件</div>
+        <div class="pitem"><span class="pitem-ico plugin">◈</span><div class="pitem-info"><div class="pitem-name">记忆管家</div><div class="pitem-sub">6 触发线 · 三层记忆 · 计划导航</div></div><span class="switch on"></span></div>
+        <div class="pgroup">MCP</div>
+        <div class="pitem"><span class="pitem-ico mcp">◇</span><div class="pitem-info"><div class="pitem-name">文件系统</div><div class="pitem-sub">本地文件操作</div></div><span class="switch on"></span></div>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- ═══════════ 设置视图 ═══════════ -->
+<div class="app hidden" id="settingsView">
+  <header class="app-bar">
+    <div class="app-bar-left">
+      <button class="icon-btn" onclick="closeSettings()" title="返回">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+      </button>
+      <div class="brand"><div class="brand-mark">✦</div><span class="brand-name">设置</span></div>
+    </div>
+    <div class="app-bar-right"><div class="model-pill"><span class="dot"></span><span>zh</span></div></div>
+  </header>
+  <div class="settings-scroll">
+    <div class="settings-wrap">
+
+      <div class="set-card">
+        <div class="set-card-title">🔑 DeepSeek 连接 <span class="hint">API Key 是唯一必填项</span></div>
+        <div class="set-row">
+          <span class="set-label">API Key<span class="desc">仅存系统钥匙串 · agent 读不到明文</span></span>
+          <input type="password" value="sk-demo-••••••••••••">
+        </div>
+        <div class="set-row">
+          <span class="set-label">连接状态</span>
+          <button class="test-btn" id="testBtn" onclick="testConn()">▶ 测试连接</button>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card-title">🎯 模型 <span class="hint">高低搭配 · 会话级可切换</span></div>
+        <div class="set-row">
+          <span class="set-label">默认模型<span class="desc">v4-pro 为预览版，正式上市后切默认</span></span>
+          <select>
+            <option>deepseek-v4-flash（默认 · 正式版）</option>
+            <option>deepseek-v4-pro（预览版）</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card-title">🛡 权限模式</div>
+        <div class="mode-group">
+          <button class="mode-btn active">default</button>
+          <button class="mode-btn">acceptEdits</button>
+          <button class="mode-btn">bypass</button>
+          <button class="mode-btn">plan</button>
+          <button class="mode-btn">auto</button>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card-title">💬 消息排布 <span class="hint">实时生效</span></div>
+        <div class="mode-group">
+          <button class="mode-btn active" id="layoutLeft" onclick="setMessageLayout('left')">全部靠左</button>
+          <button class="mode-btn" id="layoutSplit" onclick="setMessageLayout('split')">左右分列（我右 · AI 左）</button>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card-title">🧩 预置能力 <span class="hint">开箱即用 · 只读展示</span></div>
+        <div class="set-row">
+          <span class="set-label">Agent 协作（双星）<span class="desc">四 agent + 四阶段编排</span></span>
+          <span class="switch on"></span>
+        </div>
+        <div class="set-row">
+          <span class="set-label">记忆管家<span class="desc">触发线 + 三层记忆</span></span>
+          <span class="switch on"></span>
+        </div>
+        <div class="set-row">
+          <span class="set-label">内置技能（14 个）<span class="desc">提交审查 / 文档 / 表格 / 整理</span></span>
+          <span class="switch on"></span>
+        </div>
+      </div>
+
+      <div class="set-card">
+        <div class="set-card-title" style="justify-content:space-between">
+          <span>⚙ 高级设置（settings.json）</span>
+          <button class="mini-btn" onclick="toggleJson()">编辑 JSON</button>
+        </div>
+        <div class="json-editor hidden" id="jsonEd"><span class="c">// 分形配置（类 VSCode settings.json）</span>
+<span class="k">"ui.theme"</span>: <span class="s">"dark"</span>,
+<span class="k">"ui.language"</span>: <span class="s">"zh"</span>,
+<span class="k">"ui.messageLayout"</span>: <span class="s">"left"</span>,   <span class="c">// left=全部靠左 / split=左右分列</span>
+<span class="k">"deepseek.model"</span>: <span class="s">"deepseek-v4-flash"</span>,
+<span class="k">"agent.permissionMode"</span>: <span class="s">"default"</span>,
+<span class="k">"preset.skills.enabled"</span>: <span class="k">true</span>,
+<span class="k">"engine.opencodePath"</span>: <span class="s">""</span>,   <span class="c">// 空 = 内置引擎</span>
+<span class="k">"engine.isolation"</span>: <span class="s">"oc-gui"</span>   <span class="c">// 独立配置目录</span></div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════ 审批弹窗 ═══════════ -->
+<div class="mask hidden" id="permMask">
+  <div class="dialog">
+    <div class="dialog-head">
+      <span class="dialog-title"><span class="ic">🛡</span>权限请求</span>
+      <button class="icon-btn" onclick="closePerm()">✕</button>
+    </div>
+    <div class="dialog-body">
+      <div class="perm-tool">⌘ edit · ~/WorkSpace/报销单整理</div>
+      <div class="perm-input">修改文件 <span class="hl">报销汇总-7月.xlsx</span>
+- 新增「超 5000 标红」样式
+- 更新合计行公式</div>
+    </div>
+    <div class="dialog-foot">
+      <label class="remember"><input type="checkbox"> 记住此场景，不再询问</label>
+      <button class="btn ghost" onclick="closePerm()">拒绝</button>
+      <button class="btn primary" onclick="closePerm()">允许</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── 引导 ── */
+function finishOb() {
+  document.getElementById('ob').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  scrollToStream();
+}
+function obNext() {
+  const btn = document.getElementById('obNext');
+  btn.textContent = '连接中…';
+  btn.disabled = true;
+  setTimeout(() => {
+    document.getElementById('obS1').classList.remove('active');
+    document.getElementById('obS1').classList.add('done');
+    document.getElementById('obS2').classList.add('active');
+    document.getElementById('obBody').innerHTML =
+      '<div class="ob-success"><div class="ob-check">✓</div><h2>连接成功</h2><p>DeepSeek v4-flash 可用 · 预置能力已初始化：<br>双星协作 · 记忆管家 · 14 个技能</p></div>';
+    document.getElementById('obS2').classList.remove('active');
+    document.getElementById('obS2').classList.add('done');
+    document.getElementById('obS3').classList.add('active');
+    btn.textContent = '开始使用';
+    btn.disabled = false;
+    btn.onclick = finishOb;
+  }, 900);
+}
+
+/* ── 通用 ── */
+function toggleTheme() {
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+
+/* ── 消息排布配置（全部靠左 / 左右分列，实时生效） ── */
+function setMessageLayout(mode) {
+  const inner = document.getElementById('chatInner');
+  const btnL = document.getElementById('layoutLeft');
+  const btnS = document.getElementById('layoutSplit');
+  if (mode === 'split') {
+    inner.classList.add('layout-split');
+    btnL.classList.remove('active');
+    btnS.classList.add('active');
+  } else {
+    inner.classList.remove('layout-split');
+    btnL.classList.add('active');
+    btnS.classList.remove('active');
+  }
+}
+
+/* ── 侧栏折叠（展开列表 / 收起 rail，适配小屏） ── */
+let userCollapsed = false; // 用户手动状态（窗口自适应时保留）
+
+function toggleSidebar() {
+  const sb = document.getElementById('sidebar');
+  userCollapsed = !sb.classList.contains('collapsed');
+  applySidebarState();
+}
+function applySidebarState() {
+  const sb = document.getElementById('sidebar');
+  // 窄屏强制收起（小平笔记本），宽屏尊重用户选择
+  const narrow = window.innerWidth <= 1180;
+  sb.classList.toggle('collapsed', narrow || userCollapsed);
+}
+window.addEventListener('resize', applySidebarState);
+
+function selectSession(el) {
+  document.querySelectorAll('.sess-item').forEach(i => i.classList.remove('active'));
+  el.classList.add('active');
+}
+function selectRail(el) {
+  document.querySelectorAll('.rail-dot').forEach(d => d.classList.remove('active'));
+  el.classList.add('active');
+  // 窄屏下点击 rail 圆点仅切换会话；若宽屏处于手动收起态，可顺带展开
+  if (window.innerWidth > 1180 && document.getElementById('sidebar').classList.contains('collapsed')) {
+    userCollapsed = false;
+    applySidebarState();
+  }
+}
+function switchTab(name) {
+  document.querySelectorAll('.panel-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.panel-body').forEach(b => b.classList.add('hidden'));
+  document.getElementById('tab-' + name).classList.remove('hidden');
+}
+function scrollToStream() {
+  setTimeout(() => {
+    const el = document.getElementById('streamText');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 150);
+}
+
+/* ── 设置 ── */
+function openSettings() {
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('settingsView').classList.remove('hidden');
+}
+function closeSettings() {
+  document.getElementById('settingsView').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+}
+function toggleJson() { document.getElementById('jsonEd').classList.toggle('hidden'); }
+function testConn() {
+  const b = document.getElementById('testBtn');
+  b.textContent = '测试中…';
+  setTimeout(() => { b.textContent = '✓ 连接正常 · 42ms'; b.classList.add('ok'); }, 1100);
+}
+
+/* ── 弹窗 ── */
+function closePerm() { document.getElementById('permMask').classList.add('hidden'); }
+
+/* ── 新会话 ── */
+function newSession() {
+  document.getElementById('chatInner').innerHTML =
+    '<div class="empty"><div class="big">✦</div><h3>新会话</h3><p>预置能力已就绪 · DeepSeek v4-flash</p>' +
+    '<div class="quick"><button class="btn ghost" onclick="quickDemo()">📊 整理表格</button>' +
+    '<button class="btn ghost" onclick="quickDemo()">📝 写周报</button>' +
+    '<button class="btn ghost" onclick="quickDemo()">🌐 翻译文档</button></div></div>';
+}
+
+/* ── 发送（演示流式） ── */
+function sendMessage() {
+  const input = document.getElementById('inputText');
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const inner = document.getElementById('chatInner');
+  if (inner.querySelector('.empty')) inner.innerHTML = '';
+
+  const user = document.createElement('div');
+  user.className = 'msg user';
+  user.innerHTML = '<div class="avatar user">我</div><div class="msg-body"><div class="msg-meta"><span class="who">你</span><span>刚刚</span></div><div class="msg-content"><p>' + esc(text) + '</p></div></div>';
+  inner.appendChild(user);
+
+  const ai = document.createElement('div');
+  ai.className = 'msg ai';
+  ai.innerHTML = '<div class="avatar ai">✦</div><div class="msg-body"><div class="msg-meta"><span class="who">分形</span><span>刚刚</span></div><div class="msg-content"><span class="stream-cursor"></span></div></div>';
+  inner.appendChild(ai);
+  document.getElementById('chatScroll').scrollTop = 99999;
+
+  const c = ai.querySelector('.msg-content');
+  const full = '好的，这个需求我来处理。正在调用预置能力执行，稍等片刻即可看到结果。';
+  let i = 0;
+  const t = setInterval(() => {
+    i++;
+    c.innerHTML = esc(full.slice(0, i)) + '<span class="stream-cursor"></span>';
+    document.getElementById('chatScroll').scrollTop = 99999;
+    if (i >= full.length) {
+      clearInterval(t);
+      c.innerHTML = esc(full);
+      setTimeout(() => {
+        const tool = document.createElement('div');
+        tool.className = 'tool';
+        tool.style.marginTop = '8px';
+        tool.innerHTML = '<div class="tool-head"><span class="tool-icon">⌘</span><span class="tool-name">task</span><span class="tool-state done"><span class="ok">●</span> 完成 · 1.2s</span></div><div class="tool-body">已提交给工匠执行，返回结果正常</div>';
+        ai.querySelector('.msg-body').appendChild(tool);
+        setTimeout(() => document.getElementById('permMask').classList.remove('hidden'), 400);
+      }, 300);
+    }
+  }, 20);
+}
+function quickDemo() {
+  document.getElementById('inputText').value = '请处理这个任务，和刚才的报销整理一样。';
+  sendMessage();
+}
+function esc(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* 初始：记忆面板 + 滚动 + 侧栏状态 */
+window.addEventListener('load', () => {
+  switchTab('mem');
+  applySidebarState();
+  setTimeout(() => {
+    const el = document.getElementById('streamText');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 300);
+});
+</script>
+</body>
+</html>

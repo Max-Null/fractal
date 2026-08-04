@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>分形原型 · 版本对比</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #0e1116; color: #a8b0bc; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+.topbar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 20px; border-bottom: 1px solid rgba(255,255,255,0.07);
+  flex-shrink: 0; flex-wrap: wrap;
+}
+.topbar h1 { font-size: 14px; color: #f2f4f7; font-weight: 600; }
+.pick {
+  display: flex; align-items: center; gap: 8px;
+  background: #1a1f28; border: 1px solid rgba(255,255,255,0.13);
+  border-radius: 8px; padding: 4px 8px;
+}
+.pick label { font-size: 11px; color: #6d7684; }
+.pick select {
+  background: transparent; border: none; color: #34d399; font-size: 12px; outline: none;
+  font-family: inherit; cursor: pointer;
+}
+.pick select option { background: #1a1f28; color: #a8b0bc; }
+.viewer { flex: 1; display: flex; min-height: 0; }
+.viewer iframe { flex: 1; border: none; width: 100%; height: 100%; background: #0e1116; }
+.viewer iframe + iframe { border-left: 1px solid rgba(255,255,255,0.1); }
+.hint { padding: 10px 20px; border-top: 1px solid rgba(255,255,255,0.07); font-size: 11.5px; color: #6d7684; flex-shrink: 0; line-height: 1.7; }
+.hint b { color: #a8b0bc; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <h1>✦ 分形原型 · 版本对比</h1>
+  <div class="pick"><label>左</label>
+    <select id="selL" onchange="reload()">
+      <option value="分形-原型-v0.1-终端风.html">v0.1 终端风</option>
+      <option value="分形-原型-v0.2-简约风.html" selected>v0.2 简约风</option>
+      <option value="分形-原型-v0.3-简约风-可折叠侧栏.html">v0.3 简约+可折叠侧栏</option>
+      <option value="分形-原型-v0.4-简约风-消息排布配置.html">v0.4 简约+消息排布配置</option>
+      <option value="分形-原型-v0.5-简约风-亮色左右排布.html" selected>v0.5 简约+亮色默认+左右排布</option>
+    </select>
+  </div>
+  <div class="pick"><label>右</label>
+    <select id="selR" onchange="reload()">
+      <option value="分形-原型-v0.1-终端风.html">v0.1 终端风</option>
+      <option value="分形-原型-v0.2-简约风.html">v0.2 简约风</option>
+      <option value="分形-原型-v0.3-简约风-可折叠侧栏.html">v0.3 简约+可折叠侧栏</option>
+      <option value="分形-原型-v0.4-简约风-消息排布配置.html">v0.4 简约+消息排布配置</option>
+      <option value="分形-原型-v0.5-简约风-亮色左右排布.html">v0.5 简约+亮色默认+左右排布</option>
+    </select>
+  </div>
+</div>
+<div class="viewer" id="viewer">
+  <iframe id="fL"></iframe>
+  <iframe id="fR"></iframe>
+</div>
+<div class="hint">
+  <b>版本说明</b>：v0.1 终端风 → v0.2 简约风（方向确认）→ v0.3 可折叠侧栏 → v0.4 消息排布可配置 → v0.5 亮色默认 + 左右排布默认 + 用户气泡品牌色区分。
+</div>
+<script>
+function reload() {
+  document.getElementById('fL').src = document.getElementById('selL').value;
+  document.getElementById('fR').src = document.getElementById('selR').value;
+}
+reload();
+</script>
+</body>
+</html>
