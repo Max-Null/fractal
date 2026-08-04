@@ -1,0 +1,28 @@
+# 依赖
+node_modules/
+.slim/
+
+# 构建产物
+dist/
+src-tauri/target/
+test-results/
+*.db
+*.db-journal
+*.db-wal
+
+# OpenCode 运行时
+.opencode/logs/
+
+# 系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OpenCode 临时分析
+.tmp-omo-analysis/
