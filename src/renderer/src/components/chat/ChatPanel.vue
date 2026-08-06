@@ -6,8 +6,8 @@ import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
 import {
   sendMessage,
-  sendStdin,
-  zenSendMessage,
+  respondPermission,
+  forkSession,
   getAutoModeStatus,
   stopSession,
   listMessages,
@@ -17,11 +17,10 @@ import {
   saveDialog,
 } from "@/lib/electron-bridge";
 import { useFilePreview } from "@/composables/useFilePreview";
-import { useSettingsStore, PROVIDER_LOGOS } from "@/stores/settings";
+import { useSettingsStore } from "@/stores/settings";
 import { translateError } from "@/lib/utils";
 import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import InputBar from "./InputBar.vue";
-import InputBarToolbar from "./InputBarToolbar.vue";
 import MessageBubble from "./MessageBubble.vue";
 import ThinkingIndicator from "./ThinkingIndicator.vue";
 import ContextUsageModal from "@/components/shared/ContextUsageModal.vue";
@@ -29,7 +28,7 @@ import ManagePanel from "@/components/shared/ManagePanel.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
-import { useCommandPaletteBus, useChatCommandBus, emitGlobalCommand, emitChatCommand } from "@/composables/useCommandPalette";
+import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
 import { useI18n } from "vue-i18n";
 const { t } = useI18n();
@@ -101,10 +100,56 @@ function removeAttachedFile(index: number) {
   attachedFiles.value.splice(index, 1);
 }
 
+// 图片附件加入时预加载缩略图（原 sb-attachment-bar 在 chip 挂载时触发，现 chips 在 InputBar 内渲染，改由 watch 驱动）
+watch(attachedFiles, (files) => {
+  for (const f of files) {
+    if (isImageFile(f.name)) getThumbnail(f.path, f.name).catch(() => {});
+  }
+}, { deep: true });
+
 // ── 选区片段卡片（DOM / Excel / 文本划选 / MD 选区 → 统一 chip）──
 interface TextSnippet { content: string; label: string }
 const textSnippet = ref<TextSnippet | null>(null);
 function removeTextSnippet() { textSnippet.value = null; }
+
+// ── composer chips 组装（InputBar 纯展示，事件按 id 回映射）──
+interface ComposerChip {
+  id: string;
+  label: string;
+  imageUrl?: string;
+  tone: "accent" | "elevated";
+  clickable?: boolean;
+  removable?: boolean;
+}
+const composerChips = computed<ComposerChip[]>(() => {
+  const chips: ComposerChip[] = [];
+  // 选区卡片：accent 底（accent-glow 语义，原型「选中内容自动出现在这里」）
+  if (textSnippet.value) {
+    chips.push({ id: "snippet", label: textSnippet.value.label, tone: "accent", removable: true });
+  }
+  // 附件 chips：elevated 底 + 缩略图 + 点击打开预览
+  for (const f of attachedFiles.value) {
+    chips.push({
+      id: `file:${f.path}`,
+      label: f.name,
+      imageUrl: thumbnails[f.path] || undefined,
+      tone: "elevated",
+      clickable: true,
+      removable: true,
+    });
+  }
+  return chips;
+});
+function handleRemoveChip(id: string) {
+  // 选区卡片与附件按 id 前缀分流；附件按 path 定位移除
+  if (id === "snippet") { removeTextSnippet(); return; }
+  const idx = attachedFiles.value.findIndex(f => `file:${f.path}` === id);
+  if (idx >= 0) removeAttachedFile(idx);
+}
+function handleChipClick(id: string) {
+  const f = attachedFiles.value.find(af => `file:${af.path}` === id);
+  if (f) openFileInPanel(f);
+}
 
 const openFileInPanel = inject<(f: { name: string; path: string }) => void>("openFileInPanel", () => {});
 
@@ -112,7 +157,6 @@ const openFileInPanel = inject<(f: { name: string; path: string }) => void>("ope
 const showTestPanel = ref(false);
 function runTest(fn: () => void) { showTestPanel.value = false; fn(); }
 function testQuestion() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "approval", tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "选择方案？", header: "Q", multiSelect: false, options: [{ label: "A", description: "desc" }] }] } }); }
-function testPlan() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "approval", tool_name: "ExitPlanMode", tool_input: { plan: "# 测试计划\n\n## 步骤 1\n实现\n## 步骤 2\n测试", planFilePath: "/tmp/test-plan.md" } }); }
 function testApprove() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "approval", tool_name: "Bash", tool_input: { command: "echo test", description: "测试命令" } }); }
 function testTodos() { chat.todos = [{ status: "completed" as const, content: "已完成", activeForm: "已完成" }, { status: "in_progress" as const, content: "进行中", activeForm: "进行中…" }, { status: "pending" as const, content: "待处理 A", activeForm: "待处理 A" }, { status: "pending" as const, content: "待处理 B", activeForm: "待处理 B" }]; }
 function testStatusOk() { showStatus("✅ 文件保存成功 — report.md"); }
@@ -213,12 +257,6 @@ watch(() => chat.pendingControlRequest, (cr) => {
     }
   }
 });
-// Ponytail 模式变更（设置面板或工具栏）→ 发送 /ponytail 命令给 CC
-let ponytailInit = true;
-watch(() => settings.ponytailMode, (v) => {
-  if (ponytailInit) { ponytailInit = false; return; }  // 跳过初始值
-  handleSend(`/ponytail ${v}`).catch(() => {});
-});
 // 会话切换时同步 debug 日志到当前会话
 watch(() => session.activeSessionId, async (sid) => {
   if (!sid) return;
@@ -283,7 +321,6 @@ watch(() => chatCommand.value.ts, async (ts) => {
       break;
     }
     case "slash-clear": handleSend("/clear"); break;
-    case "install-ponytail": handleSend("请帮我安装 Ponytail 插件（ponytail@claude-plugins-official）"); break;
     case "git-init": handleSend(t("git.initMessage")); break;
     default:
       if (action.startsWith("md-convert:")) {
@@ -308,19 +345,10 @@ watch(() => chatCommand.value.ts, async (ts) => {
         };
       } else if (action.startsWith("switch-workspace:")) {
         const newPath = action.slice("switch-workspace:".length);
-        // 先停止当前会话的 CC 进程（避免旧 cwd 的进程继续 emit 事件到新会话）
+        // 先停止当前会话的引擎进程（避免旧 cwd 的进程继续 emit 事件到新会话）
         const sid = session.activeSessionId;
         if (sid) {
-          try {
-            await sendStdin(sid, JSON.stringify({
-              type: "control_request",
-              request_id: `interrupt_${Date.now()}`,
-              request: { subtype: "interrupt" },
-            }));
-          } catch {}
-          // 给 CC 1 秒优雅退出，超时则强杀
-          await new Promise(r => setTimeout(r, 1000));
-          try { await stopSession(sid); } catch {}
+          try { await stopSession(sid); } catch { /* 无进程 */ }
         }
         chat.clearMessages();
         isNearBottom.value = true;
@@ -439,7 +467,7 @@ function updateStickyBanner() {
     stickyQuestion.value = lastAbove.length > 100 ? lastAbove.slice(0, 100) + "…" : lastAbove;
     showSticky.value = true;
     // 记录目标元素，点击时滚动到该消息
-    // ponytail: 此处需遍历两次获取 el（text 和 element 分别取），O(n) 可接受
+    // 此处需遍历两次获取 el（text 和 element 分别取），O(n) 可接受
     let foundEl: HTMLElement | null = null;
     for (const el of userMsgs) {
       if ((el.querySelector('.user-text')?.textContent || "").includes(lastAbove.slice(0, 20))) {
@@ -468,23 +496,12 @@ async function handleSend(text: string) {
   if (!isMidProcessing) {
     debugLog.clear();
     stderrLog.clear();
-    savedPlan.value = { plan: "", planFilePath: "" };
   }
   let sid: string;
-  if (settings.zenMode) {
-    // 禅模式：用 Zen 会话 ID（持久化到 DB，mode='zen'）
-    sid = session.zenActiveId;
-    if (!sid) {
-      chat.clearMessages();
-      sid = await session.createSession(settings.model, undefined, "zen", settings.locale);
-      session.zenActiveId = sid;
-    }
-  } else {
-    sid = session.activeSessionId;
-    if (!sid) {
-      chat.clearMessages();  // 新建会话时清空旧消息记录
-      sid = await session.createSession(settings.model, undefined, undefined, settings.locale);
-    }
+  sid = session.activeSessionId;
+  if (!sid) {
+    chat.clearMessages();  // 新建会话时清空旧消息记录
+    sid = await session.createSession(settings.model, undefined, undefined, settings.locale);
   }
 
   // Collect attached file paths + DOM snippet before clearing
@@ -513,39 +530,18 @@ async function handleSend(text: string) {
   isNearBottom.value = true;
   await scrollToBottomInstant();
   try {
-    if (settings.zenMode) {
-      // 禅模式：直接调 LLM chat/completions（SSE 流式），绕过 CC CLI
-      const chatUrl = settings.optimizeApiUrl;
-      if (!chatUrl) {
-        throw new Error("未配置聊天 API 地址，请在设置中填写 LLM API 地址（含完整路径，如 https://api.deepseek.com/v1/chat/completions）");
-      }
-      // 用 model 字段（用户当前选择的模型），禅模式下通常应为 OpenAI-format 模型名（如 deepseek-chat）
-      await zenSendMessage(sid, fullText, settings.apiKey, chatUrl, settings.model);
-    } else {
-      // 分叉会话首条消息：加前缀告知 CC 忽略分叉点之后的内容
-      let finalText = fullText;
-      let resumeId: string | undefined;
-      let forkSession = false;
-      if (forkedFrom.value && sid === forkedFrom.value.sessionId) {
-        finalText = `[会话分叉] 以下对话从用户消息 "${forkedFrom.value.msgSnippet}" 之后分叉。请忽略该消息之后的所有对话内容，从现在起继续。\n\n${fullText}`;
-        resumeId = forkedFrom.value.claudeSessionId;
-        forkSession = !!resumeId;
-        forkedFrom.value = null; // 仅首条消息注入
-      }
-      await sendMessage(sid, finalText, {
-        planMode: settings.planMode,
-        autoMode: settings.autoMode,
-        permissionMode: settings.permissionMode,
-        effort: settings.effort,
-        ultracode: settings.effort === "ultracode",
-        model: settings.model,
-        filePaths: filePaths.length > 0 ? filePaths : undefined,
-        claudePath: settings.claudePath || undefined,
-        cwd: settings.cwd || undefined,
-        resumeId,
-        forkSession,
-      });
-    }
+    await sendMessage(sid, fullText, {
+      planMode: settings.planMode,
+      autoMode: settings.autoMode,
+      permissionMode: settings.permissionMode,
+      effort: settings.effort,
+      ultracode: settings.effort === "ultracode",
+      model: settings.model,
+      // 主 agent（双星/build/plan）→ 引擎 promptAsync.agent；权限选「计划」时强制 plan agent（无写权限，方案 3.5）
+      agent: settings.planMode ? "plan" : settings.currentAgent,
+      filePaths: filePaths.length > 0 ? filePaths : undefined,
+      cwd: settings.cwd || undefined,
+    });
     // 侧栏统计在 useStreamProcessor result 事件后刷新（token 已入库）
   } catch (err) {
     debugLog.add(`>>> Error: ${err}`);
@@ -556,42 +552,22 @@ async function handleSend(text: string) {
   }
 }
 
-// control_response 格式（cli-agent-protocol skill 确认 + 实测通过）:
-// 嵌套：response.subtype/request_id/response.behavior/updatedInput/message
+// 审批响应：OC serve 权限事件 permission.updated → control_request.request_id 即 permission id
+// （events.ts 映射 request_id: p.id），respond 三选一：once（本次允许）/ always（会话记住）/ reject
 async function handleAllow() {
   const cr = chat.pendingControlRequest; if (!cr) return;
-  const payload = {
-    type: "control_response",
-    response: {
-      subtype: "success",
-      request_id: cr.request_id || "",
-      response: {
-        behavior: "allow",
-        updatedInput: cr.tool_input,  // 必须原样回传工具输入
-      },
-    },
-  };
-  debugLog.add(`📤 control_response allow: ${JSON.stringify(payload)}`);
-  await sendStdin(session.activeSessionId, JSON.stringify(payload));
+  const sid = session.activeSessionId;
+  if (!sid || !cr.request_id) return;
+  debugLog.add(`🔐 respondPermission allow: ${cr.request_id}`);
+  try { await respondPermission(sid, cr.request_id, "once"); } catch (e) { console.error("Permission allow failed:", e); }
   chat.resolveControlRequest("allow");
 }
 async function handleDeny() {
   const cr = chat.pendingControlRequest; if (!cr) return;
-  // 先清队列关闭弹窗，再通知 CC（sendStdin 可能因无活跃会话失败，不影响关闭）
+  // 先清队列关闭弹窗，再通知 serve（respondPermission 可能因无活跃会话失败，不影响关闭）
   chat.resolveControlRequest("deny");
-  const payload = {
-    type: "control_response",
-    response: {
-      subtype: "success",
-      request_id: cr.request_id || "",
-      response: {
-        behavior: "deny",
-        message: "User denied this action",
-      },
-    },
-  };
-  debugLog.add(`📤 control_response deny: ${JSON.stringify(payload)}`);
-  try { await sendStdin(session.activeSessionId, JSON.stringify(payload)); } catch { /* 无活跃 CC 会话时静默 */ }
+  if (!cr.request_id) return;
+  try { await respondPermission(session.activeSessionId, cr.request_id, "reject"); } catch { /* 无活跃会话时静默 */ }
 }
 
 // ── Edit + Resend: 保留原消息不动，新消息追加到末尾 ──
@@ -637,28 +613,23 @@ async function handleResend(id: string, content: string) {
   await handleSend(cleanContent);
 }
 
-// 分叉状态：当前会话是否从另一个会话分叉而来
-const forkedFrom = ref<{ sessionId: string; claudeSessionId: string | undefined; msgSnippet: string } | null>(null);
-
 async function handleFork(msgId: string) {
   const msg = chat.messages.find(m => m.id === msgId);
   if (!msg) return;
-  const originalSession = session.sessions.find(s => s.id === session.activeSessionId);
-  const claudeId = originalSession?.claudeSessionId;
-  const snippet = msg.content?.slice(0, 80) || "(消息内容)";
-  // 分叉会话标题与普通新建区分
-  const title = t("session.forkedTitle", { snippet: snippet.slice(0, 30) });
-  // 创建新前端会话（复用当前工作区）
-  const newId = await session.createSession(settings.model, settings.cwd, undefined, settings.locale, title);
-  // 仅当原会话有 CC 会话 ID 时才尝试分叉
-  // （不检查磁盘文件——CC 运行时可能未落盘，实际有效性由 CC --resume 决定；
-  //   若失效则在发送首条消息时通过进程异常退出提示反馈）
-  forkedFrom.value = claudeId
-    ? { sessionId: newId, claudeSessionId: claudeId, msgSnippet: snippet }
-    : null;
-  session.setActiveSession(newId);
-  chat.clearMessages();
-  showStatus(claudeId ? t("session.forked") : t("session.forkedFallback"));
+  const originalId = session.activeSessionId;
+  void msg; // 前端消息 id 是本地 genId 非 OC messageID，仅用作触发入口
+  try {
+    // OC serve 分叉：服务端 fork 生成新会话（继承上下文，标题自动追加 fork #N），
+    // 替代 CC 的「新建会话 + --resume 注入前缀」方案。不传 messageID——前端消息 id 是本地 genId，
+    // 非 OC 消息 id（msg_xxx），缺省从当前末尾分叉。
+    const forked = await forkSession(originalId);
+    session.insertSession(forked);
+    session.setActiveSession(forked.id);
+    chat.clearMessages();
+    showStatus(t("session.forked"));
+  } catch {
+    showStatus(t("session.forkedFallback") || "分叉失败");
+  }
 }
 
 // ── AskUserQuestion 问答状态 ──
@@ -700,19 +671,9 @@ async function submitAnswers() {
     const ans = questionAnswers.value.get(q.question);
     if (ans) answers[q.question] = ans;
   }
-  const payload = {
-    type: "control_response",
-    response: {
-      subtype: "success",
-      request_id: cr.request_id || "",
-      response: {
-        behavior: "allow",
-        updatedInput: { questions: cr.tool_input.questions, answers },
-      },
-    },
-  };
-  debugLog.add(`📤 AskUserQuestion answers: ${JSON.stringify(payload)}`);
-  await sendStdin(session.activeSessionId, JSON.stringify(payload));
+  // serve 无 stdin 通道，answers 无法回传 OC（AskUserQuestion 工具走权限审批路径）；
+  // 本地关闭弹窗 + 记录答案，完整回传机制待阶段 6 实测补充
+  debugLog.add(`📤 AskUserQuestion answers: ${JSON.stringify(answers)}`);
   questionAnswers.value.clear();
   questionOther.value.clear();
   chat.resolveControlRequest("allow");
@@ -724,118 +685,13 @@ function skipQuestions() {
   questionOther.value.clear();
 }
 
-// ── ExitPlanMode 计划审核 ──
-const planFeedback = ref("");
-// 保存最近一次计划，关闭弹窗后可重新打开查看
-const savedPlan = ref<{ plan: string; planFilePath: string }>({ plan: "", planFilePath: "" });
-const showPlanModal = ref(false);
-
-function getPlan(): { plan: string; planFilePath: string } {
-  const input = chat.pendingControlRequest?.tool_input as Record<string, unknown> | undefined;
-  // 优先取当前审批中的计划，否则取已保存的
-  if (input?.plan) return { plan: input.plan as string, planFilePath: (input.planFilePath as string) || "" };
-  return savedPlan.value;
-}
-
-function savePlan() {
-  const input = chat.pendingControlRequest?.tool_input as Record<string, unknown> | undefined;
-  if (input?.plan) {
-    savedPlan.value = { plan: input.plan as string, planFilePath: (input.planFilePath as string) || "" };
-  }
-}
-
-function isPlanPending() {
-  return chat.pendingControlRequest?.tool_name === "ExitPlanMode";
-}
-
-async function approvePlan() {
-  const cr = chat.pendingControlRequest; if (!cr) return;
-  const sid = session.activeSessionId;
-  if (!sid) return;
-  savePlan();
-  try {
-    // 批准 ExitPlanMode
-    await sendStdin(sid, JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: cr.request_id || "",
-        response: { behavior: "allow", updatedInput: cr.tool_input },
-      },
-    }));
-    // 切换到 acceptEdits 模式执行计划（绕过 CC SDK 已知 bug：plan→acceptEdits 无限循环）
-    await sendStdin(sid, JSON.stringify({
-      type: "control_request",
-      request_id: `setmode_${Date.now()}`,
-      request: { subtype: "set_permission_mode", mode: "acceptEdits" },
-    }));
-    settings.planMode = false;
-    settings.permissionMode = "acceptEdits";
-    planFeedback.value = "";
-    chat.resolveControlRequest("allow");
-  } catch (e) {
-    console.error("Plan approval failed:", e);
-    showStatus(t("chat.planError") || "计划执行失败，请重试");
-    chat.resolveControlRequest("deny");
-  }
-}
-
-async function rejectPlan(message: string) {
-  const cr = chat.pendingControlRequest; if (!cr) return;
-  const sid = session.activeSessionId;
-  if (!sid) return;
-  savePlan();
-  try {
-    await sendStdin(sid, JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: cr.request_id || "",
-        response: { behavior: "deny", message: message || "Plan rejected" },
-      },
-    }));
-  } catch (e) {
-    console.error("Plan rejection failed:", e);
-  } finally {
-    planFeedback.value = "";
-    chat.resolveControlRequest("deny");
-  }
-}
-
-async function exportPlan() {
-  const { plan } = getPlan();
-  if (!plan) return;
-  const blob = new Blob([plan], { type: "text/markdown" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = "plan.md";
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 // ── Stop processing ──
 async function handleStop() {
-  const sid = settings.zenMode ? session.zenActiveId : session.activeSessionId;
+  const sid = session.activeSessionId;
   if (!sid) return;
-  // 禅模式：无 CC 进程可终止，直接标记停止
-  if (settings.zenMode) {
-    chat.markStopped();
-    chat.finishAssistantMessage();
-    return;
-  }
-  // 先标记停止（必须在 interrupt 之前，否则 CC 的 result 事件会先触发 finish 清掉 currentAssistantMsg）
+  // 先标记停止（必须在 abort 之前，否则 result 事件会先触发 finish 清掉 currentAssistantMsg）
   chat.markStopped();
-  // 发 interrupt 控制请求，让 CC 优雅中断
-  try {
-    await sendStdin(sid, JSON.stringify({
-      type: "control_request",
-      request_id: `interrupt_${Date.now()}`,
-      request: { subtype: "interrupt" },
-    }));
-  } catch {}
-  // 等待 3 秒让 CC 优雅退出，超时再强杀
-  await new Promise(r => setTimeout(r, 3000));
+  // OC serve 无 stdin interrupt 通道，直接 abort 引擎会话（主进程已容错）
   try { await stopSession(sid); } catch {}
   chat.finishAssistantMessage();
 }
@@ -908,11 +764,10 @@ watch(
       </Transition>
       <div ref="scrollContainer" class="chat-messages" @scroll="onScrollThrottled">
       <!-- 🧪 Ctrl+Shift+T -->
-      <details v-if="showTestPanel" class="mx-auto mb-3 text-[11px]" style="color:var(--text-muted); max-width:48rem; position:sticky; top:0; z-index:5; background:var(--bg-root)">
+      <details v-if="showTestPanel" class="mx-auto mb-3 text-[11px]" style="color:var(--text-muted); max-width:760px; position:sticky; top:0; z-index:5; background:var(--bg-root)">
         <summary class="cursor-pointer py-1 hover:text-[var(--accent)]">🧪 测试弹窗</summary>
         <div class="flex flex-wrap gap-1.5 mt-2 ml-2">
           <button @click="runTest(testQuestion)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">AskUserQuestion</button>
-          <button @click="runTest(testPlan)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">PlanReview</button>
           <button @click="runTest(testApprove)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ApprovalBar</button>
           <button @click="runTest(() => emitChatCommand('slash-context'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ContextUsage</button>
           <button @click="runTest(() => emitChatCommand('export-session'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ExportPreview</button>
@@ -1016,7 +871,7 @@ watch(
 
     <!-- ═══ 底部通知区：审批条 + 工作清单 ═══ -->
     <div class="bottom-notices">
-      <div v-if="chat.pendingControlRequest && chat.pendingControlRequest.tool_name !== 'AskUserQuestion' && chat.pendingControlRequest.tool_name !== 'ExitPlanMode'" class="approval-bar">
+      <div v-if="chat.pendingControlRequest && chat.pendingControlRequest.tool_name !== 'AskUserQuestion'" class="approval-bar">
         <div class="w-0.5 h-5 rounded-full shrink-0" style="background:var(--accent)" />
         <span class="text-xs flex-1" style="color:var(--text-secondary)">{{ $t('chat.allowTool', { tool: toolLabel(chat.pendingControlRequest.tool_name || '') }) }}</span>
         <button @click="handleAllow" class="btn-primary">{{ $t('chat.allow') }}</button>
@@ -1042,105 +897,49 @@ watch(
       </Transition>
 
 
-      <!-- Toolbar（禅模式下隐藏——模式/effort/Ponytail 对直接 LLM 无意义） -->
-      <InputBarToolbar
-      v-if="!settings.zenMode"
-      @attach-file="handleAttachFile"
-      @open-command-menu="commandBus.open()"
-      @send-slash="(t: string) => handleSend(t)"
-      @show-context="showContextModal = true"
-    >
-      <template #left>
-        <template v-if="debugLog.lines.value.length > 0 || stderrLog.lines.value.length > 0">
-          <button
-            v-if="debugLog.lines.value.length > 0"
-            @click="debugLog.toggle(); if (debugLog.visible.value) stderrLog.visible.value = false"
-            class="debug-btn"
-            :style="{ color: debugLog.visible.value ? 'var(--text-bright)' : 'var(--text-muted)' }"
-          >
-            <span>{{ debugLog.visible.value ? '▾' : '▸' }}</span>
-            <span>{{ $t('chat.debugLabel') }} ({{ debugLog.lines.value.length }})</span>
-          </button>
-          <button
-            v-if="stderrLog.lines.value.length > 0"
-            @click="stderrLog.toggle(); if (stderrLog.visible.value) debugLog.visible.value = false"
-            class="debug-btn"
-            :style="{ color: stderrLog.visible.value ? 'var(--accent)' : 'var(--text-muted)' }"
-          >
-            <span>{{ stderrLog.visible.value ? '▾' : '▸' }}</span>
-            <span>📤 {{ $t('chat.llmRequestLabel') }} ({{ stderrLog.lines.value.length }})</span>
-          </button>
-          <div class="w-px h-4 shrink-0" style="background: var(--border-dim)"></div>
+      <!-- composer 输入区（InputBar 卡片内含 chips 行 + foot 操作行；debug 按钮走 left 插槽） -->
+      <InputBar
+        ref="inputBar"
+        :disabled="chat.isProcessing"
+        :auto-mode="autoModeActive"
+        :api-key="settings.apiKey"
+        :base-url="settings.baseUrl"
+        :chips="composerChips"
+        :chip-hint="$t('composer.chipHint')"
+        @send="handleSend"
+        @stop="handleStop"
+        @files="(fs) => { for (const f of fs) { if (!attachedFiles.some(af => af.path === f.path)) attachedFiles.push(f); } }"
+        @attach="handleAttachFile"
+        @remove-chip="handleRemoveChip"
+        @chip-click="handleChipClick"
+        @open-command-menu="commandBus.open()"
+        @send-slash="(t: string) => handleSend(t)"
+        @show-context="showContextModal = true"
+      >
+        <template #left>
+          <template v-if="debugLog.lines.value.length > 0 || stderrLog.lines.value.length > 0">
+            <button
+              v-if="debugLog.lines.value.length > 0"
+              @click="debugLog.toggle(); if (debugLog.visible.value) stderrLog.visible.value = false"
+              class="debug-btn"
+              :style="{ color: debugLog.visible.value ? 'var(--text-bright)' : 'var(--text-muted)' }"
+            >
+              <span>{{ debugLog.visible.value ? '▾' : '▸' }}</span>
+              <span>{{ $t('chat.debugLabel') }} ({{ debugLog.lines.value.length }})</span>
+            </button>
+            <button
+              v-if="stderrLog.lines.value.length > 0"
+              @click="stderrLog.toggle(); if (stderrLog.visible.value) debugLog.visible.value = false"
+              class="debug-btn"
+              :style="{ color: stderrLog.visible.value ? 'var(--accent)' : 'var(--text-muted)' }"
+            >
+              <span>{{ stderrLog.visible.value ? '▾' : '▸' }}</span>
+              <span>📤 {{ $t('chat.llmRequestLabel') }} ({{ stderrLog.lines.value.length }})</span>
+            </button>
+            <div class="w-px h-4 shrink-0" style="background: var(--border-dim)"></div>
+          </template>
         </template>
-      </template>
-    </InputBarToolbar>
-
-    <!-- 禅模式指示器 — 点击退出禅模式 -->
-    <div
-      v-if="settings.zenMode"
-      class="sb-toolbar"
-    >
-      <button
-        @click="emitGlobalCommand('zen-mode')"
-        class="text-[11px] px-1.5 py-0.5 rounded font-medium shrink-0 cursor-pointer transition-colors hover:opacity-80"
-        :style="{ color: 'var(--accent)', background: 'var(--accent-glow)' }"
-        :title="$t('header.exitZenMode')"
-      >
-        <img
-          v-if="PROVIDER_LOGOS[settings.providerId]"
-          :src="PROVIDER_LOGOS[settings.providerId]"
-          class="w-3.5 h-3.5 shrink-0 inline-block align-middle"
-          alt=""
-        />
-        <span v-else>🤖</span>
-        {{ $t('chat.zenActive') }} · {{ $t('header.exitZenMode') }}
-      </button>
-    </div>
-
-    <!-- 已保存计划的快捷入口 + 附件 chips — 无内容时不占高度 -->
-    <div v-if="(savedPlan.plan && !isPlanPending()) || attachedFiles.length > 0 || textSnippet" class="sb-attachment-bar">
-      <button
-        v-if="savedPlan.plan && !isPlanPending()"
-        @click="showPlanModal = true"
-        class="attach-chip chip--clickable"
-        :style="{ color: 'var(--text-muted)', border: '1px dashed var(--border-dim)' }"
-      >📋 {{ $t('chat.viewPlan') }}</button>
-      <!-- 统一选区卡片（DOM / Excel / 文本划选 / MD） -->
-      <div
-        v-if="textSnippet"
-        class="attach-chip"
-        :style="{ background: 'var(--accent-glow)', border: '1px solid var(--accent-dim)', color: 'var(--accent)' }"
-      >
-        <span class="attach-chip-name">{{ textSnippet.label }}</span>
-        <button @click="removeTextSnippet" class="icon-btn-sm shrink-0">×</button>
-      </div>
-      <!-- Attached files chips -->
-      <div
-        v-for="(file, i) in attachedFiles"
-        :key="file.path"
-        class="attach-chip chip--clickable max-w-[220px]"
-        :style="{ background: 'var(--bg-elevated)', border: '1px solid var(--border-dim)', color: 'var(--text-secondary)' }"
-        @click="openFileInPanel(file)"
-      >
-        <!-- File thumbnail / icon -->
-        <img
-          v-if="isImageFile(file.name)"
-          :src="thumbnails[file.path] || ''"
-          @vue:mounted="getThumbnail(file.path, file.name)"
-          class="w-5 h-5 rounded object-cover shrink-0"
-          style="border: 1px solid var(--border-dim)"
-          v-show="thumbnails[file.path]"
-        />
-        <svg v-else width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" class="shrink-0"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-        <span class="attach-chip-name" :title="file.path">{{ file.name }}</span>
-        <button
-          @click.stop="removeAttachedFile(i)"
-          class="w-4 h-4 flex items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)] shrink-0 opacity-50 group-hover:opacity-100"
-          style="color: var(--text-secondary)"
-          :title="$t('chat.remove')"
-        >&times;</button>
-      </div>
-    </div>
+      </InputBar>
 
     <!-- File preview modal -->
     <!-- 文件预览统一由 AppShell 第四列处理 -->
@@ -1210,49 +1009,6 @@ watch(
       </template>
     </ModalShell>
 
-    <!-- ExitPlanMode 计划审核弹窗（审批中或已保存重新打开）-->
-    <ModalShell :open="isPlanPending() || showPlanModal" size="xl" position="top" @close="isPlanPending() ? rejectPlan('Plan review cancelled') : (showPlanModal = false)">
-      <template #header>
-        <div class="flex items-center gap-2">
-          <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.planReview') }}</span>
-          <span class="text-[10px] font-mono opacity-50" :style="{ color: 'var(--text-muted)' }">{{ getPlan().planFilePath }}</span>
-        </div>
-      </template>
-      <!-- 计划内容 -->
-      <div class="max-h-[55vh] overflow-y-auto">
-        <MarkdownRenderer v-if="getPlan().plan" :content="getPlan().plan" />
-        <div v-else class="text-xs py-8 text-center" :style="{ color: 'var(--text-muted)' }">{{ $t('chat.noPlanContent') }}</div>
-      </div>
-      <!-- 反馈输入 -->
-      <div class="mt-3">
-        <input
-          v-model="planFeedback"
-          :placeholder="$t('chat.planFeedbackPlaceholder')"
-          class="input-plain"
-          :style="{ background: 'var(--bg-elevated)', border: '1px solid var(--border-dim)', color: 'var(--text-primary)', caretColor: 'var(--accent)' }"
-          @keydown.enter="rejectPlan(planFeedback)"
-        />
-      </div>
-      <template #footer>
-        <div v-if="isPlanPending()" class="action-bar action-bar--start flex-wrap">
-          <button @click="approvePlan()" class="px-3 py-1.5 rounded text-xs font-medium transition-colors hover:brightness-110" :style="{ background: 'var(--accent)', color: 'var(--bg-root)' }">✅ {{ $t('chat.planExecute') }}</button>
-          <button @click="rejectPlan('继续优化计划设计')" class="btn-ghost" :style="{ color: 'var(--text-secondary)', border: '1px solid var(--border-dim)' }">✏️ {{ $t('chat.planContinueDesign') }}</button>
-          <button @click="rejectPlan('停止计划')" class="btn-ghost" :style="{ color: 'var(--text-secondary)', border: '1px solid var(--border-dim)' }">⏹ {{ $t('chat.planStop') }}</button>
-          <button @click="exportPlan()" class="btn-ghost" :style="{ color: 'var(--text-muted)', border: '1px dashed var(--border-dim)' }">📤 {{ $t('chat.planExport') }}</button>
-          <button
-            v-if="planFeedback"
-            @click="rejectPlan(planFeedback)"
-            class="px-3 py-1.5 rounded text-xs font-medium transition-colors hover:bg-[var(--bg-hover)] ml-auto"
-            :style="{ color: 'var(--text-secondary)', border: '1px solid var(--border-dim)' }"
-          >💬 {{ $t('chat.planOther') }}</button>
-        </div>
-        <div v-else class="flex items-center justify-end">
-          <button @click="exportPlan()" class="btn-ghost" :style="{ color: 'var(--text-muted)', border: '1px dashed var(--border-dim)' }">📤 {{ $t('chat.planExport') }}</button>
-          <button @click="showPlanModal = false" class="px-3 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)] ml-2" :style="{ color: 'var(--text-muted)' }">{{ $t('chat.close') }}</button>
-        </div>
-      </template>
-    </ModalShell>
-
     <!-- 关于弹窗 -->
     <ModalShell :open="showAbout" size="sm" @close="showAbout = false">
       <template #header>
@@ -1268,7 +1024,7 @@ watch(
           多厂商 API 兼容
         </div>
         <div class="text-[10px] pt-2" :style="{ color: 'var(--text-muted)' }">
-          © 2026 Super Bazooka contributors · MIT
+          © 2026 分形 contributors · MIT
         </div>
       </div>
     </ModalShell>
@@ -1307,8 +1063,6 @@ watch(
       </div>
     </ModalShell>
 
-    <!-- Input -->
-    <InputBar ref="inputBar" :disabled="chat.isProcessing" :auto-mode="autoModeActive" :api-key="settings.apiKey" :base-url="settings.baseUrl" @send="handleSend" @stop="handleStop" @files="(fs) => { for (const f of fs) { if (!attachedFiles.some(af => af.path === f.path)) attachedFiles.push(f); } }" />
     </div>
   </div>
   </ErrorBoundary>

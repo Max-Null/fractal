@@ -1,26 +1,69 @@
 <script setup lang="ts">
-/** 聊天输入栏——多行输入 + 拖放文件 + / 命令补全 + Enter/Shift+Enter 发送换行 */
-import { ref, computed, nextTick } from "vue";
-import { optimizePrompt } from "@/lib/electron-bridge";
-import { useSettingsStore } from "@/stores/settings";
+/** 聊天 composer 卡片（对齐原型 v0.23）：
+ *  ① chips 行（附件/引用，带 ×）② textarea（多行 + 拖放 + / 补全）
+ *  ③ composer-foot：附件 / agent / 模型 / 权限 / 推理 / 命令小图标 / 上下文 + 发送
+ *  原独立 InputBarToolbar 的模式/effort/命令逻辑已并入（组件删除，见 ChatPanel 重构记录）。 */
+import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import { useI18n } from "vue-i18n";
 import { useSlashCommands } from "@/composables/useSlashCommands";
+import { useSettingsStore, type Effort } from "@/stores/settings";
+import { useChatStore } from "@/stores/chat";
+import ContextIndicator from "./ContextIndicator.vue";
 
-const props = defineProps<{ disabled: boolean; autoMode?: boolean; apiKey?: string; baseUrl?: string }>();
-const emit = defineEmits<{ send: [text: string]; files: [files: Array<{ name: string; path: string }>]; stop: [] }>();
+const { t } = useI18n();
+const settings = useSettingsStore();
+const chat = useChatStore();
 
-function onDrop(e: DragEvent) {
-  e.preventDefault();
-  isDragOver.value = false;
-  const files = e.dataTransfer?.files;
-  if (!files || files.length === 0) return;
-
-  const attached: Array<{ name: string; path: string }> = [];
-  for (let i = 0; i < files.length; i++) {
-    const f = files[i];
-    attached.push({ name: f.name, path: (f as any).path || f.name });
-  }
-  emit("files", attached);
+/** chips 行数据（由 ChatPanel 组装：选区卡片 / 附件），纯展示、事件上报 */
+export interface ComposerChip {
+  id: string;
+  label: string;
+  /** chips 前缀图标（emoji，与 imageUrl 二选一） */
+  icon?: string;
+  /** 附件缩略图（图片文件预览） */
+  imageUrl?: string;
+  /** 底色语义：accent=选区卡片（accent-glow），elevated=附件（bg-elevated） */
+  tone?: "accent" | "elevated";
+  clickable?: boolean;
+  removable?: boolean;
 }
+
+const props = withDefaults(defineProps<{
+  disabled: boolean;
+  autoMode?: boolean;
+  apiKey?: string;
+  baseUrl?: string;
+  chips?: ComposerChip[];
+  chipHint?: string;
+}>(), {
+  autoMode: false,
+  apiKey: "",
+  baseUrl: "",
+  chips: () => [],
+  chipHint: "",
+});
+
+const emit = defineEmits<{
+  send: [text: string];
+  files: [files: Array<{ name: string; path: string }>];
+  stop: [];
+  /** 📎 附件按钮（ChatPanel 打开文件对话框） */
+  attach: [];
+  /** chips 行关闭 ×（id 由 ChatPanel 映射到选区/附件） */
+  removeChip: [id: string];
+  /** 附件 chip 点击（打开文件预览） */
+  chipClick: [id: string];
+  /** ☰ 命令菜单 */
+  openCommandMenu: [];
+  /** / 快捷斜杠命令选中（直接发送） */
+  sendSlash: [text: string];
+  /** 上下文用量指示器点击 */
+  showContext: [];
+}>();
+
+// ══════════════════════════════════════════════════════════════
+// textarea 逻辑（现状保留）
+// ══════════════════════════════════════════════════════════════
 
 const input = ref("");
 const focused = ref(false);
@@ -35,7 +78,7 @@ function send() {
   autoResize();
 }
 
-// ── 斜杠命令自动补全 ──
+// ── 斜杠命令自动补全（输入框内 / 触发）──
 const { favorites, recentCommands } = useSlashCommands();
 const slashMenuIdx = ref(0);
 const showSlashMenu = ref(false);
@@ -82,6 +125,20 @@ function onInputSlash() {
 }
 
 // ── Drag & drop files ──
+function onDrop(e: DragEvent) {
+  e.preventDefault();
+  isDragOver.value = false;
+  const files = e.dataTransfer?.files;
+  if (!files || files.length === 0) return;
+
+  const attached: Array<{ name: string; path: string }> = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i];
+    attached.push({ name: f.name, path: (f as any).path || f.name });
+  }
+  emit("files", attached);
+}
+
 function onDragOver(e: DragEvent) {
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
@@ -121,42 +178,147 @@ function onPaste(e: ClipboardEvent) {
   }
 }
 
-// ── 提示词优化 ──
-const settings = useSettingsStore();
-const optimizing = ref(false);
-const optimizeError = ref("");
-
-async function handleOptimize() {
-  const text = input.value.trim();
-  if (!text || !props.apiKey || !props.baseUrl) return;
-  if (!settings.optimizeApiUrl) {
-    optimizeError.value = "请先在设置中配置「聊天 API 地址」";
-    setTimeout(() => { optimizeError.value = ""; }, 5000);
-    return;
-  }
-  optimizing.value = true;
-  optimizeError.value = "";
-  try {
-    const result = await optimizePrompt(props.apiKey, props.baseUrl, text, settings.optimizeApiUrl || undefined);
-    input.value = result;
-    await nextTick();
-    autoResize();
-  } catch (e) {
-    optimizeError.value = typeof e === "string" ? e : (e as Error).message || String(e);
-    setTimeout(() => { optimizeError.value = ""; }, 5000);
-  } finally {
-    optimizing.value = false;
-  }
-}
-
 async function autoResize() {
   await nextTick();
   const el = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null;
-  if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 180) + "px"; }
+  if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
 }
 
 /** 外部设置输入框文本（FilePreview DOM 选择器等） */
 defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } });
+
+// ══════════════════════════════════════════════════════════════
+// foot 操作行：agent / 模型（会话级选择器，对齐原型 v0.20/0.23）
+// ══════════════════════════════════════════════════════════════
+
+/** 主 agent 选项（值即引擎 promptAsync.agent 参数，双星为分形预置 agent） */
+const AGENT_OPTIONS = [
+  { value: "双星", label: "✦ 双星", desc: () => t("composer.agentShuangxing") },
+  { value: "build", label: "build", desc: () => t("composer.agentBuild") },
+  { value: "plan", label: "plan", desc: () => t("composer.agentPlan") },
+];
+
+/** 会话模型选项（值即 settings.model 存储格式，sendMessage 时 toOcModel 拆分） */
+const MODEL_OPTIONS = [
+  { value: "deepseek-v4-flash", label: "v4-flash", desc: () => t("composer.modelFlash") },
+  { value: "deepseek-v4-pro[1M]", label: "v4-pro", desc: () => t("composer.modelPro") },
+];
+
+function modelKey(value: string): string {
+  // 选项值可能带 [1M] 标注，比较时去标注并与 settings.model 的模型名部分匹配
+  return value.replace(/\[.*\]/, "").split("/").pop() || value;
+}
+
+/** 当前模型显示名（去 provider 前缀与 [1M] 标注，与 toOcModel 的展示层一致） */
+const currentModelLabel = computed(() => {
+  const m = settings.model.replace(/\[.*\]/, "");
+  return m.split("/").pop() || m;
+});
+
+function selectAgent(value: string) {
+  settings.currentAgent = value;
+  openMenu.value = null;
+}
+
+function selectModel(value: string) {
+  settings.model = value;
+  openMenu.value = null;
+}
+
+// ══════════════════════════════════════════════════════════════
+// 权限模式 / 推理强度（从原 InputBarToolbar 原样复用，字段与映射不变）
+// ══════════════════════════════════════════════════════════════
+
+// 权限模式下拉：对齐原型 4 项（询问/自动编辑/全自动/计划）——auto（serve 启动参数，非会话级）与 dontAsk（CC 遗留）移除
+const modeOptions = [
+  { value: "askBefore", label: () => t("mode.askBefore") },
+  { value: "editAuto", label: () => t("mode.editAuto") },
+  { value: "bypass", label: () => t("mode.bypass") },
+  { value: "plan", label: () => t("mode.plan") },
+];
+
+// Effort levels with progressive colors (low → calm, ultracode → intense)
+const effortOptions: Array<{ value: Effort; label: () => string; color: string }> = [
+  { value: "low", label: () => t("mode.effort.low"), color: "#22c55e" },
+  { value: "medium", label: () => t("mode.effort.medium"), color: "#14b8a6" },
+  { value: "high", label: () => t("mode.effort.high"), color: "#f59e0b" },
+  { value: "xhigh", label: () => t("mode.effort.xhigh"), color: "#f97316" },
+  { value: "max", label: () => t("mode.effort.max"), color: "#ef4444" },
+  { value: "ultracode", label: () => t("mode.effort.ultracode"), color: "#8b5cf6" },
+];
+
+const currentEffortColor = computed(() => {
+  return effortOptions.find(o => o.value === settings.effort)?.color || "var(--amber)";
+});
+
+// ── Custom dropdowns ──
+const openMenu = ref<"mode" | "effort" | "agent" | "model" | "slash" | null>(null);
+
+function toggleMenu(menu: "mode" | "effort" | "agent" | "model" | "slash") {
+  openMenu.value = openMenu.value === menu ? null : menu;
+}
+
+function selectMode(value: string) {
+  activeMode.value = value;
+  openMenu.value = null;
+}
+
+const effortWarning = ref("");
+let effortWarnTimer: ReturnType<typeof setTimeout> | null = null;
+
+function selectEffort(value: Effort) {
+  settings.effort = value;
+  openMenu.value = null;
+
+  // xhigh + DeepSeek 组合在引擎侧有工具兼容问题，给用户 5s 可见警告
+  if (value === "xhigh" && settings.model.toLowerCase().includes("deepseek")) {
+    effortWarning.value = t("effortWarning");
+    if (effortWarnTimer) clearTimeout(effortWarnTimer);
+    effortWarnTimer = setTimeout(() => effortWarning.value = "", 5000);
+  } else {
+    effortWarning.value = "";
+  }
+}
+
+function closeMenus() {
+  openMenu.value = null;
+}
+
+// Click outside listener：点击 dropdown 区域外关闭所有菜单
+function onBodyClick(e: MouseEvent) {
+  if (!(e.target as HTMLElement).closest(".dropdown-menu")) {
+    closeMenus();
+  }
+}
+onMounted(() => document.addEventListener("click", onBodyClick));
+onUnmounted(() => document.removeEventListener("click", onBodyClick));
+
+const activeMode = computed({
+  get: () => {
+    if (settings.planMode) return "plan";
+    // dontAsk 旧值（CC 遗留）兼容：并入全自动显示
+    if (settings.permissionMode === "bypassPermissions" || settings.permissionMode === "dontAsk") return "bypass";
+    if (settings.permissionMode === "acceptEdits") return "editAuto";
+    return "askBefore";
+  },
+  set: (v: string) => {
+    settings.planMode = v === "plan";
+    settings.permissionMode = v === "editAuto" ? "acceptEdits" : v === "bypass" ? "bypassPermissions" : "default";
+  },
+});
+
+const currentModeLabel = computed(() => {
+  const m = modeOptions.find(o => o.value === activeMode.value);
+  return m ? m.label() : activeMode.value;
+});
+
+const currentEffortLabel = computed(() => {
+  const e = effortOptions.find(o => o.value === settings.effort);
+  return e ? e.label() : settings.effort;
+});
+
+// 发送按钮启用条件：输入非空（chips 附件不计入，保持现有交互）
+const canSend = computed(() => input.value.trim().length > 0);
 </script>
 
 <template>
@@ -171,17 +333,42 @@ defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } 
       >/{{ s }}</button>
     </div>
 
+    <!-- composer 卡片：chips 行 + textarea + foot 操作行 -->
     <div
-      class="flex items-center max-w-3xl mx-auto rounded-xl transition-colors duration-150"
-      :style="{
-        background: 'var(--bg-elevated)',
-        border: isDragOver ? '2px dashed var(--accent)' : props.autoMode ? '1px solid #0ea5e9' : focused ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-        padding: '0 6px 0 0'
+      class="composer"
+      :class="{
+        'composer--dragover': isDragOver,
+        'composer--autos': props.autoMode && !focused
       }"
       @dragover="onDragOver"
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
+      <!-- ① chips 行：附件/引用 chips + 空态提示 -->
+      <div class="composer-tools">
+        <template v-if="props.chips.length > 0">
+          <button
+            v-for="chip in props.chips"
+            :key="chip.id"
+            class="composer-tool"
+            :class="{ 'composer-tool--on': chip.tone === 'accent', 'composer-tool--clickable': chip.clickable }"
+            @click="chip.clickable ? emit('chipClick', chip.id) : undefined"
+          >
+            <img v-if="chip.imageUrl" :src="chip.imageUrl" class="chip-thumb" alt="" />
+            <span v-else-if="chip.icon" class="chip-icon">{{ chip.icon }}</span>
+            <span class="chip-name" :title="chip.label">{{ chip.label }}</span>
+            <span
+              v-if="chip.removable"
+              class="chip-x"
+              :title="$t('chat.remove')"
+              @click.stop="emit('removeChip', chip.id)"
+            >×</span>
+          </button>
+        </template>
+        <span v-else class="composer-chip-hint">{{ props.chipHint || $t('composer.chipHint') }}</span>
+      </div>
+
+      <!-- ② textarea -->
       <textarea
         v-model="input"
         @keydown="onKeydown"
@@ -191,87 +378,523 @@ defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } 
         @blur="onBlurSlash"
         :placeholder="$t('chat.placeholder')"
         rows="1"
-        class="chat-textarea flex-1 resize-none bg-transparent text-sm leading-relaxed py-3 pl-4 pr-2 disabled:opacity-30"
+        class="chat-textarea composer-input"
         :style="{
           color: 'var(--text-primary)',
-          caretColor: 'var(--accent)',
-          border: 'none',
-          outline: 'none',
-          boxShadow: 'none',
-          maxHeight: '180px',
-          overflowY: 'auto',
-          minHeight: '22px'
+          caretColor: 'var(--accent)'
         }"
       ></textarea>
-      <!-- ✨ 提示词优化 -->
-      <button
-        @click="handleOptimize"
-        :disabled="!input.trim() || optimizing"
-        class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150"
-        :style="{
-          background: optimizeError ? 'var(--coral-glow)' : 'transparent',
-          color: optimizeError ? 'var(--coral)' : input.trim() ? 'var(--text-secondary)' : 'var(--text-muted)',
-          border: 'none',
-        }"
-        :title="optimizeError || $t('toolbar.optimizeTitle')"
-      >
-        <!-- loading 旋转动画 -->
-        <svg v-if="optimizing" class="animate-spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-          <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-        </svg>
-        <!-- 双星图标 -->
-        <svg v-else width="15" height="15" viewBox="1 1 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 0 0-2.455 2.456z"/>
-        </svg>
-      </button>
-      <!-- Stop button (visible when processing) -->
-      <button
-        v-if="disabled"
-        @click="emit('stop')"
-        class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150"
-        style="background: var(--coral); color: white; border: none"
-        :title="$t('chat.stop')"
-      >
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-      </button>
 
-      <!-- Send button (visible when idle) -->
-      <button
-        v-else
-        :disabled="!input.trim() || optimizing"
-        @click="send"
-        class="shrink-0 w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150"
-        :style="{
-          background: (input.trim() && !optimizing) ? 'var(--accent)' : 'transparent',
-          color: (input.trim() && !optimizing) ? 'var(--bg-root)' : 'var(--text-muted)',
-          border: 'none'
-        }"
-      >
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="transform: translate(-1px, 1px)">
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-      </button>
+      <!-- ③ foot 操作行 -->
+      <div class="composer-foot">
+        <div class="cf-left">
+          <!-- 📎 附件 -->
+          <button class="composer-tool" :title="$t('toolbar.attachTitle')" @click="emit('attach')">
+            📎 <span>{{ $t('toolbar.attach') }}</span>
+          </button>
+
+          <!-- ✦ 主 agent pill -->
+          <div class="composer-pill" @click.stop="toggleMenu('agent')" :title="$t('composer.agentTitle')">
+            <span class="pill-star">✦</span><span>{{ settings.currentAgent }}</span><span class="pill-caret">▾</span>
+            <Transition name="drop">
+              <div v-if="openMenu === 'agent'" class="dropdown-menu">
+                <div class="d-label">{{ $t('composer.agentTitle') }}</div>
+                <div
+                  v-for="a in AGENT_OPTIONS"
+                  :key="a.value"
+                  class="d-item"
+                  :class="{ 'd-item--sel': settings.currentAgent === a.value }"
+                  @click.stop="selectAgent(a.value)"
+                >
+                  <span class="d-name">{{ a.label }}</span>
+                  <span class="d-desc">{{ a.desc() }}</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- 🎯 会话模型 pill -->
+          <div class="composer-pill" @click.stop="toggleMenu('model')" :title="$t('composer.modelTitle')">
+            <span class="pill-dot"></span><span>{{ currentModelLabel }}</span><span class="pill-caret">▾</span>
+            <Transition name="drop">
+              <div v-if="openMenu === 'model'" class="dropdown-menu">
+                <div class="d-label">{{ $t('composer.modelTitle') }}</div>
+                <div
+                  v-for="m in MODEL_OPTIONS"
+                  :key="m.value"
+                  class="d-item"
+                  :class="{ 'd-item--sel': settings.model.includes(modelKey(m.value)) }"
+                  @click.stop="selectModel(m.value)"
+                >
+                  <span class="d-name">{{ m.label }}</span>
+                  <span class="d-desc">{{ m.desc() }}</span>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- 🛡 权限模式 -->
+          <div class="composer-select" @click.stop="toggleMenu('mode')" :title="$t('composer.permTitle')">
+            <span class="pill-shield">🛡</span><span>{{ currentModeLabel }}</span><span class="pill-caret">▾</span>
+            <Transition name="drop">
+              <div v-if="openMenu === 'mode'" class="dropdown-menu">
+                <button
+                  v-for="m in modeOptions"
+                  :key="m.value"
+                  class="dropdown-item"
+                  :style="{
+                    color: activeMode === m.value ? 'var(--accent)' : 'var(--text-secondary)',
+                    background: activeMode === m.value ? 'var(--accent-glow)' : 'transparent'
+                  }"
+                  @click.stop="selectMode(m.value)"
+                >{{ m.label() }}</button>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- ⚡ 推理强度 -->
+          <div class="composer-select" @click.stop="toggleMenu('effort')" :title="$t('composer.effortTitle')">
+            <span class="pill-bolt" :style="{ color: currentEffortColor }">⚡</span><span :style="{ color: currentEffortColor }">{{ currentEffortLabel }}</span><span class="pill-caret" :style="{ color: currentEffortColor }">▾</span>
+            <Transition name="drop">
+              <div v-if="openMenu === 'effort'" class="dropdown-menu">
+                <button
+                  v-for="e in effortOptions"
+                  :key="e.value"
+                  class="dropdown-item"
+                  :style="{
+                    color: settings.effort === e.value ? e.color : 'var(--text-secondary)',
+                    background: settings.effort === e.value ? e.color + '18' : 'transparent'
+                  }"
+                  @click.stop="selectEffort(e.value)"
+                >{{ e.label() }}</button>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- / 快捷斜杠命令（最近/收藏） -->
+          <div class="slash-menu-container">
+            <button class="composer-icon-btn" :title="$t('toolbar.slashTitle')" @click.stop="toggleMenu('slash')">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="4" x2="6" y2="20"/></svg>
+            </button>
+            <Transition name="drop">
+              <div v-if="openMenu === 'slash'" class="dropdown-menu slash-dropdown">
+                <template v-if="recentCommands.length > 0">
+                  <div class="slash-section-header">🕐 {{ $t('toolbar.slashRecent') }}</div>
+                  <button
+                    v-for="r in recentCommands.slice(0, 5)"
+                    :key="r"
+                    class="dropdown-item"
+                    @click="emit('sendSlash', '/' + r); openMenu = null"
+                  >{{ r }}</button>
+                </template>
+                <template v-if="favorites.size > 0">
+                  <div class="slash-section-header">⭐ {{ $t('toolbar.slashFavorites') }}</div>
+                  <button
+                    v-for="f in [...favorites]"
+                    :key="f"
+                    class="dropdown-item"
+                    @click="emit('sendSlash', '/' + f); openMenu = null"
+                  >{{ f }}</button>
+                </template>
+                <div v-if="recentCommands.length > 0 || favorites.size > 0" class="slash-section-divider"></div>
+                <button class="dropdown-item slash-browse-all" @click="emit('openCommandMenu'); openMenu = null">📋 {{ $t('toolbar.slashBrowseAll') }}</button>
+                <div v-if="favorites.size === 0 && recentCommands.length === 0" class="slash-empty">{{ $t('toolbar.slashEmpty') }}</div>
+              </div>
+            </Transition>
+          </div>
+
+          <!-- ☰ 命令菜单 -->
+          <button class="composer-icon-btn" :title="$t('toolbar.commandsTitle')" @click="emit('openCommandMenu')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          </button>
+
+          <!-- 上下文用量（有消息时才显示，点击打开上下文弹窗） -->
+          <ContextIndicator @click="emit('showContext')" />
+
+          <!-- 左侧扩展插槽：ChatPanel 注入 debug 按钮 -->
+          <slot name="left" />
+        </div>
+
+        <div class="cf-right">
+          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
+          <!-- Stop button（处理中显示红色方块，替代发送） -->
+          <button
+            v-if="disabled"
+            class="send send--stop"
+            :title="$t('chat.stop')"
+            @click="emit('stop')"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+          <!-- Send button（带文字「发送 ↑」，空输入时透明底灰字禁用） -->
+          <button
+            v-else
+            class="send"
+            :disabled="!canSend"
+            :title="$t('chat.send')"
+            @click="send"
+          >{{ $t('chat.send') }} ↑</button>
+        </div>
+      </div>
     </div>
-    <!-- 优化错误提示 -->
-    <div v-if="optimizeError" class="max-w-3xl mx-auto mt-1 text-[11px] px-1" style="color: var(--coral)">
-      ✕ {{ optimizeError }}
+
+    <!-- Effort warning（xhigh + DeepSeek 兼容警告） -->
+    <div v-if="effortWarning" class="effort-warning">
+      <div class="effort-warning-banner">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+        {{ effortWarning }}
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* ── composer 卡片容器（对齐原型 .composer：760px 居中 + bg-card + radius-lg + focus-within 光环）── */
+.sb-input-bar {
+  position: relative;
+  max-width: 760px;
+  margin-inline: auto;
+  user-select: none;
+}
+.composer {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  padding: 6px 8px 8px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+}
+/* focus-within 光环：accent-line 边框 + accent-glow 外发光（原型的 4px soft shadow） */
+.composer:focus-within {
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+/* 拖放文件时虚线高亮（覆盖 focus 边框，视觉优先） */
+.composer--dragover {
+  border: 2px dashed var(--accent);
+}
+/* auto 模式蓝色边框提示（仅未聚焦时，避免与 focus 光环抢视觉） */
+.composer--autos {
+  border-color: #0ea5e9;
+}
+
+/* ── ① chips 行 ── */
+.composer-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 6px;
+  min-height: 28px;
+}
+.composer-tool {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  transition: all 0.15s;
+}
+.composer-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+/* chips：accent 底（选区卡片） / elevated 底（附件） */
+.composer-tool--on {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border: 1px solid var(--accent-dim);
+}
+.composer-tool--clickable {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+}
+.composer-tool--clickable:hover {
+  border-color: var(--accent-line);
+}
+.chip-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+  border: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+.chip-icon { line-height: 1; }
+.chip-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* chips 关闭 ×（原型 .composer-tool .x） */
+.chip-x {
+  margin-left: 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  padding: 0 2px;
+}
+.chip-x:hover { color: var(--coral); }
+.composer-chip-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* ── ② textarea（14px / 1.7 / min 42 max 160，对齐原型 .composer-input）── */
+.composer-input {
+  width: 100%;
+  flex: 1;
+  border: none;
+  background: transparent;
+  resize: none;
+  outline: none;
+  box-shadow: none;
+  padding: 8px 10px 2px;
+  font-size: 14px;
+  line-height: 1.7;
+  min-height: 42px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.composer-input::placeholder { color: var(--text-muted); }
+
+/* ── ③ foot 操作行 ── */
+.composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 0;
+}
+.cf-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+.cf-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* agent / 模型 pill（原型 .agent-pill / .model-pill：小圆角 + border + hover） */
+.composer-pill {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+  transition: border-color 150ms, background-color 150ms;
+  user-select: none;
+  white-space: nowrap;
+}
+.composer-pill:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
+}
+.pill-star { color: var(--accent); font-size: 12px; line-height: 1; }
+.pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.pill-caret {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1;
+}
+
+/* 权限 / 推理 composer-select（原型 .composer-select：边框 + hover 底） */
+.composer-select {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+  transition: background-color 150ms, border-color 150ms;
+  user-select: none;
+  white-space: nowrap;
+}
+.composer-select:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
+}
+.pill-shield { font-size: 11px; line-height: 1; }
+.pill-bolt { font-size: 11px; line-height: 1; }
+
+/* 命令小图标按钮（/ ☰，非原型元素，放 foot 左区不抢视觉） */
+.composer-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 6px;
+  font-size: 11px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-dim);
+  transition: all 150ms ease;
+}
+.composer-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+  border-color: var(--accent-line);
+}
+
+/* ── 下拉菜单（agent / 模型带标题与描述的 d-item，权限/effort 复用 dropdown-item）── */
+.dropdown-menu {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  padding-block: 4px;
+  border-radius: 8px;
+  z-index: 30;
+  min-width: 170px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.d-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 12px 2px;
+  color: var(--text-muted);
+}
+.d-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.d-item:hover { background: var(--bg-hover); }
+.d-item--sel { background: var(--accent-glow); }
+.d-name { font-size: 12px; color: var(--text-primary); font-weight: 500; }
+.d-item--sel .d-name { color: var(--accent); }
+.d-desc { font-size: 10px; color: var(--text-muted); }
+.dropdown-item {
+  width: 100%;
+  text-align: left;
+  padding: 6px 12px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.dropdown-item:hover { background: var(--bg-hover); }
+
+/* ── / 快捷斜杠菜单 ── */
+.slash-menu-container { position: relative; }
+.slash-dropdown {
+  left: 0;
+  min-width: 180px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.slash-section-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 12px 2px;
+  color: var(--text-muted);
+}
+.slash-section-divider {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border-dim);
+}
+.slash-browse-all { color: var(--accent); font-weight: 500; }
+.slash-empty {
+  font-size: 11px;
+  padding: 12px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+/* ── 发送 / 停止按钮（对齐原型 .send：accent 底白字 12.5px 600 weight 圆角 9px）── */
+.send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 12.5px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.send:hover:not(:disabled) {
+  filter: brightness(1.12);
+  transform: translateY(-1px);
+}
+.send:active:not(:disabled) { transform: none; }
+/* disabled：透明底灰字（原型规格） */
+.send:disabled {
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+}
+.send--stop {
+  background: var(--coral);
+  padding: 7px 12px;
+}
+.send--stop:hover:not(:disabled) { filter: brightness(1.12); }
+
+/* hint：mono 10.5px faint（原型 .composer-hint） */
+.composer-hint {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ── 斜杠自动补全（输入框内 / 触发，绝对定位不挤占卡片）── */
 .slash-autocomplete {
   position: absolute;
   bottom: 100%;
   left: 0;
   right: 0;
-  max-width: 48rem;
-  margin: 0 auto 0.25rem;
+  max-width: 760px;
+  margin: 0 auto 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 0.5rem;
-  box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
   overflow: hidden;
   z-index: 20;
 }
@@ -279,7 +902,7 @@ defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } 
   display: block;
   width: 100%;
   text-align: left;
-  padding: 0.375rem 0.75rem;
+  padding: 6px 12px;
   font-size: 12px;
   font-family: ui-monospace, monospace;
   color: var(--text-secondary);
@@ -293,4 +916,28 @@ defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } 
   background: var(--accent-glow);
   color: var(--accent);
 }
+
+/* ── Effort warning ── */
+.effort-warning {
+  max-width: 760px;
+  margin-inline: auto;
+  padding-bottom: 4px;
+}
+.effort-warning-banner {
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--amber-glow);
+  color: var(--amber);
+  border: 1px solid rgba(245, 166, 35, 0.2);
+}
+
+/* ── Dropdown animation ── */
+.drop-enter-active { transition: all 120ms ease-out; }
+.drop-leave-active { transition: all 100ms ease-in; }
+.drop-enter-from { opacity: 0; transform: translateY(4px) scale(0.96); }
+.drop-leave-to { opacity: 0; transform: translateY(2px) scale(0.98); }
 </style>

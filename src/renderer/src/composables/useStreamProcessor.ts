@@ -1,17 +1,13 @@
 import { useI18n } from "vue-i18n";
 import { useChatStore, type ToolUse, type ContentBlock, type ToolResult } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
-import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
-import { storeClaudeSession, saveMessage, saveSessionDebugLog, saveSessionStderrLog, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
-let unlistenDebug: (() => void) | null = null;
-let unlistenError: (() => void) | null = null;
-let unlistenSession: (() => void) | null = null;
-let unlistenProcessExit: (() => void) | null = null;
+let unlistenStatus: (() => void) | null = null;
 
 function notifyComplete(durationMs?: number, inputTokens?: number, outputTokens?: number) {
   if (!("Notification" in window)) return;
@@ -22,18 +18,12 @@ function notifyComplete(durationMs?: number, inputTokens?: number, outputTokens?
     outputTokens ? `↓${outputTokens}` : "",
   ].filter(Boolean).join(" · ");
   if (Notification.permission === "granted") {
-    new Notification("cc-gui — Done", { body: body || undefined, silent: true });
+    new Notification("分形 — 完成", { body: body || undefined, silent: true });
   } else {
     Notification.requestPermission().then(p => {
-      if (p === "granted") new Notification("cc-gui — Done", { body: body || undefined, silent: true });
+      if (p === "granted") new Notification("分形 — 完成", { body: body || undefined, silent: true });
     });
   }
-}
-
-interface SessionCreatedPayload {
-  ourId: string;
-  claudeSessionId: string;
-  mcpServers?: string[];
 }
 
 /** 归一化 tool_result.content 的三种形态 → 纯文本 */
@@ -133,7 +123,6 @@ export function buildContentBlocks(
 export function useStreamProcessor() {
   const chat = useChatStore();
   const session = useSessionStore();
-  const settings = useSettingsStore();
   const debugLog = useDebugLog();
   const stderrLog = useStderrLog();
   const { t } = useI18n();
@@ -185,14 +174,13 @@ export function useStreamProcessor() {
   async function startListening() {
     if (unlisten) return;
 
-    unlisten = window.electronBridge.on("stream-event", (payload) => {
+    // 分形主链路：serve SSE 映射事件（主进程 startEngineEvents 转发 engine:event）
+    unlisten = window.electronBridge.on("engine:event", (payload) => {
       const data = payload as StreamEvent;
       debugLog.add(`📨 event: ${data.type} | sid=${data.session_id} | text=${(data.text||'').slice(0,50)} | thinking=${(data.thinking||'').slice(0,50)} | final=${data.is_final}`, data.session_id);
 
-      // 事件是否属于当前模式下的活跃会话（CC 模式只看 activeSessionId，Zen 模式只看 zenActiveId）
-      const isActive = settings.zenMode
-        ? data.session_id === session.zenActiveId
-        : data.session_id === session.activeSessionId;
+      // 事件是否属于当前活跃会话（后台会话 → 写缓存 + 更新 activity 指示器）
+      const isActive = data.session_id === session.activeSessionId;
 
       // 事件属于后台会话 → 写入缓存，更新 activity 指示器
       if (data.session_id && !isActive) {
@@ -323,7 +311,7 @@ export function useStreamProcessor() {
           if (data.session_id) session.setSessionActivity(data.session_id, null);
           const msg = chat.currentAssistantMsg;
           if (msg) {
-            const targetSessionId = data.session_id || session.zenActiveId || session.activeSessionId;
+            const targetSessionId = data.session_id || session.activeSessionId;
             // Save full message as JSON blob: content + thinking + toolUses + stats
             const fullContent = JSON.stringify({
               text: msg.content,
@@ -360,7 +348,7 @@ export function useStreamProcessor() {
             data.cost_usd ?? msg?.costUSD,
           );
           // 持久化 debug/stderr 日志 + 刷新侧栏统计
-          const sid = data.session_id || session.zenActiveId || session.activeSessionId;
+          const sid = data.session_id || session.activeSessionId;
           if (sid) {
             saveSessionDebugLog(sid, JSON.stringify(debugLog.exportLines(sid))).catch(() => {});
             saveSessionStderrLog(sid, JSON.stringify(stderrLog.exportLines(sid))).catch(() => {});
@@ -370,7 +358,7 @@ export function useStreamProcessor() {
           // Desktop notification
           notifyComplete(data.duration_ms, data.input_tokens, data.output_tokens);
 
-          // CC 可能修改了工作区文件 → 通知文件面板刷新
+          // OC 可能修改了工作区文件 → 通知文件面板刷新
           if (msg) {
             const fileModifiers = new Set(["Write", "Edit", "Bash", "PowerShell", "Skill", "Workflow", "Agent"]);
             const didModify = msg.toolUses.some(tu => fileModifiers.has(tu.name));
@@ -392,72 +380,19 @@ export function useStreamProcessor() {
       }
     });
 
-    // Debug: raw stdout lines from claude
-    unlistenDebug = window.electronBridge.on("stream-debug", (payload) => {
-      const raw = payload as string;
-      stderrLog.add(raw);  // 完整保留到 stderr 日志
-      // 同时摘要记录到 debug 日志
-      try {
-        const parsed = JSON.parse(raw);
-        debugLog.add(`📤 raw: type=${parsed.type || '?'} keys=${Object.keys(parsed).join(',')}`);
-      } catch {
-        debugLog.add(`📤 raw: ${raw.slice(0, 200)}`);
-      }
+    // serve 运行状态（主进程 server-manager onStatusChange → engine:status），前端连接指示
+    unlistenStatus = window.electronBridge.on("engine:status", (payload) => {
+      const info = payload as { running?: boolean };
+      session.setServing(!!info?.running);
+      debugLog.add(`🔌 engine status: running=${info?.running}`, session.activeSessionId);
     });
-
-    // Stderr output from claude（--verbose 输出 LLM 请求详情）
-    unlistenError = window.electronBridge.on("stream-error", (payload) => {
-      const raw = payload as string;
-      stderrLog.add(`[stderr] ${raw}`);  // 完整保留
-      debugLog.add(`⚠️ stderr: ${raw.slice(0, 300)}`);  // debug 摘要
-    });
-
-    // Session created: store on both frontend (Pinia) and backend (Rust)
-    unlistenSession = window.electronBridge.on("session-created", (payload) => {
-      const { ourId, claudeSessionId, mcpServers } = payload as SessionCreatedPayload;
-      session.setClaudeSessionId(ourId, claudeSessionId);
-      storeClaudeSession(ourId, claudeSessionId); // → Rust SessionManager
-      if (mcpServers) session.connectedMcpServers = [...mcpServers];
-      debugLog.add(`🔗 session: ${ourId} → claude:${claudeSessionId}`, ourId);
-    });
-
-    // Process exited: 仅当退出的是当前模式的活跃会话时才更新 UI 状态
-    unlistenProcessExit = window.electronBridge.on("process-exited", (payload) => {
-      const { session_id, exit_code, success } = payload as ProcessExitedEvent;
-      debugLog.add(`🏁 process exited: ${session_id} code=${exit_code} ok=${success}`, session_id);
-      // 仅判断当前模式的活跃会话（CC 模式只看 activeSessionId，Zen 模式只看 zenActiveId）
-      // 防止后台的另一个模式会话退出时错误清除 isProcessing
-      const isActiveExit = settings.zenMode
-        ? session_id === session.zenActiveId
-        : session_id === session.activeSessionId;
-      if (session_id && !isActiveExit) {
-        // 后台会话退出：若未正常 result，强制结束缓存中的流式消息
-        if (!success) {
-          chat.handleBackgroundStreamEvent(session_id, { type: 'error', error: '进程异常退出' });
-        }
-        // 非 blocked 状态 → 标记为 unread
-        if (session.sessionActivity[session_id] !== 'blocked') {
-          session.setSessionActivity(session_id, 'unread');
-        }
-        return;
-      }
-      // 活跃会话退出 → 清除 activity（用户正在看）
-      session.setSessionActivity(session_id, null);
-      chat.isProcessing = false;
-      if (!success) {
-        // 进程异常退出时追加可见错误提示（分叉失效 / CC 错误等场景）
-        chat.appendText(`\n\n> ❌ CC 进程异常退出 (exit code: ${exit_code})`);
-        chat.finishAssistantMessage();
-      }
-    });
+    // stream-debug / stream-error / process-exited 已移除：serve 单进程模型无这些事件源
+    // （引擎状态经 engine:status 上报，异常退出也走 running=false 指示）
   }
 
   function stopListening() {
     if (unlisten) { unlisten(); unlisten = null; }
-    if (unlistenDebug) { unlistenDebug(); unlistenDebug = null; }
-    if (unlistenError) { unlistenError(); unlistenError = null; }
-    if (unlistenSession) { unlistenSession(); unlistenSession = null; }
-    if (unlistenProcessExit) { unlistenProcessExit(); unlistenProcessExit = null; }
+    if (unlistenStatus) { unlistenStatus(); unlistenStatus = null; }
   }
 
   return { startListening, stopListening };

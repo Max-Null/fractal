@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref, computed } from "vue";
+import { ref } from "vue";
 import { useChatStore } from "./chat";
 import {
   createSession as createSessionBackend,
@@ -22,9 +22,7 @@ export interface Session {
   messageCount: number;
   totalTokens?: number | null;
   totalCost?: number | null;
-  /** The real claude session UUID (for --resume) */
-  claudeSessionId?: string;
-  /** 'cc' | 'zen' — 会话类型 */
+  /** 会话类型（后端返回，分形下恒为 'cc'，无 UI 过滤依赖） */
   mode?: string;
 }
 
@@ -33,10 +31,8 @@ export const useSessionStore = defineStore("session", () => {
   const activeSessionId = ref<string>("");
   /** 当前 CC 会话已连接的 MCP 服务器名称列表 */
   const connectedMcpServers = ref<string[]>([]);
-
-  // ── 禅模式会话视图（从 sessions 中过滤 mode='zen'）──
-  const zenSessions = computed(() => sessions.value.filter(s => s.mode === 'zen'));
-  const zenActiveId = ref<string>("");
+  /** serve 引擎连接状态（engine:status 事件驱动，true=serve 运行中；false=未启动/进程退出） */
+  const serving = ref(false);
 
   // ── 会话活动状态指示 ──
   // 'processing' = CC 运行中 → 绿点闪烁
@@ -125,33 +121,28 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
-  /** Store the real claude session UUID for a session */
-  function setClaudeSessionId(ourId: string, claudeId: string) {
-    const s = sessions.value.find((s) => s.id === ourId);
-    if (s) {
-      s.claudeSessionId = claudeId;
-    }
+  /** 更新 serve 连接状态（useStreamProcessor 的 engine:status 监听回调） */
+  function setServing(v: boolean) {
+    serving.value = v;
   }
 
-  /** Get the claude session UUID for the active session, if any */
-  function getActiveClaudeSessionId(): string | undefined {
-    const s = sessions.value.find((s) => s.id === activeSessionId.value);
-    return s?.claudeSessionId;
+  /** 将后端返回的会话插入列表头部（fork 等 IPC 直连场景，不走 store.createSession 的本地 fallback） */
+  function insertSession(s: SessionData) {
+    sessions.value.unshift(toLocalSession(s));
   }
 
   return {
     sessions,
     activeSessionId,
+    serving,
+    setServing,
+    insertSession,
     loadSessions,
     createSession,
     setActiveSession,
     renameSession,
     deleteSession,
-    setClaudeSessionId,
-    getActiveClaudeSessionId,
     connectedMcpServers,
-    zenSessions,
-    zenActiveId,
     sessionActivity,
     setSessionActivity,
   };
@@ -167,7 +158,6 @@ function toLocalSession(s: SessionData): Session {
     messageCount: s.message_count,
     totalTokens: s.total_tokens,
     totalCost: s.total_cost,
-    claudeSessionId: s.cli_session_id ?? undefined,
     mode: s.mode || "cc",
   };
 }

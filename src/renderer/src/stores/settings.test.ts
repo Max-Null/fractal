@@ -17,6 +17,8 @@ describe("settings store", () => {
     expect(settings.autoMode).toBe(true);
     expect(settings.permissionMode).toBe("bypassPermissions");
     expect(settings.effort).toBe("high");
+    // 默认主 agent = 分形预置「双星」（D15：oc-plus 四 agent 协作的主 agent）
+    expect(settings.currentAgent).toBe("双星");
     expect(settings.theme).toBe("dark");
     expect(settings.locale).toBe("zh");
   });
@@ -46,7 +48,7 @@ describe("settings store", () => {
   it("loads UI preferences from localStorage on init", () => {
     localStorage.setItem(
       "sb-ui-settings",
-      JSON.stringify({ planMode: true, autoMode: false, permissionMode: "default", effort: "xhigh", theme: "light", locale: "en", fontSize: "medium", ponytailMode: "full", claudePath: "" })
+      JSON.stringify({ planMode: true, autoMode: false, permissionMode: "default", effort: "xhigh", theme: "light", locale: "en", fontSize: "medium" })
     );
 
     setActivePinia(createPinia());
@@ -84,6 +86,16 @@ describe("settings store", () => {
     expect(settings.effort).toBe("low");
   });
 
+  it("switches currentAgent and persists to localStorage", async () => {
+    const settings = useSettingsStore();
+    settings.currentAgent = "plan";
+    await nextTick();
+
+    const raw = localStorage.getItem("sb-ui-settings");
+    const parsed = JSON.parse(raw!);
+    expect(parsed.currentAgent).toBe("plan");
+  });
+
   it("toggles between dark and light theme", () => {
     const settings = useSettingsStore();
     expect(settings.theme).toBe("dark");
@@ -104,36 +116,39 @@ describe("settings store", () => {
     expect(settings.contextLimit).toBe(128000);
   });
 
-  it("saves current config and restores per-provider config", async () => {
+  it("saves current config and restores it", async () => {
     const settings = useSettingsStore();
 
-    // 模拟在 DeepSeek provider 上的配置
+    // 保存 DeepSeek 配置（分形唯一 provider）
     settings.providerId = "deepseek";
     settings.apiKey = "sk-ds-test";
     settings.baseUrl = "https://api.deepseek.com";
     settings.model = "deepseek-v4-pro[1M]";
     await settings.saveCurrentConfig();
 
-    // 模拟切换到 Anthropic（switchProvider 的正确顺序）
-    settings.saveCurrentConfig(); // 先保存旧值（deepseek）
-    settings.restoreConfig("anthropic"); // 恢复目标值（无记录，用默认）
-    settings.providerId = "anthropic"; // 最后切 providerId
-    // anthropic 无已保存配置，apiKey 应清空，baseUrl 用默认
-    expect(settings.apiKey).toBe("");
-    expect(settings.baseUrl).toBe("");
-
-    // 填 Anthropic key
-    settings.apiKey = "sk-ant-test";
-    settings.model = "claude-sonnet-4-6";
-    await settings.saveCurrentConfig();
-
-    // 切回 DeepSeek
-    settings.saveCurrentConfig();
+    // 模拟切走再切回：清空后 restoreConfig 应恢复已保存值
+    settings.apiKey = "";
     settings.restoreConfig("deepseek");
-    settings.providerId = "deepseek";
-    // 应恢复之前保存的 DeepSeek 值
     expect(settings.apiKey).toBe("sk-ds-test");
     expect(settings.baseUrl).toBe("https://api.deepseek.com");
     expect(settings.model).toBe("deepseek-v4-pro[1M]");
+  });
+
+  it("onboarding dismiss flag persists to localStorage", () => {
+    const settings = useSettingsStore();
+    expect(settings.onboardingDismissed).toBe(false);
+    settings.markOnboardingDismissed();
+    expect(settings.onboardingDismissed).toBe(true);
+    expect(localStorage.getItem("sb-onboarding-dismissed")).toBe("1");
+  });
+
+  it("onboarding dismiss flag loads from localStorage and can reset", () => {
+    localStorage.setItem("sb-onboarding-dismissed", "1");
+    setActivePinia(createPinia());
+    const settings = useSettingsStore();
+    expect(settings.onboardingDismissed).toBe(true);
+    settings.resetOnboarding();
+    expect(settings.onboardingDismissed).toBe(false);
+    expect(localStorage.getItem("sb-onboarding-dismissed")).toBeNull();
   });
 });

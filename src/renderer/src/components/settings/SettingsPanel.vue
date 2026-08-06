@@ -1,52 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import { useRouter } from "vue-router";
-import { useSettingsStore, type PonytailMode } from "@/stores/settings";
+import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
-import { connectLLM, readFileContent, writeFile, getClaudeDir, installClaudeCode, resolveClaudePath, sendMessage, type ConnectionTestResult } from "@/lib/electron-bridge";
+import { testConnection, sendMessage, openDialog, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { useSessionStore } from "@/stores/session";
 
 const appVersion = __APP_VERSION__;
 import { translateError } from "@/lib/utils";
-// ── Ponytail 插件检测 ──
-const hasPonytail = ref<boolean | null>(null);
-onMounted(async () => {
-  try {
-    const dir = await getClaudeDir();
-    const raw = await readFileContent(`${dir}/settings.json`);
-    const plugins: Record<string, boolean> = JSON.parse(raw).enabledPlugins || {};
-    hasPonytail.value = Object.keys(plugins).some(k => k.startsWith("ponytail@"));
-  } catch { hasPonytail.value = false; }
-});
-
-// ── 一键安装 Claude Code CLI ──
-const isInstallingCC = ref(false);
-const ccInstallResult = ref<"ok" | "fail" | null>(null);
-
-async function handleInstallCC() {
-  isInstallingCC.value = true;
-  ccInstallResult.value = null;
-  try {
-    const exitCode = await installClaudeCode();
-    if (exitCode === 0) {
-      ccInstallResult.value = "ok";
-      // 重新检测 claude 路径
-      try { settings.resolvedClaudePath = await resolveClaudePath(); } catch { /* ignore */ }
-    } else {
-      ccInstallResult.value = "fail";
-    }
-  } catch {
-    ccInstallResult.value = "fail";
-  } finally {
-    isInstallingCC.value = false;
-  }
-}
 
 import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
-import ManagePanel from "@/components/shared/ManagePanel.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import changelogRaw from "../../../docs/变更记录.md?raw";
 
@@ -71,6 +37,16 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
+// 选择工作目录：写 store + 通知会话侧收面板；serve 侧目录切换待阶段 6 配置体系
+async function handleWorkspacePick() {
+  const selected = await openDialog({ directory: true, title: "选择工作目录" });
+  if (!selected) return;
+  const p = Array.isArray(selected) ? selected[0] : selected;
+  settings.cwd = p;
+  settings.addRecentWorkspace(p);
+  emitChatCommand(`switch-workspace:${p}`);
+}
+
 function parseContextLimit() {
   const raw = contextLimitInput.value.trim().toUpperCase();
   // 空或 0 → 自动检测
@@ -91,7 +67,7 @@ function parseContextLimit() {
 const isLookingUpUrl = ref(false);
 
 async function startLookupUrl() {
-  const prompt = `请联网查询 ${settings.providerId} 服务商的模型 ${settings.model} 的 OpenAI 兼容 chat completions API 完整端点 URL，只输出 URL 不要任何解释`;
+  const prompt = `请联网查询 DeepSeek 服务商的模型 ${settings.model} 的 OpenAI 兼容 chat completions API 完整端点 URL，只输出 URL 不要任何解释`;
   isLookingUpUrl.value = true;
   let sid = sessionStore.activeSessionId;
   if (!sid) {
@@ -109,7 +85,6 @@ async function startLookupUrl() {
     effort: "low",
     ultracode: false,
     model: settings.model,
-    claudePath: settings.claudePath || undefined,
   }).catch((e) => {
     isLookingUpUrl.value = false;
     console.error("URL 查询失败:", e);
@@ -126,7 +101,7 @@ watch(() => chat.messages.map(m => m.isStreaming), () => {
       const match = m.content.match(/https?:\/\/[^\s"'`<>]+/i);
       if (match) {
         const url = match[0].replace(/[.,;!?。，；！？)]+$/, '');
-        // 仅接受 https URL，防止 CC 幻觉或响应被篡改时注入危险地址
+        // 仅接受 https URL，防止幻觉或响应被篡改时注入危险地址
         if (url.startsWith("https://")) {
           settings.optimizeApiUrl = url;
         }
@@ -159,7 +134,7 @@ const activeMode = computed({
 });
 
 // ── 自定义下拉 ──
-type DropdownKind = "lang" | "theme" | "font" | "ponytail" | "perm" | "effort" | "model" | "provider";
+type DropdownKind = "lang" | "theme" | "font" | "perm" | "effort" | "model";
 const openDropdown = ref<DropdownKind | null>(null);
 function toggleDropdown(k: DropdownKind) {
   openDropdown.value = openDropdown.value === k ? null : k;
@@ -214,14 +189,9 @@ const fontSizeOptions: SimpleOption<"small" | "medium" | "large">[] = [
   { value: "large", labelKey: "settings.fontSizeLarge" },
 ];
 const currentFontSize = computed(() => fontSizeOptions.find(o => o.value === settings.fontSize)!);
-interface PonytailOption { value: PonytailMode; icon: string; cliKey: string; labelKey: string; color: string }
-const ponytailOptions: PonytailOption[] = [
-  { value: "off",   icon: "⬜", cliKey: "off",   color: "#6b7280", labelKey: "settings.ponytailOff" },
-  { value: "lite",  icon: "🌱", cliKey: "lite",  color: "#22c55e", labelKey: "settings.ponytailLite" },
-  { value: "full",  icon: "🎯", cliKey: "full",  color: "#f59e0b", labelKey: "settings.ponytailFull" },
-  { value: "ultra", icon: "🔥", cliKey: "ultra", color: "#ef4444", labelKey: "settings.ponytailUltra" },
-];
-const currentPonytail = computed(() => ponytailOptions.find(o => o.value === settings.ponytailMode)!);
+
+// ── 模型预设（DeepSeek 专属，store 已固定）──
+const modelPresets = computed(() => settings.models);
 
 // ── 连接测试 ──
 const testResult = ref<ConnectionTestResult | null>(null);
@@ -235,101 +205,22 @@ const isTesting = ref(false);
 
 async function handleTest() {
   testResult.value = null; testError.value = null; isTesting.value = true;
-  // 去掉 [1M] 等上下文窗口标注，API 不接受
-  const model = settings.model.replace(/\[.*\]/, '').trim();
-  try { testResult.value = await connectLLM(settings.apiKey, settings.baseUrl, model, settings.providerId, settings.optimizeApiUrl || undefined); }
-  catch (err) { testError.value = String(err); }  /* ponytail: translateError applied in template display */
+  try {
+    // 分形主链路：engine:testConnection 写 key 到 serve 隔离配置 + 验证 serve 可达
+    const r = await testConnection(settings.apiKey);
+    if (r.ok) {
+      // 模板按 ✓ 前缀判定绿色（成功）；chat 字段展示写入详情
+      testResult.value = { cc: "✓ serve 连接成功", chat: "✓ " + r.message };
+    } else {
+      testError.value = r.message;
+    }
+  }
+  catch (err) { testError.value = String(err); }  // translateError applied in template display
   finally { isTesting.value = false; }
 }
 
-// ── Provider 选择（logo 来自 lobe-icons CDN）──
-interface ProviderOption { id: string; logoUrl: string }
-const providerOptions: ProviderOption[] = [
-  { id: "anthropic", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/anthropic.svg" },
-  { id: "deepseek", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/deepseek-color.svg" },
-  { id: "openrouter", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/openrouter.svg" },
-  { id: "siliconflow", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/siliconcloud-color.svg" },
-  { id: "zhipu", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/zhipu-color.svg" },
-  { id: "kimi", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/kimi-color.svg" },
-  { id: "minimax", logoUrl: "https://unpkg.com/@lobehub/icons-static-svg@latest/icons/minimax-color.svg" },
-  { id: "custom", logoUrl: "" },
-];
-function providerLabel(id: string): string {
-  return t(`provider.${id}`) || id;
-}
-function providerLogo(id: string): string {
-  return providerOptions.find(o => o.id === id)?.logoUrl || "";
-}
-const currentProvider = computed(() => providerOptions.find(o => o.id === settings.providerId)!);
-
-// 前端 provider 模型列表镜像（与 Rust provider.rs 同步）
-const PROVIDER_MODELS: Record<string, string[]> = {
-  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5-20251001", "claude-fable-5"],
-  deepseek: ["deepseek-v4-pro[1M]", "deepseek-v4-flash", "deepseek-v4"],
-  openrouter: ["anthropic/claude-sonnet-4-6", "anthropic/claude-opus-4-8", "anthropic/claude-haiku-4-5-20251001"],
-  siliconflow: ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "Pro/zai-org/GLM-5", "Qwen/Qwen3-235B-A22B"],
-  zhipu: ["glm-5", "glm-5.1", "glm-4.7"],
-  kimi: ["kimi-k2.5", "kimi-k2.6"],
-  minimax: ["minimax-m2.7"],
-  custom: [],
-};
-
-function switchProvider(id: string) {
-  // 1. 保存当前 provider 配置到 SQLite（providerId 仍是旧值）
-  settings.saveCurrentConfig();
-  // 2. 先恢复目标 provider 的 apiKey/baseUrl/model（同步从内存读取，无记录则用默认值）
-  settings.restoreConfig(id);
-  // 3. 最后切 providerId（watcher 拿到完整正确值，不会出现旧 apiKey+新 providerId 的中间态）
-  settings.providerId = id;
-  const newModels = PROVIDER_MODELS[id] || [];
-  settings.models = newModels;
-  // 4. 校验恢复的 model 在目标列表中，不在则 fallback 第一个
-  if (!newModels.includes(settings.model) && newModels.length > 0) {
-    settings.model = newModels[0];
-  }
-}
-
-const modelPresets = computed(() => settings.models);
-
-// ── settings.json 编辑器弹窗 ──
-const showJsonEditor = ref(false);
+// ── 更新日志弹窗 ──
 const showChangelog = ref(false);
-const showManagePanel = ref(false);
-const manageInitialTab = ref("");
-
-function openManageTo(tab: string) {
-  manageInitialTab.value = tab;
-  showManagePanel.value = true;
-}
-const jsonEditorContent = ref("");
-const jsonEditorSaved = ref(false);
-const jsonEditorError = ref("");
-
-async function openSettingsJson() {
-  jsonEditorError.value = "";
-  try {
-    const dir = await getClaudeDir();
-    const path = `${dir}/settings.json`;
-    jsonEditorContent.value = await readFileContent(path);
-    showJsonEditor.value = true;
-  } catch {
-    jsonEditorError.value = "settingsJsonReadError";
-  }
-}
-
-async function saveSettingsJson() {
-  try {
-    const dir = await getClaudeDir();
-    const path = `${dir}/settings.json`;
-    await writeFile(path, jsonEditorContent.value);
-    jsonEditorSaved.value = true;
-    setTimeout(() => (jsonEditorSaved.value = false), 2000);
-  } catch (e) {
-    const { key, params } = translateError(e);
-    jsonEditorError.value = t(key, params as any);
-  }
-}
-
 </script>
 
 <template>
@@ -343,62 +234,28 @@ async function saveSettingsJson() {
         <h2 class="text-lg font-semibold tracking-tight" style="color:var(--text-bright)">{{ $t('settings.title') }}</h2>
       </div>
 
-      <!-- 三区平铺（可滚动） -->
+      <!-- 两区平铺（可滚动） -->
       <div class="flex flex-wrap gap-8 flex-1 overflow-y-auto px-5 pb-4">
 
-        <!-- CC 配置 -->
+        <!-- 引擎设置（DeepSeek 专属） -->
         <section class="space-y-4 w-[300px] shrink-0">
-          <div class="flex items-center gap-2 mb-1">
-            <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.ccConfig') }}</h3>
-            <button @click="openSettingsJson" class="text-[9px] px-1.5 py-0.5 rounded-full font-medium transition-colors hover:underline" :style="{ background: 'var(--accent-glow)', color: 'var(--accent)', cursor: 'pointer' }">{{ $t('settings.fromSettingsJson') }} ↗</button>
-          </div>
-          <!-- Provider 选择 -->
-          <div>
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.provider') }}</label>
-            <div
-              class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"
-              :style="{
-                background: 'var(--bg-elevated)',
-                border: openDropdown === 'provider' ? '1px solid var(--accent)' : '1px solid var(--border-default)'
-              }"
-              @click.stop="toggleDropdown('provider' as DropdownKind)"
-            >
-              <img v-if="providerLogo(settings.providerId)" :src="providerLogo(settings.providerId)" class="w-4 h-4 shrink-0" />
-              <span class="font-medium truncate flex-1">{{ providerLabel(settings.providerId) }}</span>
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                :style="{ opacity: 0.4, transition: 'transform 150ms', transform: openDropdown === 'provider' ? 'rotate(180deg)' : '' }">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-              <Transition name="drop-settings">
-                <div
-                  v-if="openDropdown === 'provider'"
-                  class="absolute right-0 top-full mt-1 py-1 rounded-lg z-30 w-full"
-                  style="background: var(--bg-elevated); border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0,0,0,0.35)"
-                >
-                  <button
-                    v-for="o in providerOptions"
-                    :key="o.id"
-                    @click.stop="switchProvider(o.id); closeDropdowns()"
-                    class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-hover)]"
-                    :style="{ background: settings.providerId === o.id ? 'var(--accent-glow)' : 'transparent', color: settings.providerId === o.id ? 'var(--accent)' : 'var(--text-primary)' }"
-                  >
-                    <img v-if="o.logoUrl" :src="o.logoUrl" class="w-4 h-4 shrink-0 inline-block align-middle" />
-                    <span class="ml-1.5">{{ providerLabel(o.id) }}</span>
-                  </button>
-                </div>
-              </Transition>
-            </div>
-          </div>
-          <div>
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.baseUrl') }}</label>
-            <input v-model="settings.baseUrl" type="text" placeholder="https://api.deepseek.com"
-              class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
-          </div>
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.engineTitle') }}</h3>
+
+          <!-- API Key -->
           <div>
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.apiKey') }}</label>
             <input v-model="settings.apiKey" type="password" placeholder="sk-…"
               class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
           </div>
+
+          <!-- API 地址 -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.baseUrl') }}</label>
+            <input v-model="settings.baseUrl" type="text" placeholder="https://api.deepseek.com"
+              class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+          </div>
+
+          <!-- 模型（DeepSeek 列表） -->
           <div>
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.model') }}</label>
             <div
@@ -431,6 +288,20 @@ async function saveSettingsJson() {
               </Transition>
             </div>
           </div>
+
+          <!-- 测试连接 -->
+          <button @click="handleTest" :disabled="isTesting || !settings.apiKey"
+            class="w-full py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
+            :style="{ background: isTesting ? 'var(--bg-elevated)' : 'var(--accent)', color: isTesting ? 'var(--text-muted)' : 'var(--bg-root)', opacity: (!settings.apiKey) ? 0.3 : 1 }">
+            {{ isTesting ? $t('settings.testing') : $t('settings.test') }}
+          </button>
+          <div v-if="testResult" class="space-y-1">
+            <div class="p-3 rounded-lg text-xs break-all" :style="{ background: testResult.cc.startsWith('✓') ? 'var(--accent-glow)' : 'var(--coral-glow)', color: testResult.cc.startsWith('✓') ? 'var(--accent)' : 'var(--coral)' }">{{ testResult.cc }}</div>
+            <div v-if="testResult.chat" class="p-3 rounded-lg text-xs break-all" :style="{ background: testResult.chat.startsWith('✓') ? 'var(--accent-glow)' : testResult.chat.startsWith('⚠') ? 'var(--amber-glow)' : 'var(--coral-glow)', color: testResult.chat.startsWith('✓') ? 'var(--accent)' : testResult.chat.startsWith('⚠') ? 'var(--amber)' : 'var(--coral)' }">{{ $t('settings.chatApi') }} {{ testResult.chat }}</div>
+          </div>
+          <div v-if="translatedTestError" class="p-3 rounded-lg text-xs break-all" style="background:var(--coral-glow); color:var(--coral); border:1px solid var(--coral); --tw-border-opacity:0.3">✕ {{ translatedTestError }}</div>
+
+          <!-- 上下文窗口 -->
           <div>
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.contextLimit') }}</label>
             <input v-model="contextLimitInput" type="text"
@@ -438,6 +309,8 @@ async function saveSettingsJson() {
               class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none"
               @blur="parseContextLimit" />
           </div>
+
+          <!-- 聊天 API 地址 -->
           <div>
             <div class="flex items-center justify-between mb-1.5">
               <label class="text-xs font-medium" style="color:var(--text-secondary)">{{ $t('settings.llmApiUrl') }}</label>
@@ -452,80 +325,34 @@ async function saveSettingsJson() {
             <input v-model="settings.optimizeApiUrl" type="text" :placeholder="$t('settings.llmApiUrlPlaceholder')"
               class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
           </div>
-          <button @click="handleTest" :disabled="isTesting || !settings.apiKey"
-            class="w-full py-2.5 rounded-lg text-sm font-medium transition-all duration-150"
-            :style="{ background: isTesting ? 'var(--bg-elevated)' : 'var(--accent)', color: isTesting ? 'var(--text-muted)' : 'var(--bg-root)', opacity: (!settings.apiKey) ? 0.3 : 1 }">
-            {{ isTesting ? $t('settings.testing') : $t('settings.test') }}
-          </button>
-          <div v-if="testResult" class="space-y-1">
-            <div class="p-3 rounded-lg text-xs break-all" :style="{ background: testResult.cc.startsWith('✓') ? 'var(--accent-glow)' : 'var(--coral-glow)', color: testResult.cc.startsWith('✓') ? 'var(--accent)' : 'var(--coral)' }">CC {{ testResult.cc }}</div>
-            <div v-if="testResult.chat" class="p-3 rounded-lg text-xs break-all" :style="{ background: testResult.chat.startsWith('✓') ? 'var(--accent-glow)' : testResult.chat.startsWith('⚠') ? 'var(--amber-glow)' : 'var(--coral-glow)', color: testResult.chat.startsWith('✓') ? 'var(--accent)' : testResult.chat.startsWith('⚠') ? 'var(--amber)' : 'var(--coral)' }">{{ $t('settings.chatApi') }} {{ testResult.chat }}</div>
-          </div>
-          <div v-if="translatedTestError" class="p-3 rounded-lg text-xs break-all" style="background:var(--coral-glow); color:var(--coral); border:1px solid var(--coral); --tw-border-opacity:0.3">✕ {{ translatedTestError }}</div>
-          <div class="pt-2" style="border-top:1px solid var(--border-dim)">
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.claudePath') }}</label>
-            <div v-if="settings.resolvedClaudePath && settings.resolvedClaudePath !== 'claude'" class="text-[11px] font-mono py-1.5 truncate" :style="{ color: 'var(--accent)' }" :title="settings.resolvedClaudePath">
-              {{ $t('settings.claudePathDetected', { path: settings.resolvedClaudePath }) }}
-            </div>
-            <div v-else class="text-[11px] py-1.5 space-y-1.5">
-              <div :style="{ color: 'var(--coral)' }">{{ $t('settings.claudePathNotFound') }}</div>
+        </section>
+
+        <!-- 工作目录（serve 的工作区；顶栏无菜单，入口在此） -->
+        <section class="space-y-4 w-[300px] shrink-0">
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.workspaceTitle') }}</h3>
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.workspaceLabel') }}</label>
+            <div class="flex items-center gap-2">
+              <input
+                :value="settings.cwd"
+                readonly
+                class="flex-1 rounded-lg px-3 py-2 text-xs font-mono truncate outline-none"
+                style="background: var(--bg-elevated); border: 1px solid var(--border-default); color: var(--text-secondary)"
+                :placeholder="$t('settings.workspacePlaceholder')"
+              />
               <button
-                @click="handleInstallCC"
-                :disabled="isInstallingCC"
-                class="w-full py-2 rounded-lg text-sm font-medium transition-colors"
-                :style="{
-                  background: isInstallingCC ? 'var(--bg-elevated)' : 'var(--accent)',
-                  color: isInstallingCC ? 'var(--text-muted)' : '#09090b',
-                }"
-              >{{ isInstallingCC ? $t('settings.installingCC') : $t('settings.installCC') }}
-              </button>
-              <div v-if="ccInstallResult === 'ok'" class="text-xs" style="color:var(--accent)">✓ {{ $t('settings.installCCOk') }}</div>
-              <div v-if="ccInstallResult === 'fail'" class="text-xs" style="color:var(--coral)">✕ {{ $t('settings.installCCFail') }}</div>
+                @click="handleWorkspacePick"
+                class="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
+                style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent-dim)"
+              >{{ $t('settings.browseFolder') }}</button>
             </div>
-            <div class="text-[10px] mb-1 mt-1" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.claudePathOverride') }}</div>
-            <input v-model="settings.claudePath" type="text" :placeholder="$t('settings.claudePathOverridePlaceholder')"
-              class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+            <p class="mt-1 text-[10px]" style="color: var(--text-muted); opacity: 0.7">{{ $t('settings.workspaceHint') }}</p>
           </div>
         </section>
 
-        <!-- CC 管理 -->
+        <!-- 界面设置 -->
         <section class="space-y-4 w-[300px] shrink-0">
-          <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">CC 管理</h3>
-          <div class="grid grid-cols-2 gap-1.5">
-            <button @click="openManageTo('plugins')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🧩</span> 插件
-            </button>
-            <button @click="openManageTo('mcp')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🔌</span> MCP 服务器
-            </button>
-            <button @click="openManageTo('skills')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🎯</span> Skills
-            </button>
-            <button @click="openManageTo('agents')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🤖</span> Agents
-            </button>
-            <button @click="openManageTo('hooks')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🪝</span> Hooks
-            </button>
-            <button @click="openManageTo('memory')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🧠</span> Memory
-            </button>
-            <button @click="openManageTo('permissions')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🛡️</span> 权限规则
-            </button>
-            <button @click="openManageTo('styles')" class="flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-secondary)' }">
-              <span class="text-[13px]">🎨</span> 输出样式
-            </button>
-          </div>
-
-        </section>
-
-        <!-- cc-gui 设置 -->
-        <section class="space-y-4 w-[300px] shrink-0">
-          <div class="flex items-center gap-2">
-            <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.ccGuiSettings') }}</h3>
-            <button @click="openSettingsJson" class="text-[9px] px-1.5 py-0.5 rounded-full font-medium transition-colors hover:underline" :style="{ background: 'var(--accent-glow)', color: 'var(--accent)', cursor: 'pointer' }">{{ $t('settings.fromSettingsJson') }} ↗</button>
-          </div>
+          <h3 class="text-[10px] font-semibold uppercase tracking-widest" :style="{ color: 'var(--text-muted)' }">{{ $t('settings.uiTitle') }}</h3>
 
           <!-- 语言 -->
           <div>
@@ -629,61 +456,9 @@ async function saveSettingsJson() {
             </div>
           </div>
 
-
-          <div>
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.ponytailMode') }}</label>
-            <!-- 检测中不渲染，未安装 → 安装按钮 -->
-            <button
-              v-if="hasPonytail === false"
-              @click="emitChatCommand('install-ponytail'); router.push('/chat')"
-              class="w-full rounded-lg px-3.5 py-2 text-sm font-medium transition-colors"
-              style="background: var(--accent); color: #09090b"
-            >{{ $t('settings.installPonytail') }}</button>
-            <!-- 已安装 → 模式下拉 -->
-            <div
-              v-else-if="hasPonytail === true"
-              class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"
-              :style="{
-                background: 'var(--bg-elevated)',
-                border: openDropdown === 'ponytail' ? '1px solid var(--accent)' : '1px solid var(--border-default)',
-                color: currentPonytail.color
-              }"
-              @click.stop="toggleDropdown('ponytail')"
-            >
-              <span class="text-[13px]">{{ currentPonytail.icon }}</span>
-              <span class="font-medium truncate flex-1">{{ $t(currentPonytail.labelKey) }}</span>
-              <span class="italic text-[0.6rem] opacity-50 hidden sm:inline" style="color:var(--text-secondary)">{{ currentPonytail.cliKey }}</span>
-              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
-                :style="{ opacity: 0.4, transition: 'transform 150ms', transform: openDropdown === 'ponytail' ? 'rotate(180deg)' : '' }">
-                <polyline points="6 9 12 15 18 9"/>
-              </svg>
-              <Transition name="drop-settings">
-                <div
-                  v-if="openDropdown === 'ponytail'"
-                  class="absolute right-0 top-full mt-1 py-1 rounded-lg z-30 w-[300px] shrink-0 max-w-[420px]"
-                  style="background: var(--bg-elevated); border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0,0,0,0.35)"
-                >
-                  <button
-                    v-for="o in ponytailOptions"
-                    :key="o.value"
-                    @click="settings.ponytailMode = o.value; closeDropdowns()"
-                    class="w-full text-left px-3 py-2 transition-colors hover:bg-[var(--bg-hover)]"
-                    :style="{ background: settings.ponytailMode === o.value ? o.color + '18' : 'transparent' }"
-                  >
-                    <div class="flex items-center gap-1.5">
-                      <span class="text-[13px]">{{ o.icon }}</span>
-                      <span class="text-xs font-medium" :style="{ color: settings.ponytailMode === o.value ? o.color : 'var(--text-primary)' }">{{ $t(o.labelKey) }}</span>
-                      <span class="italic text-[0.6rem] ml-auto" style="color:var(--text-secondary)">{{ o.cliKey }}</span>
-                    </div>
-                  </button>
-                </div>
-              </Transition>
-            </div>
-          </div>
-
           <!-- 权限模式 -->
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.defaultMode') }} <button @click="openSettingsJson" class="text-[9px] px-1.5 py-0.5 rounded-full font-medium transition-colors hover:underline ml-1" :style="{ background: 'var(--accent-glow)', color: 'var(--accent)', cursor: 'pointer' }">{{ $t('settings.fromSettingsJson') }} ↗</button></label>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.defaultMode') }}</label>
             <div
               class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"
               :style="{
@@ -726,7 +501,7 @@ async function saveSettingsJson() {
 
           <!-- 思考深度 -->
           <div>
-            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.defaultEffort') }} <button @click="openSettingsJson" class="text-[9px] px-1.5 py-0.5 rounded-full font-medium transition-colors hover:underline ml-1" :style="{ background: 'var(--accent-glow)', color: 'var(--accent)', cursor: 'pointer' }">{{ $t('settings.fromSettingsJson') }} ↗</button></label>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.defaultEffort') }}</label>
             <div
               class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"
               :style="{
@@ -766,6 +541,13 @@ async function saveSettingsJson() {
               </Transition>
             </div>
           </div>
+
+          <!-- 重新显示引导页：重置 dismissed 标记，AppShell 检测到 apiKey 为空即切回 onboarding 全屏 -->
+          <button
+            @click="settings.resetOnboarding()"
+            class="w-full py-2 rounded-lg text-xs font-medium transition-colors"
+            style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent-dim)"
+          >{{ $t('settings.reopenOnboarding') }}</button>
         </section>
       </div>
 
@@ -775,15 +557,6 @@ async function saveSettingsJson() {
           <div class="flex items-center gap-2">
             <span>{{ $t('app.title') }}</span>
             <span style="opacity:0.4">by MaxNull</span>
-            <a
-              href="https://github.com/MaxNull/cc-gui"
-              target="_blank"
-              class="hover:text-[var(--accent)] transition-colors"
-              :style="{ color: 'var(--text-muted)' }"
-              title="GitHub"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
-            </a>
           </div>
           <div class="flex items-center gap-3">
             <button
@@ -795,28 +568,6 @@ async function saveSettingsJson() {
         </div>
       </footer>
     </div>
-  <!-- settings.json 编辑器弹窗 -->
-  <ModalShell :open="showJsonEditor" size="lg" position="top" @close="showJsonEditor = false">
-    <template #header>
-      <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('settings.editSettingsJson') }}</span>
-    </template>
-    <div v-if="jsonEditorError" class="text-xs mb-2 px-3 py-2 rounded" :style="{ background: 'var(--coral-glow)', color: 'var(--coral)' }">{{ jsonEditorError === 'settingsJsonReadError' ? $t('settings.settingsJsonReadError') : jsonEditorError }}</div>
-    <textarea
-      v-model="jsonEditorContent"
-      class="w-full rounded-lg p-3 text-xs font-mono leading-relaxed resize-none outline-none"
-      :style="{ background: 'var(--bg-elevated)', color: 'var(--text-primary)', border: '1px solid var(--border-dim)', minHeight: '420px' }"
-      rows="24"
-      spellcheck="false"
-    ></textarea>
-    <div class="flex items-center justify-end gap-2 mt-3">
-      <button @click="showJsonEditor = false" class="text-xs px-3 py-1.5 rounded transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }">{{ $t('manage.back') }}</button>
-      <button
-        @click="saveSettingsJson"
-        class="px-4 py-1.5 rounded text-xs font-medium transition-colors"
-        :style="{ background: jsonEditorSaved ? 'var(--accent-dim)' : 'var(--accent)', color: 'var(--bg-root)' }"
-      >{{ jsonEditorSaved ? $t('manage.saved') : $t('manage.save') }}</button>
-    </div>
-  </ModalShell>
   <!-- 更新日志弹窗 -->
   <ModalShell :open="showChangelog" size="lg" position="top" @close="showChangelog = false">
     <template #header>
@@ -824,7 +575,6 @@ async function saveSettingsJson() {
     </template>
     <MarkdownRenderer :content="changelogContent" />
   </ModalShell>
-  <ManagePanel :open="showManagePanel" :initial-tab="manageInitialTab" @close="showManagePanel = false; manageInitialTab = ''" />
   </ErrorBoundary>
 </template>
 

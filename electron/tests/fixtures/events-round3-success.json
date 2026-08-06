@@ -1,0 +1,1113 @@
+[
+  {
+    "id": "evt_fd7a8d667001BxIt8Drvajf5m4",
+    "type": "server.connected",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd7a8d66b001lM7U9NEoLDr8ix",
+    "type": "session.created",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "ses_028572995ffezRnDPeBViMNiem",
+        "slug": "shiny-harbor",
+        "version": "1.18.5",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal",
+        "path": "",
+        "title": "阶段4-集成冒烟",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786029594219,
+          "updated": 1786029594219
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d6e8001C0cZ9lQX8F9tD1",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "ses_028572995ffezRnDPeBViMNiem",
+        "slug": "shiny-harbor",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal",
+        "path": "",
+        "title": "阶段4-集成冒烟",
+        "agent": "build",
+        "model": {
+          "id": "deepseek-v4-pro",
+          "providerID": "ds",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786029594219,
+          "updated": 1786029594342
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d6ec0016u3F3gGltWZSAq",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "role": "user",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "time": {
+          "created": 1786029594342
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "ds",
+          "modelID": "deepseek-v4-pro"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d81b001zuV3SpL7wqP1EU",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "type": "text",
+        "text": "只回复两个字：你好",
+        "messageID": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "id": "prt_fd7a8d6eb001c76RDW5IUp4KkY"
+      },
+      "time": 1786029594651
+    }
+  },
+  {
+    "id": "evt_fd7a8d81e001gI11HHIF2qBcme",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "ses_028572995ffezRnDPeBViMNiem",
+        "slug": "shiny-harbor",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal",
+        "path": "",
+        "title": "阶段4-集成冒烟",
+        "agent": "build",
+        "model": {
+          "id": "deepseek-v4-pro",
+          "providerID": "ds",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786029594219,
+          "updated": 1786029594653
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d822001JT0IBFpUGQFSHQ",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d824001NAr6xk3GM3ORAO",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "parentID": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "H:\\MaxNull\\WorkStation\\fractal",
+          "root": "H:\\MaxNull\\WorkStation\\fractal"
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "modelID": "deepseek-v4-pro",
+        "providerID": "ds",
+        "time": {
+          "created": 1786029594660
+        },
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d9b4001FdLIyuCagMQJiO",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "ses_028572995ffezRnDPeBViMNiem",
+        "slug": "shiny-harbor",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal",
+        "path": "",
+        "title": "阶段4-集成冒烟",
+        "agent": "build",
+        "model": {
+          "id": "deepseek-v4-pro",
+          "providerID": "ds",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786029594219,
+          "updated": 1786029595060
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8d9b70014ned1FNnChvjTc",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_fd7a8d9b9001F5bznWrp7KjBUa",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1786029594342
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "ds",
+          "modelID": "deepseek-v4-pro"
+        },
+        "id": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "summary": {
+          "diffs": []
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8dace001sOH82HEQnKH5en",
+    "type": "plugin.added",
+    "properties": {
+      "id": "core/config-reference"
+    }
+  },
+  {
+    "id": "evt_fd7a8dace002B500yY8epn5iV7",
+    "type": "plugin.added",
+    "properties": {
+      "id": "agent"
+    }
+  },
+  {
+    "id": "evt_fd7a8dace003aA1f9vwZKEFmyB",
+    "type": "plugin.added",
+    "properties": {
+      "id": "command"
+    }
+  },
+  {
+    "id": "evt_fd7a8dacf001vkamabwdMq3tU1",
+    "type": "plugin.added",
+    "properties": {
+      "id": "skill"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad00015W6IAGlisY8v93",
+    "type": "plugin.added",
+    "properties": {
+      "id": "models-dev"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad0002yqKwWnwOXJcOSz",
+    "type": "plugin.added",
+    "properties": {
+      "id": "config-agent"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad1001YJYyRSOCdbOPvr",
+    "type": "plugin.added",
+    "properties": {
+      "id": "config-command"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad10027Ff9oG3DIHihM6",
+    "type": "plugin.added",
+    "properties": {
+      "id": "config-skill"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad1003m7aI4BVSQxJYhj",
+    "type": "plugin.added",
+    "properties": {
+      "id": "alibaba"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad2001qaqWBtb4hQS0Yi",
+    "type": "plugin.added",
+    "properties": {
+      "id": "amazon-bedrock"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad2002ToahPA2GjZ01z6",
+    "type": "plugin.added",
+    "properties": {
+      "id": "anthropic"
+    }
+  },
+  {
+    "id": "evt_fd7a8dad2003P1k3Mgdy751O8R",
+    "type": "plugin.added",
+    "properties": {
+      "id": "azure-cognitive-services"
+    }
+  },
+  {
+    "id": "evt_fd7a8daff00193I0wI5EL1o1m0",
+    "type": "plugin.added",
+    "properties": {
+      "id": "azure"
+    }
+  },
+  {
+    "id": "evt_fd7a8db00001xa6lruOswfEl5n",
+    "type": "plugin.added",
+    "properties": {
+      "id": "cerebras"
+    }
+  },
+  {
+    "id": "evt_fd7a8db00002zLTaz3pf2pQ7Sw",
+    "type": "plugin.added",
+    "properties": {
+      "id": "cloudflare-ai-gateway"
+    }
+  },
+  {
+    "id": "evt_fd7a8db010011PIucl1AgkBrFb",
+    "type": "plugin.added",
+    "properties": {
+      "id": "cloudflare-workers-ai"
+    }
+  },
+  {
+    "id": "evt_fd7a8db01002nHqHSIo2hAlR5e",
+    "type": "plugin.added",
+    "properties": {
+      "id": "cohere"
+    }
+  },
+  {
+    "id": "evt_fd7a8db01003VaUaMQb3YYdn65",
+    "type": "plugin.added",
+    "properties": {
+      "id": "deepinfra"
+    }
+  },
+  {
+    "id": "evt_fd7a8db01004aXj6fREe30lZfo",
+    "type": "plugin.added",
+    "properties": {
+      "id": "gateway"
+    }
+  },
+  {
+    "id": "evt_fd7a8db02001YQOCrE64Cloccz",
+    "type": "plugin.added",
+    "properties": {
+      "id": "github-copilot"
+    }
+  },
+  {
+    "id": "evt_fd7a8db020025RGnbZ035RvWbT",
+    "type": "plugin.added",
+    "properties": {
+      "id": "gitlab"
+    }
+  },
+  {
+    "id": "evt_fd7a8db0200341pxEZXAYC2bUf",
+    "type": "plugin.added",
+    "properties": {
+      "id": "google"
+    }
+  },
+  {
+    "id": "evt_fd7a8db03001ZOKvBSM8rADVbR",
+    "type": "plugin.added",
+    "properties": {
+      "id": "google-vertex-anthropic"
+    }
+  },
+  {
+    "id": "evt_fd7a8db030025eY566FQSI74l4",
+    "type": "plugin.added",
+    "properties": {
+      "id": "google-vertex"
+    }
+  },
+  {
+    "id": "evt_fd7a8db100010cI2na5G14pWee",
+    "type": "plugin.added",
+    "properties": {
+      "id": "groq"
+    }
+  },
+  {
+    "id": "evt_fd7a8db11001l8xSTfMWCAfru6",
+    "type": "plugin.added",
+    "properties": {
+      "id": "kilo"
+    }
+  },
+  {
+    "id": "evt_fd7a8db110027L5HNxQMkAx74T",
+    "type": "plugin.added",
+    "properties": {
+      "id": "llmgateway"
+    }
+  },
+  {
+    "id": "evt_fd7a8db12001tHh1i5xLkMBUp2",
+    "type": "plugin.added",
+    "properties": {
+      "id": "mistral"
+    }
+  },
+  {
+    "id": "evt_fd7a8db12002gSDa0BLri9PSZh",
+    "type": "plugin.added",
+    "properties": {
+      "id": "nvidia"
+    }
+  },
+  {
+    "id": "evt_fd7a8db13001qEso1H75VItO1b",
+    "type": "plugin.added",
+    "properties": {
+      "id": "opencode"
+    }
+  },
+  {
+    "id": "evt_fd7a8db14001rP58R56oLQ1I4G",
+    "type": "plugin.added",
+    "properties": {
+      "id": "snowflake-cortex"
+    }
+  },
+  {
+    "id": "evt_fd7a8db14002h15bBuQolBDw8X",
+    "type": "plugin.added",
+    "properties": {
+      "id": "openai-compatible"
+    }
+  },
+  {
+    "id": "evt_fd7a8db14003d8cIwzoUAuiUXj",
+    "type": "plugin.added",
+    "properties": {
+      "id": "openai"
+    }
+  },
+  {
+    "id": "evt_fd7a8db15001UJ1hAWpUyesHsF",
+    "type": "plugin.added",
+    "properties": {
+      "id": "openrouter"
+    }
+  },
+  {
+    "id": "evt_fd7a8db15002Mzk9Ijwh0Ay5Dk",
+    "type": "plugin.added",
+    "properties": {
+      "id": "perplexity"
+    }
+  },
+  {
+    "id": "evt_fd7a8db15003LEPAFaoisiv6VA",
+    "type": "plugin.added",
+    "properties": {
+      "id": "sap-ai-core"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6a001YpaisU4gHBhHDy",
+    "type": "catalog.updated",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd7a8db6a002Yaw9OuHQqQISzD",
+    "type": "plugin.added",
+    "properties": {
+      "id": "togetherai"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6a003WCVrkt8dybn1U6",
+    "type": "plugin.added",
+    "properties": {
+      "id": "vercel"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6a004Uh5b3M6qfTm28m",
+    "type": "plugin.added",
+    "properties": {
+      "id": "venice"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6b0016rpHE1aMl29nzs",
+    "type": "plugin.added",
+    "properties": {
+      "id": "xai"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6b002E4r3pOv1VRpSZ3",
+    "type": "plugin.added",
+    "properties": {
+      "id": "zenmux"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6b003W91qLyZpFwcPyV",
+    "type": "plugin.added",
+    "properties": {
+      "id": "dynamic-provider"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6d001GGqd7jAR4T4CZJ",
+    "type": "plugin.added",
+    "properties": {
+      "id": "config-plugin"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6d002ofVw01YArsSjIH",
+    "type": "plugin.added",
+    "properties": {
+      "id": "config-provider"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6d0032pDDNNTkPbCwUW",
+    "type": "plugin.added",
+    "properties": {
+      "id": "variant"
+    }
+  },
+  {
+    "id": "evt_fd7a8db6e001miA1HRoPRJpLMU",
+    "type": "reference.updated",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd7a8dba1001N5ovE1iYWUK9Rl",
+    "type": "integration.updated",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd7a8dbe9001JNYigP6RE05GmT",
+    "type": "catalog.updated",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd7a8dd39001xgqcH770NXOBtn",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8de4f001RHceUXE6zIbigC",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8de4f001nnp6NzyO6jBrbE",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "snapshot": "0fc40dacaac999a9fa395b1f473dfbdf74c40d5b",
+        "type": "step-start"
+      },
+      "time": 1786029596239
+    }
+  },
+  {
+    "id": "evt_fd7a8e402001F8WBpm1fFDbK8u",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8e402001UvhxZTfcstER6A",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "type": "reasoning",
+        "text": "",
+        "time": {
+          "start": 1786029597698
+        }
+      },
+      "time": 1786029597698
+    }
+  },
+  {
+    "id": "evt_fd7a8e404001Fhfsiv2rR2v7JN",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": "The"
+    }
+  },
+  {
+    "id": "evt_fd7a8e4cd001OKIrb5XCR8RyiK",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " user"
+    }
+  },
+  {
+    "id": "evt_fd7a8e519001wH8ex2oLXJq2SD",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " is"
+    }
+  },
+  {
+    "id": "evt_fd7a8e51a00123TyVE2Zb41VAH",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " asking"
+    }
+  },
+  {
+    "id": "evt_fd7a8e51a002ot74tokkR0ALkC",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " me"
+    }
+  },
+  {
+    "id": "evt_fd7a8e51a003Fxoot2cZLkNxLh",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " to"
+    }
+  },
+  {
+    "id": "evt_fd7a8e51a004m31Gvy3Fv0NMIP",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " only"
+    }
+  },
+  {
+    "id": "evt_fd7a8e553001q8psX7hgAfujR5",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " reply"
+    }
+  },
+  {
+    "id": "evt_fd7a8e553002R0VbPCtO9uUySO",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " with"
+    }
+  },
+  {
+    "id": "evt_fd7a8e553003IvYBP9IUR4yA2N",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " two"
+    }
+  },
+  {
+    "id": "evt_fd7a8e588001AjSRbwvXB7HTxr",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " characters"
+    }
+  },
+  {
+    "id": "evt_fd7a8e5d5001pqmgfJfPes7qYw",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": ":"
+    }
+  },
+  {
+    "id": "evt_fd7a8e5d50021KdFIVhRgkErQy",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " \""
+    }
+  },
+  {
+    "id": "evt_fd7a8e5d6001LtG7kvovcY0NEh",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": "你好"
+    }
+  },
+  {
+    "id": "evt_fd7a8e5d60021WkgH0HyQYQ1ev",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": "\"."
+    }
+  },
+  {
+    "id": "evt_fd7a8e606001fOjrKFBGw9VPmo",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " This"
+    }
+  },
+  {
+    "id": "evt_fd7a8e606002YtN5I7Dr2Wq9r9",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " is"
+    }
+  },
+  {
+    "id": "evt_fd7a8e63b0011QmhlIKR0YHm9H",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": " straightforward"
+    }
+  },
+  {
+    "id": "evt_fd7a8e63b002L7TG6RGzdTTdTD",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e402001UvhxZTfcstER6A",
+      "field": "text",
+      "delta": "."
+    }
+  },
+  {
+    "id": "evt_fd7a8e68c001nMU7ndLu4eDk0J",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8e402001UvhxZTfcstER6A",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "type": "reasoning",
+        "text": "The user is asking me to only reply with two characters: \"你好\". This is straightforward.",
+        "time": {
+          "start": 1786029597698,
+          "end": 1786029598348
+        }
+      },
+      "time": 1786029598348
+    }
+  },
+  {
+    "id": "evt_fd7a8e68e001Y9RODwaFurogqH",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8e68e001UAoY2Vnsw4ccK2",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "type": "text",
+        "text": "",
+        "time": {
+          "start": 1786029598350
+        }
+      },
+      "time": 1786029598350
+    }
+  },
+  {
+    "id": "evt_fd7a8e692001h21GOIeP1X96m4",
+    "type": "message.part.delta",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+      "partID": "prt_fd7a8e68e001UAoY2Vnsw4ccK2",
+      "field": "text",
+      "delta": "你好"
+    }
+  },
+  {
+    "id": "evt_fd7a8e693001rHipSq0gGobmOB",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8e68e001UAoY2Vnsw4ccK2",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "type": "text",
+        "text": "你好",
+        "time": {
+          "start": 1786029598350,
+          "end": 1786029598355
+        }
+      },
+      "time": 1786029598355
+    }
+  },
+  {
+    "id": "evt_fd7a8e7f2001GE7AO3Z9vHGcdL",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "part": {
+        "id": "prt_fd7a8e7f10012B0ETpkW4dVA41",
+        "reason": "stop",
+        "snapshot": "0fc40dacaac999a9fa395b1f473dfbdf74c40d5b",
+        "messageID": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "type": "step-finish",
+        "tokens": {
+          "total": 11677,
+          "input": 9736,
+          "output": 2,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 1920
+          }
+        },
+        "cost": 0
+      },
+      "time": 1786029598706
+    }
+  },
+  {
+    "id": "evt_fd7a8e7f40014ABgSdaKSEco2t",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "parentID": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "H:\\MaxNull\\WorkStation\\fractal",
+          "root": "H:\\MaxNull\\WorkStation\\fractal"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 11677,
+          "input": 9736,
+          "output": 2,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 1920
+          }
+        },
+        "modelID": "deepseek-v4-pro",
+        "providerID": "ds",
+        "time": {
+          "created": 1786029594660
+        },
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8e93a001ALsbLStCLOqgJ0",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "msg_fd7a8d824001c3ugEiOjptba3H",
+        "parentID": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "role": "assistant",
+        "mode": "build",
+        "agent": "build",
+        "path": {
+          "cwd": "H:\\MaxNull\\WorkStation\\fractal",
+          "root": "H:\\MaxNull\\WorkStation\\fractal"
+        },
+        "cost": 0,
+        "tokens": {
+          "total": 11677,
+          "input": 9736,
+          "output": 2,
+          "reasoning": 19,
+          "cache": {
+            "write": 0,
+            "read": 1920
+          }
+        },
+        "modelID": "deepseek-v4-pro",
+        "providerID": "ds",
+        "time": {
+          "created": 1786029594660,
+          "completed": 1786029599033
+        },
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+        "finish": "stop"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8e93c001k0uZG8nDEAPGos",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8e93e001wNTKK0tnD4eTtr",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "status": {
+        "type": "idle"
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8e93e002hsEqEqd45ewnkE",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem"
+    }
+  },
+  {
+    "id": "evt_fd7a8e93f001LET33Za0X8RmKl",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "id": "ses_028572995ffezRnDPeBViMNiem",
+        "slug": "shiny-harbor",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal",
+        "path": "",
+        "title": "阶段4-集成冒烟",
+        "agent": "build",
+        "model": {
+          "id": "deepseek-v4-pro",
+          "providerID": "ds",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "summary": {
+          "additions": 0,
+          "deletions": 0,
+          "files": 0
+        },
+        "cost": 0,
+        "tokens": {
+          "input": 9736,
+          "output": 2,
+          "reasoning": 19,
+          "cache": {
+            "read": 1920,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1786029594219,
+          "updated": 1786029599039
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd7a8e941001Ca1DD1bxc5yUMY",
+    "type": "session.diff",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "diff": []
+    }
+  },
+  {
+    "id": "evt_fd7a8e9c9001GyJSSVo6dGJ2KP",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_028572995ffezRnDPeBViMNiem",
+      "info": {
+        "role": "user",
+        "time": {
+          "created": 1786029594342
+        },
+        "agent": "build",
+        "model": {
+          "providerID": "ds",
+          "modelID": "deepseek-v4-pro"
+        },
+        "summary": {
+          "diffs": []
+        },
+        "id": "msg_fd7a8d6e6001ghhPFaJi7Q706d",
+        "sessionID": "ses_028572995ffezRnDPeBViMNiem"
+      }
+    }
+  }
+]

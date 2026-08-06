@@ -4,10 +4,9 @@ import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useStreamProcessor } from "./useStreamProcessor";
 
-const { listeners, saveMessageMock, storeClaudeSessionMock } = vi.hoisted(() => ({
+const { listeners, saveMessageMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
   saveMessageMock: vi.fn(),
-  storeClaudeSessionMock: vi.fn(),
 }));
 
 // 桩 window.electronBridge：useStreamProcessor 的事件订阅入口（原 @tauri-apps/api/event listen）
@@ -51,7 +50,6 @@ vi.mock("@/lib/electron-bridge", async () => {
   return {
     ...actual,
     saveMessage: saveMessageMock,
-    storeClaudeSession: storeClaudeSessionMock,
     saveSessionDebugLog: vi.fn().mockResolvedValue(undefined),
     saveSessionStderrLog: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue([]),
@@ -64,8 +62,6 @@ describe("useStreamProcessor", () => {
     listeners.clear();
     saveMessageMock.mockReset();
     saveMessageMock.mockResolvedValue(undefined);
-    storeClaudeSessionMock.mockReset();
-    storeClaudeSessionMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -86,7 +82,7 @@ describe("useStreamProcessor", () => {
     const { startListening, stopListening } = useStreamProcessor();
     await startListening();
 
-    listeners.get("stream-event")?.({
+    listeners.get("engine:event")?.({
       type: "result",
       session_id: "event-session",
       text: "",
@@ -122,7 +118,7 @@ describe("useStreamProcessor", () => {
     const { startListening, stopListening } = useStreamProcessor();
     await startListening();
 
-    listeners.get("stream-event")?.({
+    listeners.get("engine:event")?.({
       type: "result",
       text: "",
       thinking: "",
@@ -141,6 +137,49 @@ describe("useStreamProcessor", () => {
       expect.any(String),
       "{}",
     );
+
+    stopListening();
+  });
+
+  it("engine:status → session.serving 连接状态更新", async () => {
+    const session = useSessionStore();
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:status")?.({ running: true });
+    expect(session.serving).toBe(true);
+    listeners.get("engine:status")?.({ running: false });
+    expect(session.serving).toBe(false);
+
+    stopListening();
+  });
+
+  it("control_request 事件 → 审批弹窗数据（pendingControlRequest）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "control_request",
+      session_id: "ses-1",
+      text: "",
+      thinking: "",
+      control_request: {
+        subtype: "request",
+        tool_name: "Bash",
+        tool_input: { command: "ls" },
+        request_id: "perm-1",
+      },
+    });
+
+    expect(chat.pendingControlRequest).not.toBeNull();
+    expect(chat.pendingControlRequest?.tool_name).toBe("Bash");
+    expect(chat.pendingControlRequest?.request_id).toBe("perm-1");
+    // 审批中 → 会话活动状态 blocked（橙点，最高优先级）
+    expect(session.sessionActivity["ses-1"]).toBe("blocked");
 
     stopListening();
   });

@@ -128,7 +128,7 @@ export const useChatStore = defineStore("chat", () => {
    * 处理后台会话的流式事件（当前活跃会话不是该 session 时调用）。
    * 将增量数据写入 sessionCache，切回时 loadFromCache 即可恢复完整状态。
    */
-  // ponytail: event 用 any 避免跨模块类型依赖
+  // event 用 any 避免跨模块类型依赖
   function handleBackgroundStreamEvent(sessionId: string, event: any) {
     const cached = sessionCache.get(sessionId);
     const cachedMessages = cached?.messages || [];
@@ -423,7 +423,7 @@ export const useChatStore = defineStore("chat", () => {
     lines.push(`> Exported at ${new Date().toISOString().slice(0, 19).replace('T', ' ')}`);
     lines.push('');
     for (const msg of messages.value) {
-      const roleLabel = msg.role === 'user' ? '## You' : '## Claude';
+      const roleLabel = msg.role === 'user' ? '## You' : '## 分形';
       lines.push(roleLabel);
       if (msg.thinking) {
         lines.push('');

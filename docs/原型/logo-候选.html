@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>分形 Logo 候选方案</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0f1117; color: #e8eaf0; margin: 0; padding: 40px; }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .sub { color: #8b93a7; font-size: 13px; margin-bottom: 32px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1100px; }
+  .card { background: #161a23; border: 1px solid #262c3a; border-radius: 16px; padding: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .card .desc { font-size: 12px; color: #8b93a7; line-height: 1.6; margin-bottom: 8px; }
+  .card .meta { font-size: 11px; color: #5b6374; margin-bottom: 16px; }
+  .preview { display: flex; gap: 14px; align-items: center; margin-top: 12px; }
+  .preview img { border-radius: 10px; }
+  .preview .label { font-size: 10px; color: #5b6374; }
+  .dark-bg { background: #0f1117; border-radius: 10px; padding: 8px; }
+  .light-bg { background: #f6f7f9; border-radius: 10px; padding: 8px; }
+  img.big { width: 128px; height: 128px; }
+  img.mid { width: 48px; height: 48px; }
+  img.small { width: 24px; height: 24px; }
+</style></head><body>
+<h1>分形 Logo 候选方案</h1>
+<div class="sub">三个几何分形方向 · 全部暗底 #1a1a2e 圆角 48 · 与当前 UI 主题色一致</div>
+<div class="grid">
+<div class="card">
+  <h2>方案 A · 谢尔宾斯基三角</h2><div class="desc">经典分形符号，几何秩序感，识别度高</div><div class="meta">绿 #34d399 / 暗底 #1a1a2e</div>
+  <img class="big" src="candidates/a-sierpinski.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates/a-sierpinski.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates/a-sierpinski.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates/a-sierpinski.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>方案 B · 科赫雪花</h2><div class="desc">自然分形，柔和优雅，亲和力强</div><div class="meta">天蓝→绿渐变</div>
+  <img class="big" src="candidates/b-koch.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates/b-koch.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates/b-koch.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates/b-koch.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>方案 C · 递归分叉树</h2><div class="desc">生命成长感，隐喻 AI 助手帮你成长</div><div class="meta">翠绿→浅绿渐变</div>
+  <img class="big" src="candidates/c-tree.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates/c-tree.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates/c-tree.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates/c-tree.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+</div>
+<div class="sub" style="margin-top:28px">选定后：生成全套尺寸（512/256/128/64/32/16 + favicon + ico），替换 logo.svg / resources/icon.png / build/icon.png</div>
+</body></html>

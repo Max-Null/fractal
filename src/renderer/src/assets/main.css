@@ -2,84 +2,90 @@
 @plugin "daisyui";
 @plugin "@tailwindcss/typography";
 
-/* ── cc-gui Design System: Precision Terminal ── */
+/* ── 分形 Design System: Minimal & Refined（对齐原型 v0.23 简约风）── */
 
-html { font-size: 18px; }
-html[data-font-size="small"]  { font-size: 14px; }
-html[data-font-size="medium"] { font-size: 18px; }
-html[data-font-size="large"]  { font-size: 22px; }
+html { font-size: 14px; }
+html[data-font-size="small"]  { font-size: 12px; }
+html[data-font-size="medium"] { font-size: 14px; }
+html[data-font-size="large"]  { font-size: 16px; }
 
 :root {
-  --bg-root: #09090b;
-  --bg-surface: #111113;
-  --bg-elevated: #18181c;
-  --bg-hover: #1e1e26;
-  --bg-active: #262634;
+  --bg-root: #0e1116;
+  --bg-surface: #1a1f28;
+  --bg-elevated: #1a1f28;
+  --bg-hover: #212734;
+  --bg-active: #2a3140;
 
-  --border-dim: #242436;
-  --border-default: #2e2e42;
-  --border-bright: #484864;
+  --border-dim: rgba(255, 255, 255, 0.07);
+  --border-default: rgba(255, 255, 255, 0.13);
+  --border-bright: rgba(255, 255, 255, 0.22);
 
-  --text-muted: #5c5c76;
-  --text-secondary: #8888a4;
-  --text-primary: #c0c0d0;
-  --text-bright: #e8e8f4;
+  --text-muted: #4a525f;
+  --text-secondary: #6d7684;
+  --text-primary: #a8b0bc;
+  --text-bright: #f2f4f7;
 
-  --accent: #06d6a0;
-  --accent-dim: #048a66;
-  --accent-glow: rgba(6, 214, 160, 0.10);
+  --accent: #34d399;
+  --accent-dim: #0d9488;
+  --accent-glow: rgba(52, 211, 153, 0.12);
+  --accent-line: rgba(52, 211, 153, 0.35);
 
-  --amber: #f5a623;
-  --amber-glow: rgba(245, 166, 35, 0.08);
+  --amber: #fbbf24;
+  --amber-glow: rgba(251, 191, 36, 0.10);
 
-  --coral: #ff5e5b;
-  --coral-glow: rgba(255, 94, 91, 0.10);
+  --coral: #f87171;
+  --coral-glow: rgba(248, 113, 113, 0.10);
 
   --violet: #a78bfa;
 
-  --blue: #3b82f6;
+  --blue: #60a5fa;
 
-  --font-mono: "JetBrains Mono", "Cascadia Code", "Fira Code", "Consolas", monospace;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", "Consolas", monospace;
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --shadow-pop: 0 24px 60px rgba(0, 0, 0, 0.45), 0 4px 16px rgba(0, 0, 0, 0.25);
 }
 
 /* ── Light Theme ──
    必须在 :root 之后，否则 @import 会被提升到 :root 之前导致亮色变量被覆盖。 */
 [data-theme="light"] {
-  --bg-root: #f8f9fa;
+  --bg-root: #f7f8fa;
   --bg-surface: #ffffff;
-  --bg-elevated: #f0f1f3;
-  --bg-hover: #e8e9ec;
-  --bg-active: #dfe0e4;
-  --border-dim: #d4d5da;
-  --border-default: #b8b9bf;
-  --border-bright: #9a9ba4;
-  --text-muted: #5f6069;
-  --text-secondary: #4a4b55;
-  --text-primary: #23242c;
-  --text-bright: #0f1017;
-  --accent: #059669;
-  --accent-dim: #047857;
-  --accent-glow: rgba(5, 150, 105, 0.08);
+  --bg-elevated: #ffffff;
+  --bg-hover: #eef1f5;
+  --bg-active: #e4e8ee;
+  --border-dim: rgba(15, 23, 42, 0.08);
+  --border-default: rgba(15, 23, 42, 0.16);
+  --border-bright: rgba(15, 23, 42, 0.22);
+  --text-muted: #b0bcc9;
+  --text-secondary: #8494a8;
+  --text-primary: #475569;
+  --text-bright: #0f172a;
+  /* v0.14 起：亮色主题品牌色由绿改天蓝（绿底黑字辨识差） */
+  --accent: #0ea5e9;
+  --accent-dim: #0284c7;
+  --accent-glow: rgba(14, 165, 233, 0.10);
+  --accent-line: rgba(14, 165, 233, 0.35);
   --amber: #d97706;
-  --amber-glow: rgba(217, 119, 6, 0.07);
+  --amber-glow: rgba(217, 119, 6, 0.10);
   --coral: #dc2626;
-  --coral-glow: rgba(220, 38, 38, 0.08);
+  --coral-glow: rgba(220, 38, 38, 0.10);
   --violet: #7c3aed;
   --blue: #2563eb;
+  --shadow-pop: 0 24px 60px rgba(15, 23, 42, 0.12), 0 4px 16px rgba(15, 23, 42, 0.06);
 }
 [data-theme="light"] .prose {
-  --tw-prose-body: #23242c;
-  --tw-prose-headings: #0f1017;
-  --tw-prose-links: #059669;
-  --tw-prose-code: #059669;
+  --tw-prose-body: var(--text-primary);
+  --tw-prose-headings: var(--text-bright);
+  --tw-prose-links: var(--accent);
+  --tw-prose-code: var(--accent);
   --tw-prose-pre-bg: #f0f1f3;
-  --tw-prose-th-borders: #b8b9bf;
-  --tw-prose-td-borders: #d4d5da;
+  --tw-prose-th-borders: var(--border-default);
+  --tw-prose-td-borders: var(--border-dim);
 }
 /* 代码块在亮色下保持暗底（highlight.js github-dark 主题需要） */
 [data-theme="light"] .prose pre,
@@ -96,14 +102,24 @@ body {
   background: var(--bg-root);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   scrollbar-width: thin;
   scrollbar-color: var(--border-default) transparent;
 }
 
-::-webkit-scrollbar { width: 4px; height: 4px; }
+/* 标题层级（原型：h1 22px / h2 17px / h3 16px，14px 基准） */
+@layer base {
+  h1 { font-size: 22px; line-height: 1.35; font-weight: 700; letter-spacing: -0.02em; }
+  h2 { font-size: 17px; line-height: 1.4; font-weight: 600; }
+  h3 { font-size: 16px; line-height: 1.45; font-weight: 600; }
+  h4 { font-size: 14px; line-height: 1.5; font-weight: 600; }
+}
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--border-default); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--border-bright); }
 
 *:focus-visible { outline: none; }
@@ -124,28 +140,29 @@ body {
 @keyframes fade-in { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:translateY(0) } }
 .message-enter { animation: fade-in 0.2s ease-out; }
 
-/* Scroll-to-bottom button */
+/* Scroll-to-bottom button（原型 v0.18：右下角圆形悬浮按钮） */
 .scroll-to-bottom-btn {
   position: absolute;
-  bottom: 100%;
-  margin-bottom: 6px;
-  left: 50%;
-  translate: -50% 0;
+  bottom: calc(100% + 12px);
+  right: 30px;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  border: 1px solid var(--border-bright);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.15);
-  transition: all 150ms;
+  border: 1px solid var(--border-default);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  transition: all 200ms;
 }
 .scroll-to-bottom-btn:hover {
-  scale: 1.1;
+  border-color: var(--accent-line);
+  color: var(--accent);
+  background: var(--accent-glow);
+  transform: translateY(-2px);
 }
 
 /* ── 通用按钮 ── */
@@ -153,7 +170,7 @@ body {
   padding: 0.375rem 0.75rem;
   border-radius: 0.375rem;
   border: 1px solid transparent;
-  font-size: 0.75rem;
+  font-size: 12px;
   transition: background-color 150ms;
   color: var(--text-secondary);
 }
@@ -162,7 +179,7 @@ body {
 .btn-primary {
   padding: 0.5rem 0.75rem;
   border-radius: 0.375rem;
-  font-size: 0.75rem;
+  font-size: 12px;
   font-weight: 500;
   transition: background-color 150ms;
   background: var(--accent);
@@ -197,7 +214,7 @@ body {
   display: inline-flex; align-items: center;
   padding: 0.125rem 0.5rem;
   border-radius: 999px;
-  font-size: 0.625rem; line-height: 1.25;
+  font-size: 10px; line-height: 1.25;
   font-weight: 500;
   background: var(--bg-elevated);
   border: 1px solid var(--border-dim);
@@ -229,7 +246,7 @@ body {
 .status-float-leave-to { opacity: 0; top: 0; }
 
 .status-pill {
-  font-size: 0.75rem;
+  font-size: 12px;
   padding: 0.25rem 0.75rem;
   border-radius: 999px;
   background: var(--accent-glow);
@@ -242,7 +259,7 @@ body {
 .code-block {
   padding: 0.75rem;
   border-radius: 0.5rem;
-  font-size: 0.6875rem;
+  font-size: 11px;
   font-family: ui-monospace, monospace;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -254,7 +271,7 @@ body {
   display: flex; align-items: center; gap: 0.375rem;
   padding: 0.25rem 0.375rem 0.25rem 0.5rem;
   border-radius: 0.375rem;
-  font-size: 0.6875rem;
+  font-size: 11px;
   flex-shrink: 0;
 }
 .chip--clickable { cursor: pointer; transition: background-color 150ms; }
@@ -262,7 +279,7 @@ body {
 
 /* ── 通用调试按钮 ── */
 .debug-btn {
-  cursor: pointer; font-size: 0.6875rem;
+  cursor: pointer; font-size: 11px;
   transition: color 150ms; display: flex; align-items: center; gap: 0.25rem;
 }
 .debug-btn:hover { color: var(--text-secondary); }
@@ -279,7 +296,7 @@ body {
   width: 4rem; height: 4rem; border-radius: 1rem;
 }
 .welcome-title {
-  font-size: 1.25rem; font-weight: 700;
+  font-size: 18px; font-weight: 700;
   margin-bottom: 0.5rem;
   letter-spacing: -0.02em;
 }
@@ -301,7 +318,7 @@ body {
   display: flex; align-items: center; gap: 0.375rem;
   padding: 0.25rem 0.5rem;
   border-radius: 0.375rem;
-  font-size: 0.6875rem;
+  font-size: 11px;
   flex-shrink: 0;
   max-width: 260px;
 }
@@ -310,7 +327,7 @@ body {
 }
 .attach-chip-name {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-size: 0.6875rem; font-weight: 500;
+  font-size: 11px; font-weight: 500;
 }
 
 /* ── 操作按钮条 ── */
@@ -324,7 +341,7 @@ body {
 /* ── 简朴输入框 ── */
 .input-plain {
   width: 100%; background: transparent;
-  font-size: 0.75rem; padding: 0.5rem 0.75rem;
+  font-size: 12px; padding: 0.5rem 0.75rem;
   border-radius: 0.375rem; border: 1px solid var(--border-dim);
   outline: none; color: var(--text-primary);
   caret-color: var(--accent);
@@ -335,12 +352,14 @@ body {
   color: var(--text-bright);
 }
 
-/* ── 输入栏容器 ── */
+/* ── 输入栏容器（原型 composer-wrap：顶部分隔 + 半透明底 + 毛玻璃）── */
 .sb-input-bar {
   position: relative;
   flex-shrink: 0;
-  padding: 0 0 1.5rem;
-  background: var(--bg-root);
+  padding: 14px 24px 18px;
+  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+  border-top: 1px solid var(--border-dim);
+  backdrop-filter: blur(12px);
 }
 
 /* ── 聊天面板 ── */
@@ -373,11 +392,11 @@ body {
 }
 .chat-messages::-webkit-scrollbar { display: none; }
 .chat-messages-inner {
-  max-width: 48rem;
+  max-width: 760px;
   margin: 0 auto;
-  padding: 1rem 1rem 1.5rem;
+  padding: 40px 32px 24px;
 }
-.chat-messages-inner > * + * { margin-top: 1.25rem; }
+.chat-messages-inner > * + * { margin-top: 28px; }
 
 /* ── 底部通知区（审批条 + 工作清单）── */
 .bottom-notices {
@@ -392,7 +411,7 @@ body {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  max-width: 48rem;
+  max-width: 760px;
   margin: 0 auto 0.25rem;
   width: 100%;
   background: var(--bg-elevated);
@@ -406,7 +425,7 @@ body {
   bottom: 160px;
   left: 1rem;
   right: 1rem;
-  max-width: 48rem;
+  max-width: 760px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -414,15 +433,6 @@ body {
 }
 
 /* ── 文件面板 Tab 栏 ── */
-/* Attachment bar — plan shortcut + file chips */
-.sb-attachment-bar {
-  max-width: 48rem;
-  margin-inline: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.375rem;
-  padding-bottom: 0.25rem;
-}
 
 /* TransitionGroup: message list animations */
 .msg-enter-active { transition: all 0.25s ease-out; }

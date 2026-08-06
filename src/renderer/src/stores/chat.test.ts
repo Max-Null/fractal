@@ -297,7 +297,7 @@ describe("chat store", () => {
     expect(md).toContain("# Test Session");
     expect(md).toContain("## You");
     expect(md).toContain("Hello AI");
-    expect(md).toContain("## Claude");
+    expect(md).toContain("## 分形");
     expect(md).toContain("Hello human");
     expect(md).toContain("⏱ 1.0s");
   });

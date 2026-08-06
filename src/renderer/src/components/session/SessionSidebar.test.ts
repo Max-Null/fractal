@@ -5,7 +5,7 @@ import { createI18n } from "vue-i18n";
 import { useSessionStore } from "@/stores/session";
 import SessionSidebar from "./SessionSidebar.vue";
 
-// Mock electron-bridge：listSessions 必须 reject（与 cc-gui 无 Tauri 环境行为一致），
+// Mock electron-bridge：listSessions 必须 reject（与无 Electron 环境行为一致），
 // 否则 SessionSidebar onMounted 的 loadSessions 会用空列表覆盖测试手动 push 的会话
 vi.mock("@/lib/electron-bridge", () => ({
   listSessions: () => Promise.reject(new Error("not-ready")),
@@ -24,7 +24,7 @@ const i18n = createI18n({
         rename: "Rename",
         delete: "Delete",
         clear: "Clear",
-        noSessions: "No sessions yet",
+        noSessions: "No sessions yet. Click + above to create one",
         noMatching: "No matching sessions",
       },
     },

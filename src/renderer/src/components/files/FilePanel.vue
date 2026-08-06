@@ -8,6 +8,10 @@ import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import FileTree from "./FileTree.vue";
 import FilePreview from "./FilePreview.vue";
 import GitPanel from "./GitPanel.vue";
+import MemoryPanel from "@/components/panel/MemoryPanel.vue";
+import StatusPanel from "@/components/panel/StatusPanel.vue";
+import PlansPanel from "@/components/panel/PlansPanel.vue";
+import SkillsPanel from "@/components/panel/SkillsPanel.vue";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 
 const props = defineProps<{ navCounter?: number; navPath?: string; forceClose?: number }>();
@@ -32,7 +36,18 @@ function setClip(v: ClipState | null) { clipState.value = v; }
 provide("file-clipboard", { state: clipState as Ref<ClipState | null>, set: setClip });
 
 // Drag-to-resize splitter between file tree and preview
-const activeTab = ref<"files" | "git">("files");  // 面板 Tab 切换
+// 内层文件 tab（文件/Git 子 tab，仅在「文件」外层 tab 内生效）
+const fileTab = ref<"files" | "git">("files");
+// 外层增强面板 Tab：文件 / 记忆 / 状态 / 计划 / 技能（原型 v0.23 panel-tabs）
+type PanelTab = "files" | "memory" | "status" | "plans" | "skills";
+const panelTab = ref<PanelTab>("files");
+const panelTabs: { id: PanelTab; icon: string; label: string }[] = [
+  { id: "files", icon: "📁", label: "文件" },
+  { id: "memory", icon: "🧠", label: "记忆" },
+  { id: "status", icon: "📊", label: "状态" },
+  { id: "plans", icon: "📋", label: "计划" },
+  { id: "skills", icon: "🧩", label: "技能" },
+];
 const refreshKey = ref(0);  // 文件操作后触发 FileTree 刷新展开目录
 const splitRatio = ref(35); // 文件树占比 %
 const draggingSplit = ref(false);
@@ -200,6 +215,19 @@ function goUp() {
       :style="{ width: collapsed ? '0' : layout.filesWidth.value + 'px' }"
     >
       <div v-if="!collapsed" class="flex flex-col h-full">
+        <!-- 外层增强面板 Tabs：文件 / 记忆 / 状态 / 计划 / 技能（原型 v0.23 panel-tabs） -->
+        <div class="panel-tabs">
+          <button
+            v-for="tab in panelTabs"
+            :key="tab.id"
+            @click="panelTab = tab.id"
+            class="panel-tab"
+            :class="{ 'panel-tab--active': panelTab === tab.id }"
+          >{{ tab.icon }} {{ tab.label }}</button>
+        </div>
+
+        <!-- 文件 tab：保留原有面包屑 + 文件/Git 子 tab + 文件树 + 内联预览 -->
+        <div v-if="panelTab === 'files'" class="flex flex-col min-h-0 flex-1">
         <!-- Breadcrumb -->
         <div class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] shrink-0 overflow-hidden"
           :style="{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-dim)' }">
@@ -223,22 +251,22 @@ function goUp() {
           </button>
         </div>
 
-        <!-- Tab 栏：文件 / Git -->
+        <!-- 子 Tab 栏：文件 / Git -->
         <div class="file-panel-tabs">
           <button
-            @click="activeTab = 'files'"
+            @click="fileTab = 'files'"
             class="file-panel-tab-btn"
-            :class="{ 'file-panel-tab-btn--active': activeTab === 'files' }"
+            :class="{ 'file-panel-tab-btn--active': fileTab === 'files' }"
           >📁 {{ $t('file.title') }}</button>
           <button
-            @click="activeTab = 'git'"
+            @click="fileTab = 'git'"
             class="file-panel-tab-btn"
-            :class="{ 'file-panel-tab-btn--active': activeTab === 'git' }"
+            :class="{ 'file-panel-tab-btn--active': fileTab === 'git' }"
           >⎇ Git</button>
         </div>
 
-        <!-- 文件 Tab -->
-        <div v-if="activeTab === 'files'" class="sb-file-panel-body">
+        <!-- 文件子 Tab -->
+        <div v-if="fileTab === 'files'" class="sb-file-panel-body">
           <!-- File tree -->
           <div
             class="overflow-y-auto px-1 py-0.5 min-h-0"
@@ -295,10 +323,20 @@ function goUp() {
           </div>
         </div>
 
-        <!-- Git Tab -->
-        <div v-if="activeTab === 'git'" class="flex-1 flex flex-col overflow-hidden min-h-0">
+        <!-- Git 子 Tab -->
+        <div v-if="fileTab === 'git'" class="flex-1 flex flex-col overflow-hidden min-h-0">
           <GitPanel :repoPath="rootPath" />
         </div>
+        </div>
+
+        <!-- 记忆 tab：三层记忆浏览骨架（阶段 6 接入数据） -->
+        <MemoryPanel v-else-if="panelTab === 'memory'" />
+        <!-- 状态 tab：触发线监控骨架 -->
+        <StatusPanel v-else-if="panelTab === 'status'" />
+        <!-- 计划 tab：plans/ 计划列表骨架 -->
+        <PlansPanel v-else-if="panelTab === 'plans'" />
+        <!-- 技能 tab：预置技能分组骨架 -->
+        <SkillsPanel v-else-if="panelTab === 'skills'" />
       </div>
     </aside>
   </div>
@@ -306,6 +344,43 @@ function goUp() {
 </template>
 
 <style scoped>
+/* ── 外层增强面板 Tabs（文件/记忆/状态/计划/技能，对齐原型 v0.23 panel-tabs）── */
+.panel-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
+.panel-tab {
+  position: relative;
+  flex: 1;
+  padding: 10px 2px 9px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.18s;
+}
+/* accent 下划线：active 时从半透明展开为实线（原型 panel-tab::after 动画） */
+.panel-tab::after {
+  content: "";
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transform: scaleX(0.5);
+  transition: all 0.22s;
+}
+.panel-tab:hover { color: var(--text-primary); }
+.panel-tab--active { color: var(--text-bright); }
+.panel-tab--active::after { opacity: 1; transform: scaleX(1); }
+
 /* ── Tab 栏（文件 / Git）── */
 .file-panel-tabs {
   display: flex;

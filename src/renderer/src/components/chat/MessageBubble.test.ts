@@ -56,7 +56,7 @@ describe("MessageBubble", () => {
       global: { plugins: [i18n] },
     });
     expect(wrapper.text()).toContain("Hello human");
-    expect(wrapper.text()).toContain("Claude");
+    expect(wrapper.text()).toContain("分形");
   });
 
   it("shows thinking section when thinking content exists", () => {

@@ -4,7 +4,6 @@ import { useRouter } from "vue-router";
 
 import { useSessionStore } from "@/stores/session";
 import { useChatStore } from "@/stores/chat";
-import { useSettingsStore } from "@/stores/settings";
 
 import { stopSession } from "@/lib/electron-bridge";
 import { useNewSession } from "@/composables/useNewSession";
@@ -20,29 +19,24 @@ const router = useRouter();
 
 const sessionStore = useSessionStore();
 const chatStore = useChatStore();
-const settings = useSettingsStore();
 
 const { handleNew } = useNewSession();
-const { switchTo, zenSwitchTo } = useSessionSwitch();
+const { switchTo } = useSessionSwitch();
 
-/** 按当前模式选择正确的切换函数 */
+/** 切换会话 */
 function switchByMode(id: string) {
-  return settings.zenMode ? zenSwitchTo(id) : switchTo(id);
+  return switchTo(id);
 }
 
-// 当前模式下的活跃会话 ID（禅模式用 zenActiveId，CC 用 activeSessionId）
-const activeId = computed(() =>
-  settings.zenMode ? sessionStore.zenActiveId : sessionStore.activeSessionId,
-);
+// 当前活跃会话 ID
+const activeId = computed(() => sessionStore.activeSessionId);
 
 const searchQuery = ref("");
 const editingId = ref<string | null>(null);
 const editingTitle = ref("");
 
 const filteredSessions = computed(() => {
-  const all = settings.zenMode
-    ? sessionStore.sessions.filter(s => s.mode === 'zen')
-    : sessionStore.sessions.filter(s => s.mode !== 'zen');
+  const all = sessionStore.sessions;
   const q = searchQuery.value.trim().toLowerCase();
   if (!q) return all;
   return all.filter(s => s.title.toLowerCase().includes(q));
@@ -82,12 +76,12 @@ async function handleDelete(id: string) {
 <template>
   <div class="flex flex-col h-full">
     <!-- Header -->
-    <div class="flex items-center justify-between px-3 py-3">
-      <span class="text-[11px] font-semibold uppercase tracking-widest" style="color:var(--text-muted)">{{ $t('session.title') }}</span>
+    <div class="flex items-center justify-between px-4 pt-4 pb-2">
+      <span class="text-[11px] font-semibold uppercase tracking-[0.08em]" style="color:var(--text-secondary)">{{ $t('session.title') }}</span>
       <div class="flex items-center gap-1">
         <button
           @click="handleNew"
-          class="w-6 h-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+          class="w-[26px] h-[26px] flex items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--bg-hover)]"
           style="color:var(--text-secondary)"
           :title="$t('session.new')"
         >
@@ -97,7 +91,7 @@ async function handleDelete(id: string) {
         </button>
         <button
           @click="emit('collapse')"
-          class="w-6 h-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+          class="w-[26px] h-[26px] flex items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--bg-hover)]"
           style="color:var(--text-muted)"
           title="收起侧栏"
         >
@@ -110,7 +104,7 @@ async function handleDelete(id: string) {
 
     <!-- Search -->
     <div class="px-3 pb-2">
-      <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs" :style="{ background: 'var(--bg-root)', border: '1px solid var(--border-dim)' }">
+      <div class="flex items-center gap-2 px-2.5 py-1.5 rounded-[8px] text-xs" :style="{ background: 'var(--bg-surface)', border: '1px solid var(--border-default)' }">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
         <input
           v-model="searchQuery"
@@ -122,7 +116,7 @@ async function handleDelete(id: string) {
           v-if="searchQuery"
           @click="searchQuery = ''"
           class="w-4 h-4 flex items-center justify-center rounded transition-colors hover:bg-[var(--bg-hover)]"
-          style="color: var(--text-muted)"
+          style="color: var(--text-muted); width: 16px; height: 16px;"
           :title="$t('session.clear')"
         >✕</button>
       </div>
@@ -134,10 +128,11 @@ async function handleDelete(id: string) {
         v-for="s in filteredSessions"
         :key="s.id"
         @click="handleSelect(s.id)"
-        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-left text-[13px] transition-colors group"
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-[8px] text-left text-[12.5px] transition-colors group hover:bg-[var(--bg-hover)]"
         :style="{
           background: s.id === activeId ? 'var(--accent-glow)' : 'transparent',
-          color: s.id === activeId ? 'var(--accent)' : 'var(--text-secondary)'
+          color: s.id === activeId ? 'var(--text-bright)' : 'var(--text-secondary)',
+          border: s.id === activeId ? '1px solid var(--accent-line)' : '1px solid transparent'
         }"
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" :style="{ opacity: s.id === activeId ? 1 : 0.35 }">
@@ -164,7 +159,6 @@ async function handleDelete(id: string) {
             :style="{ color: 'var(--text-muted)' }"
           >
             {{ formatTokenCount(s.totalTokens) }}
-            <span v-if="settings.providerId === 'anthropic' && s.totalCost" class="ml-1">· ${{ s.totalCost.toFixed(3) }}</span>
           </span>
         </div>
 
@@ -177,17 +171,19 @@ async function handleDelete(id: string) {
 
         <!-- Hover actions — always in layout (invisible) 防止出现时行高抖动 -->
         <div class="invisible group-hover:visible flex items-center gap-0.5 shrink-0 ml-auto">
-          <button @click.stop="startRename(s.id, s.title)" class="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.rename')">
+          <button @click.stop="startRename(s.id, s.title)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.rename')">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
           </button>
-          <button @click.stop="handleDelete(s.id)" class="w-5 h-5 flex items-center justify-center rounded transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.delete')">
+          <button @click.stop="handleDelete(s.id)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.delete')">
             <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           </button>
         </div>
       </button>
 
-      <div v-if="sessionStore.sessions.length === 0" class="px-3 py-12 text-center text-xs" style="color:var(--text-muted)">
-        {{ $t('session.noSessions') }}
+      <!-- 空态引导：无会话且未搜索时显示；有搜索词无结果才显示 noMatching -->
+      <div v-if="!searchQuery && filteredSessions.length === 0" class="px-3 py-12 text-center text-xs space-y-2" style="color:var(--text-muted)">
+        <div class="text-lg leading-none opacity-50">＋</div>
+        <div>{{ $t('session.noSessions') }}</div>
       </div>
       <div v-else-if="filteredSessions.length === 0" class="px-3 py-12 text-center text-xs" style="color:var(--text-muted)">
         {{ $t('session.noMatching') }}

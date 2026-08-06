@@ -14,7 +14,7 @@ mermaid.initialize({
   securityLevel: "strict",
   theme: "dark",
   themeVariables: {
-    primaryColor: "#06d6a0",       // --accent
+    primaryColor: "#34d399",       // --accent（对齐原型 v0.23 主色）
     primaryTextColor: "#c0c0d0",   // --text-secondary
     lineColor: "#2a2a3a",         // --border-dim
     secondaryColor: "#1e1e26",     // --bg-elevated

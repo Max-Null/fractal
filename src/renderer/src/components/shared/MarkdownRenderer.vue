@@ -14,7 +14,7 @@ marked.use({
   renderer: {
     // 标题添加 id 锚点，保留内联格式（bold/code 等）
     heading(token: { depth: number; text: string; tokens: Token[] }) {
-      // ponytail: marked re-exports Token but vue-tsc doesn't resolve it; cast at call site
+      // marked re-exports Token but vue-tsc doesn't resolve it; cast at call site
       const rendered = this.parser.parseInline(token.tokens as Parameters<typeof this.parser.parseInline>[0]);
       return `<h${token.depth} id="${slug(token.text)}">${rendered}</h${token.depth}>`;
     },

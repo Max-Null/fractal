@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>分形 Logo 候选 · 水面镜像错位</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0f1117; color: #e8eaf0; margin: 0; padding: 40px; }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .sub { color: #8b93a7; font-size: 13px; margin-bottom: 32px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1100px; }
+  .card { background: #161a23; border: 1px solid #262c3a; border-radius: 16px; padding: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .card .desc { font-size: 12px; color: #8b93a7; line-height: 1.6; margin-bottom: 16px; }
+  .preview { display: flex; gap: 14px; align-items: center; margin-top: 12px; }
+  .dark-bg { background: #0f1117; border-radius: 10px; padding: 8px; }
+  .light-bg { background: #f6f7f9; border-radius: 10px; padding: 8px; }
+  .label { font-size: 10px; color: #5b6374; }
+  img.big { width: 128px; height: 128px; }
+  img.mid { width: 48px; height: 48px; }
+  img.small { width: 24px; height: 24px; }
+</style></head><body>
+<h1>分形 Logo · 水面镜像错位方向</h1>
+<div class="sub">主体图形 + 倒影，倒影切 3 条水平切片各自水平错位（涟漪折射感），底部涟漪线</div>
+<div class="grid">
+<div class="card">
+  <h2>方案 V1 · 山峦 + 涟漪错位</h2><div class="desc">圆润山峦剪影，倒影 3 片错位（6/0/10px），底部涟漪线 —— 完整「水面镜像」意象</div>
+  <img class="big" src="candidates2/v1-hill.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates2/v1-hill.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates2/v1-hill.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates2/v1-hill.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>方案 V2 · 大错位无涟漪</h2><div class="desc">同山峦，错位加大（16/4/22px）、无涟漪线 —— 更抽象，突出「错位」本身</div>
+  <img class="big" src="candidates2/v2-hill-big.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates2/v2-hill-big.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates2/v2-hill-big.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates2/v2-hill-big.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>方案 V3 · 几何双峰</h2><div class="desc">尖峰几何双峰 + 错位镜像 + 涟漪 —— 更硬朗几何</div>
+  <img class="big" src="candidates2/v3-peaks.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates2/v3-peaks.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates2/v3-peaks.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates2/v3-peaks.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+</div>
+<div class="sub" style="margin-top:28px">选定后生成全套尺寸替换；也可微调：错位量 / 切片数 / 涟漪线 / 主体形状 / 配色</div>
+</body></html>

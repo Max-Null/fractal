@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
-import { readFileContent, writeFile, getClaudeDir, getWorkspaceRoot, listDir, ensureItemDescriptions, clearItemDescriptions, clearMcpDescriptions, generateMcpDescriptions, type DescriptionItem } from "@/lib/electron-bridge";
+import { readFileContent, writeFile, getWorkspaceRoot, listDir, ensureItemDescriptions, clearItemDescriptions, clearMcpDescriptions, generateMcpDescriptions, type DescriptionItem } from "@/lib/electron-bridge";
 import { translateError as mapError } from "@/lib/utils";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
@@ -42,8 +42,12 @@ const editContent = ref("");
 const saved = ref(false);
 
 // ── 初始化 ──
+/** 配置目录：分形独立配置目录（阶段 6 实现）；当前阶段返回空，ManagePanel 各 Tab 显示空态 */
+async function getConfigDir(): Promise<string> {
+  return "";
+}
 async function init() {
-  try { claudeDir.value = await getClaudeDir(); } catch { error.value = t('manage.dirError'); }
+  try { claudeDir.value = await getConfigDir(); } catch { error.value = t('manage.dirError'); }
 }
 watch(() => props.open, (v) => {
   if (!v) return;

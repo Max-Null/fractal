@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs><linearGradient id="tree" x1="0" y1="1" x2="0" y2="0">
+    <stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#a7f3d0"/>
+  </linearGradient></defs>
+  <rect width="256" height="256" rx="48" fill="#1a1a2e"/>
+  <g fill="none" stroke="url(#tree)" stroke-linecap="round" opacity="0.95">
+    <path d="M128.0 208.0L128.0 120.0" stroke-width="11.0"/>
+    <path d="M128.0 120.0L102.2 62.1" stroke-width="11.0"/>
+    <path d="M102.2 62.1L68.3 31.6" stroke-width="9.4"/>
+    <path d="M68.3 31.6L37.1 21.4" stroke-width="9.4"/>
+    <path d="M37.1 21.4L13.6 23.9" stroke-width="7.8"/>
+    <path d="M37.1 21.4L19.5 5.6" stroke-width="7.8"/>
+    <path d="M68.3 31.6L55.0 1.6" stroke-width="6.2"/>
+    <path d="M55.0 1.6L37.4 -14.2" stroke-width="6.2"/>
+    <path d="M55.0 1.6L55.0 -22.1" stroke-width="4.6"/>
+    <path d="M102.2 62.1L102.2 16.5" stroke-width="4.6"/>
+    <path d="M102.2 16.5L88.9 -13.5" stroke-width="3.0"/>
+    <path d="M88.9 -13.5L71.3 -29.3" stroke-width="3.0"/>
+    <path d="M88.9 -13.5L88.9 -37.2" stroke-width="1.4"/>
+    <path d="M102.2 16.5L115.6 -13.5" stroke-width="1.4"/>
+    <path d="M115.6 -13.5L115.6 -37.2" stroke-width="-0.2"/>
+    <path d="M115.6 -13.5L133.2 -29.3" stroke-width="-0.2"/>
+    <path d="M128.0 120.0L153.8 62.1" stroke-width="-1.8"/>
+    <path d="M153.8 62.1L153.8 16.5" stroke-width="-1.8"/>
+    <path d="M153.8 16.5L140.4 -13.5" stroke-width="-3.4"/>
+    <path d="M140.4 -13.5L122.8 -29.3" stroke-width="-3.4"/>
+    <path d="M140.4 -13.5L140.4 -37.2" stroke-width="-5.0"/>
+    <path d="M153.8 16.5L167.1 -13.5" stroke-width="-5.0"/>
+    <path d="M167.1 -13.5L167.1 -37.2" stroke-width="-6.6"/>
+    <path d="M167.1 -13.5L184.7 -29.3" stroke-width="-6.6"/>
+    <path d="M153.8 62.1L187.7 31.6" stroke-width="-8.2"/>
+    <path d="M187.7 31.6L201.0 1.6" stroke-width="-8.2"/>
+    <path d="M201.0 1.6L201.0 -22.1" stroke-width="-9.8"/>
+    <path d="M201.0 1.6L218.6 -14.2" stroke-width="-9.8"/>
+    <path d="M187.7 31.6L218.9 21.4" stroke-width="-11.4"/>
+    <path d="M218.9 21.4L236.5 5.6" stroke-width="-11.4"/>
+    <path d="M218.9 21.4L242.4 23.9" stroke-width="-13.0"/>
+  </g>
+</svg>

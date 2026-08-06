@@ -183,7 +183,7 @@ const flatList = computed<FlatItem[]>(() => {
 });
 
 // ── 最近使用（localStorage 持久化，最多 5 条）──
-const RECENT_KEY = "cc-gui-cmd-recent";
+const RECENT_KEY = "fractal-cmd-recent";
 const recentIds = ref<string[]>(loadRecent());
 
 function loadRecent(): string[] {

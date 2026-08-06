@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>分形 Logo · 钥匙方向</title>
+<style>
+  body { font-family: "Microsoft YaHei", sans-serif; background: #0f1117; color: #e8eaf0; margin: 0; padding: 40px; }
+  h1 { font-size: 22px; margin-bottom: 8px; }
+  .sub { color: #8b93a7; font-size: 13px; margin-bottom: 32px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; max-width: 1100px; }
+  .card { background: #161a23; border: 1px solid #262c3a; border-radius: 16px; padding: 20px; }
+  .card h2 { font-size: 15px; margin: 0 0 4px; }
+  .card .desc { font-size: 12px; color: #8b93a7; line-height: 1.6; margin-bottom: 16px; }
+  .preview { display: flex; gap: 14px; align-items: center; margin-top: 12px; }
+  .dark-bg { background: #0f1117; border-radius: 10px; padding: 8px; }
+  .light-bg { background: #f6f7f9; border-radius: 10px; padding: 8px; }
+  .label { font-size: 10px; color: #5b6374; }
+  img.big { width: 128px; height: 128px; }
+  img.mid { width: 48px; height: 48px; }
+  img.small { width: 24px; height: 24px; }
+</style></head><body>
+<h1>分形 Logo · 钥匙方向（把手在左）</h1>
+<div class="sub">钥匙 = 打开 AI 能力的钥匙 · 下一步可叠加「水面镜像错位」</div>
+<div class="grid">
+<div class="card">
+  <h2>K1 · 经典圆环钥匙</h2><div class="desc">圆环把手 + 杆 + 上一下二齿，标准钥匙轮廓，识别最直接</div>
+  <img class="big" src="candidates3/k1-classic.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates3/k1-classic.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates3/k1-classic.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates3/k1-classic.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>K2 · 几何方环钥匙</h2><div class="desc">圆角方环 + 环内分形点，更现代硬朗</div>
+  <img class="big" src="candidates3/k2-square.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates3/k2-square.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates3/k2-square.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates3/k2-square.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+<div class="card">
+  <h2>K3 · 环中环钥匙</h2><div class="desc">圆环内嵌小环（自相似分形感）+ 渐变杆</div>
+  <img class="big" src="candidates3/k3-ring.svg"/>
+  <div class="preview">
+    <div class="dark-bg"><img class="mid" src="candidates3/k3-ring.svg"/></div>
+    <div class="light-bg"><img class="mid" src="candidates3/k3-ring.svg"/></div>
+    <div class="dark-bg"><img class="small" src="candidates3/k3-ring.svg"/></div>
+    <span class="label">暗底 / 亮底 / 小尺寸</span>
+  </div>
+</div>
+</div>
+<div class="sub" style="margin-top:28px">选定钥匙形状后，叠加水面镜像错位效果</div>
+</body></html>

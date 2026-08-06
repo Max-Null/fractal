@@ -1,8 +1,7 @@
-// electron-bridge.ts：渲染进程桥——替代 cc-gui 的 src/lib/tauri-bridge.ts（Electron 版）
+// electron-bridge.ts：渲染进程桥——替代原 tauri-bridge（Electron 版）
 // 分类：
 //   A 类：本地能力 → 主进程 IPC 真实实现（fs/git/settings/logs/dialog）
-//   B 类：引擎相关 → 桩实现（阶段 4 接入 serve 后替换）
-//   C 类：CC 专属 → 保留签名 + 桩实现（用户指示不删除）
+//   B 类：引擎相关 → 主进程 IPC 真实实现（阶段 4 接入 serve）
 // 函数签名与类型定义与原 tauri-bridge.ts 完全同名，保证调用点仅需替换 import 路径。
 
 /** IPC invoke 统一入口：经 preload 暴露的 window.electronBridge */
@@ -57,23 +56,14 @@ export interface SendOptions {
   effort?: string;
   /** ultracode: xhigh effort + auto Workflow orchestration (harness-level, not an API param) */
   ultracode?: boolean;
-  /** Model name (e.g. deepseek-v4-pro[1M]), passed to CLI via --model */
+  /** Model name (e.g. deepseek-v4-pro[1M]) */
   model?: string;
+  /** 主 agent（双星/build/plan），透传给引擎 promptAsync.agent */
+  agent?: string;
   /** File paths to attach (parent dirs are added via --add-dir) */
   filePaths?: string[];
-  /** Manual claude CLI path (overrides auto-detect) */
-  claudePath?: string;
   /** Working directory (overrides session cwd, used when workspace changes) */
   cwd?: string;
-  /** Resume a specific claude session (for forking) */
-  resumeId?: string;
-  /** Use --fork-session to branch from the resumed session */
-  forkSession?: boolean;
-}
-
-export interface SessionCreatedEvent {
-  ourId: string;
-  claudeSessionId: string;
 }
 
 export interface SessionData {
@@ -148,7 +138,7 @@ export interface SaveDialogOptions {
 }
 
 /**
- * Emitted by Rust when a claude process exits.
+ * Emitted by the main process when the OC serve engine process exits.
  */
 export interface ProcessExitedEvent {
   session_id: string;
@@ -298,65 +288,107 @@ export async function saveDialog(options?: SaveDialogOptions): Promise<string | 
 }
 
 // ══════════════════════════════════════════════════════════════════
-// B 类：引擎相关 → 桩实现（阶段 4 接入 serve 后替换）
+// B 类：引擎相关 → 主进程 IPC 真实实现（阶段 4 接入 serve）
 // ══════════════════════════════════════════════════════════════════
 
-const ENGINE_NOT_READY = "引擎通道待阶段 4 接入 serve";
-
 /**
- * Send a stdin line to a running CLI session (e.g., permission response).
+ * 将前端模型名转换为 OC 会话模型参数 {providerID, modelID}。
+ * 前端 settings.model 可能是 "deepseek-v4-pro[1M]"（CC 遗留带上下文窗口标注）或 "deepseek/deepseek-v4-pro"——
+ * 去 [xxx] 后缀（阶段 0 实测 S3：serve 模型无 [1M]），无 provider 前缀时默认 deepseek（serve 内置 provider id）。
  */
-export async function sendStdin(sessionId: string, data: string): Promise<void> {
-  throw new Error(ENGINE_NOT_READY);
+function toOcModel(model?: string): { providerID: string; modelID: string } | undefined {
+  if (!model) return undefined;
+  const clean = model.replace(/\[.*\]/, "").trim();
+  if (!clean) return undefined;
+  const idx = clean.indexOf("/");
+  if (idx > 0) return { providerID: clean.slice(0, idx), modelID: clean.slice(idx + 1) };
+  return { providerID: "deepseek", modelID: clean };
 }
 
 /**
- * Send a message to the Rust backend, which spawns the Claude CLI.
+ * Send a message to the backend, which forwards to OC serve (promptAsync + SSE).
+ * 返回 accepted 状态（promptAsync 无 messageID，结果经 engine:event 流回）。
  */
 export async function sendMessage(sessionId: string, message: string, options?: SendOptions): Promise<string> {
-  throw new Error(ENGINE_NOT_READY);
+  const ocModel = toOcModel(options?.model);
+  const r = await invoke<{ accepted: boolean }>("chat:sendMessage", {
+    sessionId,
+    message,
+    ...(ocModel ? { model: ocModel } : {}),
+    ...(options?.agent ? { agent: options.agent } : {}),
+  });
+  return r.accepted ? "" : "";
 }
 
 /**
- * Stop a running session (kill the claude process).
+ * Stop a running session (abort serve session; abort 端点可能 500 但事件流生效——主进程已容错).
  */
 export async function stopSession(sessionId: string): Promise<void> {
-  // 桩：无运行中会话，静默成功，避免调用方（ChatPanel 等）走错误分支
-  return Promise.resolve();
+  await invoke<{ stopped: boolean }>("chat:stopSession", { sessionId });
+}
+
+/**
+ * 响应权限审批（permission:respond，serve 权限事件 permission.updated 的落点）。
+ * response: once / always / reject（always 即当前会话记住；跨会话持久化 = oc-config.ts 写 permission 规则）
+ */
+export async function respondPermission(
+  sessionId: string,
+  permissionId: string,
+  response: "once" | "always" | "reject"
+): Promise<void> {
+  await invoke<{ responded: boolean }>("permission:respond", { sessionId, permissionId, response });
 }
 
 export async function createSession(model?: string, cwd?: string, mode?: string, title?: string): Promise<SessionData> {
-  // 桩：session store 的 createSession 有本地 fallback，抛错触发 fallback 创建本地会话
-  throw new Error(ENGINE_NOT_READY);
+  void model; void cwd; void mode;
+  // OC serve 会话由 serve 建（title 可选），model/cwd/mode 会话级参数由 serve 默认/事件流处理
+  return invoke<SessionData>("session:create", { title: title ?? undefined });
 }
 
 export async function listSessions(): Promise<SessionData[]> {
-  return [];
+  return invoke<SessionData[]>("session:list");
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
-  return Promise.resolve();
+  await invoke<{ deleted: boolean }>("session:delete", { id: sessionId });
 }
 
 export async function renameSession(sessionId: string, title: string): Promise<void> {
-  return Promise.resolve();
+  await invoke<SessionData>("session:rename", { id: sessionId, title });
 }
 
 export async function getSession(sessionId: string): Promise<SessionData> {
-  throw new Error(ENGINE_NOT_READY);
+  return invoke<SessionData>("session:get", { id: sessionId });
+}
+
+/** 服务端分叉会话（OC serve session.fork）：返回新会话（标题自动追加 fork #N，阶段 0 实测 S8） */
+export async function forkSession(sessionId: string, messageID?: string): Promise<SessionData> {
+  return invoke<SessionData>("session:fork", {
+    id: sessionId,
+    ...(messageID ? { messageID } : {}),
+  });
 }
 
 export async function listMessages(sessionId: string): Promise<MessageData[]> {
-  return [];
+  return invoke<MessageData[]>("message:list", { sessionId });
+}
+
+/** 测试连接：写 API Key 到 serve 隔离配置 + 验证 serve 可达，返回 {ok, message}（设置面板「测试连接」） */
+export async function testConnection(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  return invoke<{ ok: boolean; message: string }>("engine:testConnection", { apiKey });
 }
 
 // ── Approved Scenarios ──
+// 阶段 4 保留桩：approved_scenarios 表是 GUI 层索引（db.ts 阶段 5 实现），
+// 免审批真实生效 = oc-config.ts 把场景写入 opencode.json permission 规则（设计方案 3.5 修正）
 
 export async function addApprovedScenario(toolName: string, pattern: string): Promise<void> {
+  void toolName; void pattern;
   return Promise.resolve();
 }
 
 export async function removeApprovedScenario(toolName: string, pattern: string): Promise<void> {
+  void toolName; void pattern;
   return Promise.resolve();
 }
 
@@ -374,6 +406,7 @@ export async function saveMessage(
   content: string,
   tokenUsage?: string,
 ): Promise<void> {
+  void id; void sessionId; void role; void content; void tokenUsage;
   return Promise.resolve();
 }
 
@@ -382,6 +415,7 @@ export async function updateMessageContent(
   sessionId: string,
   content: string,
 ): Promise<void> {
+  void messageId; void sessionId; void content;
   return Promise.resolve();
 }
 
@@ -389,6 +423,7 @@ export async function deleteMessagesAfter(
   messageId: string,
   sessionId: string,
 ): Promise<number> {
+  void messageId; void sessionId;
   return Promise.resolve(0);
 }
 
@@ -413,6 +448,7 @@ export async function generateMcpDescriptions(
   baseUrl: string,
   optimizeApiUrl?: string,
 ): Promise<DescriptionItem[]> {
+  void names; void apiKey; void baseUrl; void optimizeApiUrl;
   return [];
 }
 
@@ -425,11 +461,13 @@ export async function ensureItemDescriptions(
   baseUrl: string,
   optimizeApiUrl?: string,
 ): Promise<DescriptionItem[]> {
+  void apiKey; void baseUrl; void optimizeApiUrl;
   return items;
 }
 
 /** 检查 skill 是否已安装（阶段 4 由 serve 侧实现） */
 export async function checkSkillInstalled(name: string): Promise<boolean> {
+  void name;
   return false;
 }
 
@@ -438,92 +476,15 @@ export async function getAutoModeStatus(): Promise<boolean> {
   return false;
 }
 
-/** 检查 CC 会话是否仍存在（分叉前预检） */
+/**
+ * 检查 OC 会话是否仍存在（分叉前预检）：session:get 成功 true / 404 false。
+ * 替代原 CLI 会话检查（serve 会话即 ses_xxx，无 CLI 会话概念）。
+ */
 export async function checkCcSessionExists(sessionId: string): Promise<boolean> {
-  return false;
-}
-
-// ══════════════════════════════════════════════════════════════════
-// C 类：CC 专属 → 保留签名 + 桩实现（用户指示不删除）
-// ══════════════════════════════════════════════════════════════════
-
-/**
- * Store the claude session UUID on the Rust side so subsequent
- * send_message calls can use --resume.
- */
-export async function storeClaudeSession(
-  ourSessionId: string,
-  claudeSessionId: string
-): Promise<void> {
-  return Promise.resolve();
-}
-
-/**
- * Test connection to the DeepSeek API
- */
-export async function connectLLM(
-  apiKey: string,
-  baseUrl: string,
-  model: string,
-  providerId: string,
-  optimizeApiUrl?: string,
-): Promise<ConnectionTestResult> {
-  // 桩：返回空连接结果，UI 显示未连接（SettingsPanel 有 try/catch）
-  return { cc: "", chat: null };
-}
-
-/** 禅模式：直接调 LLM chat/completions API（SSE 流式），绕过 CC CLI */
-export async function zenSendMessage(
-  sessionId: string,
-  message: string,
-  apiKey: string,
-  chatUrl: string,
-  model: string,
-): Promise<string> {
-  throw new Error(ENGINE_NOT_READY);
-}
-
-export async function getClaudeDir(): Promise<string> {
-  // 桩：返回空串，调用方 try/catch 后进入未安装分支（CC 专属 UI 保留）
-  return "";
-}
-
-/** 返回 claude CLI 的自动检测路径（不依赖用户手动配置） */
-export async function resolveClaudePath(): Promise<string> {
-  return "";
-}
-
-/** 一键安装 Claude Code CLI，返回退出码（0 成功） */
-export async function installClaudeCode(): Promise<number> {
-  // 桩：返回 1（失败），调用方展示安装失败（CC 专属 UI 保留）
-  return 1;
-}
-
-/** 用 LLM 优化用户输入的提示词。桩：原样返回，不优化 */
-export async function optimizePrompt(apiKey: string, baseUrl: string, prompt: string, optimizeUrl?: string): Promise<string> {
-  return prompt;
-}
-
-/** 从 ~/.claude/settings.json 读取配置。桩：返回默认空配置 */
-export async function getClaudeSettings(): Promise<{
-  api_key: string; base_url: string; model: string; effort: string; permission_mode: string;
-  provider_id: string; models: string[];
-}> {
-  return {
-    api_key: "",
-    base_url: "https://api.deepseek.com",
-    model: "deepseek-v4-pro[1M]",
-    effort: "high",
-    permission_mode: "default",
-    provider_id: "deepseek",
-    models: [],
-  };
-}
-
-/** 将配置写入 ~/.claude/settings.json。桩：静默成功 */
-export async function setClaudeSettings(
-  apiKey: string, baseUrl: string, model: string, effort: string, permissionMode: string,
-  providerId: string,
-): Promise<void> {
-  return Promise.resolve();
+  try {
+    await invoke<SessionData>("session:get", { id: sessionId });
+    return true;
+  } catch {
+    return false;
+  }
 }

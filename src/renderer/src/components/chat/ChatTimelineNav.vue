@@ -171,16 +171,16 @@ function onClick(index: number) {
 <style scoped>
 .chat-timeline-nav {
   position: absolute;
-  right: 0;
+  right: 6px;
   top: 0;
   bottom: 0;
-  width: 24px;
+  width: 20px;
   z-index: 5;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 18px;
 }
 .chat-timeline-nav--expanded {
   /* 展开时加微弱背景提示 */
@@ -192,7 +192,7 @@ function onClick(index: number) {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--border-bright);
+  background: var(--border-default);
   cursor: pointer;
   pointer-events: auto;
   flex-shrink: 0;
@@ -205,15 +205,15 @@ function onClick(index: number) {
 .chat-timeline-dot--active {
   background: var(--accent);
   scale: 1.4;
-  box-shadow: 0 0 6px var(--accent);
+  box-shadow: 0 0 6px var(--accent-line);
 }
 .chat-timeline-dot--just-clicked {
   animation: dot-pulse 600ms ease-out;
 }
 @keyframes dot-pulse {
   0%   { box-shadow: 0 0 0 0 var(--accent-glow); scale: 2; }
-  50%  { box-shadow: 0 0 12px 4px var(--accent); scale: 1.2; }
-  100% { box-shadow: 0 0 6px var(--accent); scale: 1.4; }
+  50%  { box-shadow: 0 0 12px 4px var(--accent-line); scale: 1.2; }
+  100% { box-shadow: 0 0 6px var(--accent-line); scale: 1.4; }
 }
 
 .chat-timeline-ellipsis {
@@ -249,7 +249,7 @@ function onClick(index: number) {
   color: var(--text-primary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
   white-space: nowrap;
   overflow: hidden;

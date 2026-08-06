@@ -13,7 +13,9 @@ export default defineConfig({
   plugins: [vue()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src/renderer/src')
+      '@': resolve(__dirname, 'src/renderer/src'),
+      // public 目录资源在 vitest 中不自动映射，组件里 <img src="/logo.svg"> 需指向真实文件
+      '/logo.svg': resolve(__dirname, 'src/renderer/public/logo.svg')
     }
   },
   test: {

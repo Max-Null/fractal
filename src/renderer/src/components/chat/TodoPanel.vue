@@ -57,7 +57,7 @@ function statusIcon(s: TodoItem["status"]): string {
   border: 1px solid var(--border-dim);
   border-radius: 0.375rem;
   user-select: none;
-  max-width: 48rem;
+  max-width: 760px;
   width: 100%;
 }
 

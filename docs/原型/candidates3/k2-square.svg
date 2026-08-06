@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" fill="#1a1a2e"/>
+  <g fill="#34d399">
+    <!-- 方环把手（左）：圆角方环 -->
+    <rect x="20" y="86" width="84" height="84" rx="20" fill="none" stroke="#34d399" stroke-width="16"/>
+    <!-- 环内小圆点（分形点，暗底透出） -->
+    <circle cx="62" cy="128" r="7" fill="#1a1a2e"/>
+    <!-- 杆：96 → 208 -->
+    <rect x="96" y="118" width="112" height="20" rx="6"/>
+    <!-- 下齿 1 -->
+    <rect x="176" y="138" width="16" height="16" rx="3"/>
+    <!-- 下齿 2 -->
+    <rect x="200" y="138" width="20" height="16" rx="3"/>
+  </g>
+</svg>

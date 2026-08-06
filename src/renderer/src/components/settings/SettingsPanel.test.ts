@@ -13,8 +13,8 @@ const i18n = createI18n({
     en: {
       settings: {
         title: "Settings",
-        ccConfig: "CC Config",
-        ccGuiSettings: "cc-gui Settings",
+        engineTitle: "Engine Settings",
+        uiTitle: "Interface Settings",
         baseUrl: "API Base URL",
         apiKey: "API Key",
         model: "Model",
@@ -32,23 +32,9 @@ const i18n = createI18n({
         fontSizeSmall: "Small",
         fontSizeMedium: "Medium",
         fontSizeLarge: "Large",
-        ponytailMode: "Lean mode",
         llmApiUrl: "LLM API URL",
         llmApiUrlPlaceholder: "Full URL",
         llmApiUrlLookup: "Lookup",
-        claudePath: "Claude Path",
-        claudePathDetected: "Detected",
-        claudePathNotFound: "Not found",
-        claudePathOverride: "Override",
-        claudePathOverridePlaceholder: "Full path",
-        installCC: "Install CC",
-        installingCC: "Installing…",
-        fromSettingsJson: "From settings.json",
-        ponytailOff: "Off",
-        ponytailLite: "Lite",
-        ponytailFull: "Full",
-        ponytailUltra: "Ultra",
-        installPonytail: "Install Ponytail",
         changelog: "Changelog",
         contextLimit: "Context Limit",
         contextLimitPlaceholder: "0=auto, accepts 128K / 1M",
@@ -59,8 +45,7 @@ const i18n = createI18n({
         bypass: "Bypass", dontAsk: "Don't Ask",
         effort: { low: "Low", medium: "Med", high: "High", xhigh: "XHigh", max: "Max", ultracode: "Ultra" },
       },
-      provider: { anthropic: "Anthropic", deepseek: "DeepSeek", openrouter: "OpenRouter", siliconflow: "SiliconFlow", zhipu: "Zhipu", kimi: "Kimi", minimax: "MiniMax", custom: "Custom" },
-      app: { title: "Super Bazooka" },
+      app: { title: "Fractal" },
     },
   },
 });
@@ -153,20 +138,20 @@ describe("SettingsPanel", () => {
   it("has settings dropdown triggers", () => {
     const wrapper = mountPanel();
     const triggers = wrapper.findAll(".settings-dropdown");
-    expect(triggers.length).toBe(7); // provider + model + lang + theme + font + perm + effort (ponytail hidden: hasPonytail=null)
+    expect(triggers.length).toBe(6); // model + lang + theme + font + perm + effort
   });
 
   // ── Layout ──
 
   it("renders both sections", () => {
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("CC Config");
-    expect(wrapper.text()).toContain("cc-gui Settings");
+    expect(wrapper.text()).toContain("Engine Settings");
+    expect(wrapper.text()).toContain("Interface Settings");
   });
 
   it("renders about footer", () => {
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Super Bazooka");
+    expect(wrapper.text()).toContain("Fractal");
     // 版本号来自 vitest define __APP_VERSION__（package.json version），不写死具体版本
     expect(wrapper.text()).toContain(`v${__APP_VERSION__}`);
   });

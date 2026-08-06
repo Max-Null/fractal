@@ -1,0 +1,399 @@
+// events 映射层单元测试：用 stage0 实测的真实 serve 事件验证 mapServeEvent
+// 说明：events.test.ts 只测纯映射函数（mapServeEvent + createMapContext），
+// 不建立真实 SSE 连接（SSE 连接留阶段 4 冒烟）
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { describe, it, expect } from 'vitest'
+import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
+import { mapServeEvent, createMapContext, type MapContext } from './events'
+
+const fixturePath = resolve(process.cwd(), 'electron/tests/fixtures')
+
+function loadEvents(name: string): ServeEvent[] {
+  return JSON.parse(readFileSync(resolve(fixturePath, name), 'utf-8')) as ServeEvent[]
+}
+
+/** 便利构造：合成一条 serve 事件（fixture 无 assistant 输出的真实报文，分派逻辑用合成数据验证） */
+// Event 联合类型不含 SSE 外层 id 字段（实际报文有），用 & 扩展承载测试数据
+function synthEvent(type: string, properties: Record<string, unknown>): ServeEvent {
+  return { id: 'evt_test', type: type as ServeEvent['type'], properties } as ServeEvent
+}
+
+/** 合成 Part：公共字段补齐 + 状态类 part 的 time 由具体 state 对象提供（测试用宽松结构绕过 SDK 严格校验） */
+function synthPart(part: Record<string, unknown>): Part {
+  return { id: 'prt_test', sessionID: 'ses_test', messageID: 'msg_test', ...part } as unknown as Part
+}
+
+describe('mapServeEvent 真实 fixture（events-round2.json，21 条）', () => {
+  it('server.connected / session.created / session.updated / session.status 不产出事件', () => {
+    const ctx = createMapContext()
+    const evts = loadEvents('events-round2.json')
+    const mapped = evts.flatMap((e) => mapServeEvent(e, ctx))
+    // 21 条中仅 session.idle（2）→ result、session.error（4）→ error 有产出，其余 15 条为内部状态
+    expect(mapped.filter((e) => e.type === 'result')).toHaveLength(2)
+    expect(mapped.filter((e) => e.type === 'error')).toHaveLength(4)
+    expect(mapped.filter((e) => e.type === 'assistant')).toHaveLength(0)
+    expect(mapped.filter((e) => e.type === 'user')).toHaveLength(0)
+  })
+
+  it('session.idle → result(is_final) 并携带 session_id', () => {
+    const ctx = createMapContext()
+    const evts = loadEvents('events-round2.json')
+    const results = evts.flatMap((e) => mapServeEvent(e, ctx)).filter((e) => e.type === 'result')
+    // 实测会话两个：ses_02cbe716dffeirzgVVoA5LwnJc / ses_02cbe6fabffeBNPRLdgT1l0Xgw
+    expect(results.map((r) => (r.type === 'result' ? r.session_id : undefined)).sort()).toEqual([
+      'ses_02cbe6fabffeBNPRLdgT1l0Xgw',
+      'ses_02cbe716dffeirzgVVoA5LwnJc',
+    ])
+    for (const r of results) {
+      if (r.type !== 'result') continue
+      expect(r.is_final).toBe(true)
+      expect(r.text).toBe('')
+      expect(r.thinking).toBe('')
+    }
+  })
+
+  it('session.error → error 事件，message 从 error.data.message 提取', () => {
+    const ctx = createMapContext()
+    const evts = loadEvents('events-round2.json')
+    const errors = evts.flatMap((e) => mapServeEvent(e, ctx)).filter((e) => e.type === 'error')
+    expect(errors.length).toBeGreaterThan(0)
+    // 实测 error 结构 {name:"UnknownError", data:{message:"Model not found: ..."}}
+    expect(errors[0].type).toBe('error')
+    if (errors[0].type !== 'error') return
+    expect(errors[0].error).toContain('Model not found')
+  })
+
+  it('text part（user 消息回显）不产出事件——前端已本地 addUserMessage', () => {
+    const ctx = createMapContext()
+    const evts = loadEvents('events-round2.json')
+    const textParts = evts.filter((e) => e.type === 'message.part.updated' && (e.properties as { part?: Part }).part?.type === 'text')
+    expect(textParts.length).toBeGreaterThan(0)
+    // 先按真实到达顺序跑完整序列（message.updated 先行填充 ctx.messageRoles），再验证回显文本不产出
+    evts.forEach((e) => mapServeEvent(e, ctx))
+    const mapped = textParts.flatMap((e) => mapServeEvent(e, ctx))
+    // 实测两个 text part 均属 role=user 的用户消息（"只回复两个字：你好" / "用工具读取当前目录的文件列表"）
+    expect(mapped).toHaveLength(0)
+  })
+})
+
+describe('mapServeEvent 真实 fixture（events-all.json，35 条，含 fork 会话）', () => {
+  it('完整流程：4 会话含 fork，仅 idle/error 有产出', () => {
+    const ctx = createMapContext()
+    const evts = loadEvents('events-all.json')
+    const mapped = evts.flatMap((e) => mapServeEvent(e, ctx))
+    // all 含 3 个 session.idle + 6 个 session.error（含 abort 轮）
+    expect(mapped.filter((e) => e.type === 'result')).toHaveLength(3)
+    expect(mapped.filter((e) => e.type === 'error')).toHaveLength(6)
+    expect(mapped.filter((e) => e.type === 'assistant')).toHaveLength(0)
+    expect(mapped.filter((e) => e.type === 'user')).toHaveLength(0)
+  })
+})
+
+describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
+  function ctxWithRole(role: string): MapContext {
+    const ctx = createMapContext()
+    ctx.messageRoles.set('msg_test', role)
+    return ctx
+  }
+
+  it('text part（assistant）→ assistant 事件，delta 优先于全量', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'text', text: '你好，我是助手' }),
+      delta: '，我是助手',
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'assistant', session_id: 'ses_test', text: '，我是助手', thinking: '' })
+  })
+
+  it('text part（assistant，无 delta）→ 用全量 part.text', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'text', text: '完整文本' }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out[0]).toMatchObject({ type: 'assistant', text: '完整文本' })
+  })
+
+  it('reasoning part → assistant(thinking)（思考阶段）', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'reasoning', text: '让我想想' }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'assistant', thinking: '让我想想', text: '' })
+  })
+
+  it('tool part（pending，首次）→ assistant(tool_use) 创建工具卡片', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_1',
+        tool: 'Bash',
+        state: { status: 'pending', input: { command: 'ls' }, raw: '' },
+      }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'assistant',
+      tool_use: [{ id: 'call_1', name: 'Bash', input: { command: 'ls' } }],
+    })
+  })
+
+  it('tool part（running，同一 callID 第二次）→ 不再重复发 tool_use', () => {
+    const ctx = ctxWithRole('assistant')
+    const pending = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'tool', callID: 'call_1', tool: 'Bash', state: { status: 'pending', input: {}, raw: '' } }),
+    })
+    mapServeEvent(pending, ctx)
+    const running = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_1',
+        tool: 'Bash',
+        state: { status: 'running', input: {}, title: '运行中' },
+      }),
+    })
+    const out = mapServeEvent(running, ctx)
+    expect(out).toHaveLength(0)
+  })
+
+  it('tool part（completed）→ user(tool_results) 回填输出', () => {
+    const ctx = ctxWithRole('assistant')
+    const completed = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_1',
+        tool: 'Bash',
+        state: { status: 'completed', input: {}, output: 'file list', title: '完成', metadata: {} },
+      }),
+    })
+    const out = mapServeEvent(completed, ctx)
+    expect(out).toHaveLength(2) // 首次见 → tool_use + completed → tool_results
+    const user = out.find((e) => e.type === 'user')
+    expect(user).toBeDefined()
+    if (user?.type !== 'user') return
+    expect(user.tool_results).toEqual([{ tool_use_id: 'call_1', content: 'file list', is_error: false }])
+  })
+
+  it('tool part（error）→ user(tool_results) is_error=true', () => {
+    const ctx = ctxWithRole('assistant')
+    const err = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_2',
+        tool: 'Bash',
+        state: { status: 'error', input: {}, error: 'command failed' },
+      }),
+    })
+    const out = mapServeEvent(err, ctx)
+    const user = out.find((e) => e.type === 'user')
+    if (user?.type !== 'user') throw new Error('期望 user 事件')
+    expect(user.tool_results).toEqual([{ tool_use_id: 'call_2', content: 'command failed', is_error: true }])
+  })
+
+  it('未知 part 类型（file/step 等）→ 不产出 [待实测]', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'file', mime: 'text/plain', url: 'file:///a.txt' }),
+    })
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+})
+
+describe('mapServeEvent 合成事件：message.part.delta（打字机增量）', () => {
+  it('text delta → assistant(text) 增量（partTypes 已记录 part 类型）', () => {
+    const ctx = createMapContext()
+    ctx.partTypes.set('prt_text', 'text')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_text',
+      field: 'text',
+      delta: '你好',
+    })
+    expect(mapServeEvent(evt, ctx)).toEqual([{ type: 'assistant', session_id: 'ses_test', text: '你好', thinking: '' }])
+  })
+
+  it('reasoning delta → assistant(thinking) 增量', () => {
+    const ctx = createMapContext()
+    ctx.partTypes.set('prt_reason', 'reasoning')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_reason',
+      field: 'text',
+      delta: '让我想想',
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'assistant', thinking: '让我想想', text: '' })
+  })
+
+  it('tool input delta → 不产出（前端无消费点）', () => {
+    const ctx = createMapContext()
+    ctx.partTypes.set('prt_tool', 'tool')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_tool',
+      field: 'input',
+      delta: '{"command":"ls"}',
+    })
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+
+  it('partTypes 查不到（先行的 updated 未到）→ 跳过', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_unknown',
+      field: 'text',
+      delta: 'x',
+    })
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+
+  it('field 非 text（如 output/其他）→ 不产出', () => {
+    const ctx = createMapContext()
+    ctx.partTypes.set('prt_text', 'text')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_text',
+      field: 'other',
+      delta: 'x',
+    })
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+})
+
+describe('mapServeEvent 真实 fixture message.part.delta（events-round3-success.json，23 条）', () => {
+  it('先喂 updated 填 partTypes，再喂 delta：产出连续 thinking/text 增量且与全量不重复', () => {
+    const evts = loadEvents('events-round3-success.json')
+    const ctx = createMapContext()
+    // 先按真实顺序喂全部 updated（填充 partTypes），再喂 delta——模拟「updated 先到」时序
+    const updated = evts.filter((e) => e.type === 'message.part.updated')
+    // message.part.delta 是 serve 实测输出但 SDK 类型未生成（同 events.ts），比较前放宽为 string
+    const deltas = evts.filter((e) => (e as { type: string }).type === 'message.part.delta')
+    for (const e of updated) mapServeEvent(e, ctx)
+    const deltaOut = deltas.flatMap((e) => mapServeEvent(e, ctx))
+
+    const textDeltas = deltaOut.filter((e) => e.type === 'assistant' && e.text)
+    const thinkingDeltas = deltaOut.filter((e) => e.type === 'assistant' && e.thinking)
+    // 期望条数从 fixture 动态计算：fixture 由集成测试真实模型运行生成，thinking 增量条数不固定（22/19 均可能）
+    const expectedThinking = deltas.filter((d) => (d.properties as { field?: string }).field === 'text').length - 1 // 总 text 增量含 1 条回复文本
+    expect(thinkingDeltas).toHaveLength(expectedThinking)
+    expect(textDeltas.map((e) => (e.type === 'assistant' ? e.text : ''))).toEqual(['你好'])
+
+    // 增量拼接 = reasoning 全量（打字机增量不丢字，前端 appendText startsWith 去重后不重复）
+    const joinedThinking = thinkingDeltas.map((e) => (e.type === 'assistant' ? e.thinking : '')).join('')
+    const reasoningFull = updated
+      .map((e) => (e.properties as { part?: Part }).part)
+      .filter((p): p is Part & { type: 'reasoning'; text: string } => !!p && p.type === 'reasoning' && Boolean((p as { text?: string }).text))
+      .at(-1)?.text
+    expect(reasoningFull).toBeTruthy()
+    expect(joinedThinking).toBe(reasoningFull)
+  })
+
+  it('delta 先行（partTypes 空）不产出，updated 全量兜底仍产出最终文本', () => {
+    // 订阅中途才收到 updated 的场景：delta 全部丢弃，但最终全量 part 仍能渲染（不丢答案）
+    const evts = loadEvents('events-round3-success.json')
+    const ctx = createMapContext()
+    const mapped = evts.flatMap((e) => mapServeEvent(e, ctx))
+    const assistantTexts = mapped.filter((e) => e.type === 'assistant' && e.text).map((e) => (e.type === 'assistant' ? e.text : ''))
+    // 全量 updated 产出 "你好"（assistant 文本最终完整，不受 delta 丢失影响）
+    expect(assistantTexts.some((t) => t.includes('你好'))).toBe(true)
+  })
+})
+
+describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
+  it('permission.updated → control_request（含 id/sessionID/metadata）', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('permission.updated', {
+      id: 'perm_1',
+      type: 'bash',
+      pattern: 'bash: ls',
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      callID: 'call_1',
+      title: 'Run Bash command',
+      metadata: { command: 'ls', tool_name: 'Bash' },
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'control_request',
+      session_id: 'ses_test',
+      control_request: {
+        subtype: 'bash',
+        tool_name: 'Bash',
+        request_id: 'perm_1',
+        tool_input: { command: 'ls', tool_name: 'Bash' },
+      },
+    })
+  })
+
+  it('session.idle 附带最近 session.updated 的 tokens', () => {
+    const ctx = createMapContext()
+    const updated = synthEvent('session.updated', {
+      sessionID: 'ses_test',
+      info: { id: 'ses_test', tokens: { input: 100, output: 50, cost: 0.002, reasoning: 10, cache: { read: 0, write: 0 } } },
+    })
+    mapServeEvent(updated, ctx)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({ type: 'result', is_final: true, input_tokens: 100, output_tokens: 50, cost_usd: 0.002 })
+  })
+
+  it('session.idle 输出 duration_ms（session.created 起始计时）', () => {
+    // 注入可变时间源：created 时刻 t=100，idle 时刻 t=500 → duration_ms=400
+    let t = 100
+    const ctx = createMapContext(() => t)
+    const created = synthEvent('session.created', {
+      sessionID: 'ses_test',
+      info: { id: 'ses_test', tokens: { input: 0, output: 0, cost: 0, reasoning: 0, cache: { read: 0, write: 0 } } },
+    })
+    mapServeEvent(created, ctx)
+    t = 500
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({ type: 'result', duration_ms: 400 })
+  })
+
+  it('session.idle 无起始记录时不输出 duration_ms', () => {
+    // 订阅中途加入（未经历 created）→ 不产出 duration_ms，避免脏数据
+    const ctx = createMapContext()
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({ type: 'result' })
+    expect((out[0] as { duration_ms?: number }).duration_ms).toBeUndefined()
+  })
+
+  it('server.connected → 不产出（订阅层 onConnected 处理）', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('server.connected', {})
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+
+  it('未知事件类型（todo.updated 等）→ 不产出', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('todo.updated', { sessionID: 'ses_test', todos: [] })
+    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+  })
+})

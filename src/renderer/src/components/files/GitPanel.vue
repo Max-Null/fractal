@@ -330,5 +330,5 @@ watch(() => props.repoPath, () => {
   accent-color: var(--accent);
 }
 
-.git-status-tag { display: none; }  /* ponytail: prevents empty style block warning */
+.git-status-tag { display: none; }  /* prevents empty style block warning */
 </style>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" fill="#1a1a2e"/>
+  <!-- 芯片本体 -->
+  <rect x="56" y="56" width="144" height="144" rx="24" fill="none" stroke="#0ea5e9" stroke-width="6"/>
+  <!-- 引脚 -->
+  <g stroke="#0ea5e9" stroke-width="6" stroke-linecap="round">
+    <line x1="86" y1="32" x2="86" y2="56"/><line x1="128" y1="24" x2="128" y2="56"/><line x1="170" y1="32" x2="170" y2="56"/>
+    <line x1="86" y1="200" x2="86" y2="224"/><line x1="128" y1="200" x2="128" y2="232"/><line x1="170" y1="200" x2="170" y2="224"/>
+    <line x1="32" y1="86" x2="56" y2="86"/><line x1="24" y1="128" x2="56" y2="128"/><line x1="32" y1="170" x2="56" y2="170"/>
+    <line x1="200" y1="86" x2="224" y2="86"/><line x1="200" y1="128" x2="232" y2="128"/><line x1="200" y1="170" x2="224" y2="170"/>
+  </g>
+  <!-- 心电图（灵魂心跳） -->
+  <path d="M 76 138 L 96 138 L 106 116 L 118 158 L 130 108 L 142 146 L 152 138 L 180 138"
+        fill="none" stroke="#34d399" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

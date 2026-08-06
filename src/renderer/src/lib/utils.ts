@@ -20,7 +20,7 @@ export function translateError(err: unknown): { key: string; params?: Record<str
   const s = String(err ?? "");
   const lower = s.toLowerCase();
 
-  // Claude CLI not found — 保留 Rust 返回的原始错误（含尝试的路径），方便用户排查
+  // CLI not found — 保留原始错误（含尝试的路径），方便用户排查
   if (lower.includes("is claude code cli installed") || lower.includes("program not found")) {
     return { key: "error.claudeNotFound", params: { detail: s } };
   }

@@ -11,6 +11,10 @@ export interface PanelLayout {
 
 export const PANEL_LAYOUT_KEY: InjectionKey<PanelLayout> = Symbol("panelLayout")
 
+// 侧栏双态宽度（展开列表 / 收起 rail），与 AppShell 的 .sb-sidebar 宽度保持同步
+export const SIDEBAR_WIDTH = 232
+export const SIDEBAR_COLLAPSED_WIDTH = 56
+
 export function usePanelLayout(options: {
   containerRef: Ref<HTMLElement | null>
   sidebarOpen: Ref<boolean>
@@ -21,13 +25,13 @@ export function usePanelLayout(options: {
   const filesDragging = ref(false)
 
   const MAIN_MIN = 300
-  const RAIL_WIDTH = 40
 
-  const sidebarWidth = computed(() => (options.sidebarOpen.value ? 260 : 0))
+  // 侧栏自身折叠：展开占 232px，收起占 56px（rail 常驻，不再出现宽度 0）
+  const sidebarWidth = computed(() => (options.sidebarOpen.value ? SIDEBAR_WIDTH : SIDEBAR_COLLAPSED_WIDTH))
 
   /** 右侧面板可用的总宽度上限（保护 Main 最小宽度） */
   function availableForRight(containerW: number): number {
-    return containerW - RAIL_WIDTH - sidebarWidth.value - MAIN_MIN
+    return containerW - sidebarWidth.value - MAIN_MIN
   }
 
   /** 窗口缩放时等比收缩右侧面板，防止溢出 */
@@ -66,7 +70,7 @@ export function usePanelLayout(options: {
     document.body.appendChild(resizeOverlay)
     resizeOverlay.addEventListener("mousemove", onMove)
     resizeOverlay.addEventListener("mouseup", onUp)
-    // ponytail: 兜底——用户松开鼠标但 mouseup 没触发到 overlay（比如失焦），用全局 mouseup 清理
+    // 兜底——用户松开鼠标但 mouseup 没触发到 overlay（比如失焦），用全局 mouseup 清理
     document.addEventListener("mouseup", onUp, { once: true })
 
     function onMove(ev: MouseEvent) {

@@ -71,6 +71,10 @@ function mountPanel() {
         FileTree: stub("FileTree"),
         FilePreview: stub("FilePreview"),
         GitPanel: stub("GitPanel"),
+        MemoryPanel: stub("MemoryPanel"),
+        StatusPanel: stub("StatusPanel"),
+        PlansPanel: stub("PlansPanel"),
+        SkillsPanel: stub("SkillsPanel"),
       },
     },
   });
@@ -229,5 +233,94 @@ describe("FilePanel", () => {
     expect(segments[1]).toEqual({ label: "project", fullPath: "C:\\project" });
     expect(segments[2]).toEqual({ label: "src", fullPath: "C:\\project\\src" });
     expect(segments[3]).toEqual({ label: "components", fullPath: "C:\\project\\src\\components" });
+  });
+
+  // ── 外层增强面板 Tabs（文件/记忆/状态/计划/技能）──
+
+  /** 展开面板并点击指定外层 tab（区分内层 文件/Git 子 tab） */
+  async function clickPanelTab(wrapper: any, label: string) {
+    const btn = wrapper.findAll("button.panel-tab").find((b: any) => b.text().includes(label));
+    expect(btn).toBeTruthy();
+    await btn.trigger("click");
+    await wrapper.vm.$nextTick();
+    return btn;
+  }
+
+  it("renders 5 outer panel tabs (files/memory/status/plans/skills)", async () => {
+    const { wrapper, vm } = mountPanel();
+    await wrapper.vm.$nextTick();
+    vm.collapsed = false;
+    await wrapper.vm.$nextTick();
+
+    const labels = wrapper.findAll("button.panel-tab").map((b: any) => b.text());
+    expect(labels).toHaveLength(5);
+    expect(labels[0]).toContain("文件");
+    expect(labels[1]).toContain("记忆");
+    expect(labels[2]).toContain("状态");
+    expect(labels[3]).toContain("计划");
+    expect(labels[4]).toContain("技能");
+  });
+
+  it("shows file tree by default and hides it after switching to memory tab", async () => {
+    const { wrapper, vm } = mountPanel();
+    await wrapper.vm.$nextTick();
+    vm.collapsed = false;
+    await wrapper.vm.$nextTick();
+
+    // 默认文件 tab：文件树可见，骨架面板不可见
+    expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "MemoryPanel" }).exists()).toBe(false);
+
+    await clickPanelTab(wrapper, "记忆");
+
+    // 切到记忆 tab：骨架面板可见，文件树隐藏
+    expect(wrapper.findComponent({ name: "MemoryPanel" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(false);
+  });
+
+  it("switches to status/plans/skills tabs and back to files", async () => {
+    const { wrapper, vm } = mountPanel();
+    await wrapper.vm.$nextTick();
+    vm.collapsed = false;
+    await wrapper.vm.$nextTick();
+
+    await clickPanelTab(wrapper, "状态");
+    expect(wrapper.findComponent({ name: "StatusPanel" }).exists()).toBe(true);
+
+    await clickPanelTab(wrapper, "计划");
+    expect(wrapper.findComponent({ name: "PlansPanel" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "StatusPanel" }).exists()).toBe(false);
+
+    await clickPanelTab(wrapper, "技能");
+    expect(wrapper.findComponent({ name: "SkillsPanel" }).exists()).toBe(true);
+
+    // 切回文件 tab：文件树恢复渲染
+    await clickPanelTab(wrapper, "文件");
+    expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "SkillsPanel" }).exists()).toBe(false);
+  });
+
+  it("file tab keeps inner files/git sub-tabs working", async () => {
+    const { wrapper, vm } = mountPanel();
+    await wrapper.vm.$nextTick();
+    vm.collapsed = false;
+    await wrapper.vm.$nextTick();
+
+    // 外层仍在文件 tab 时，切换内层 Git 子 tab
+    const gitTab = wrapper.findAll("button.file-panel-tab-btn").find((b: any) => b.text().includes("Git"));
+    expect(gitTab).toBeTruthy();
+    await gitTab!.trigger("click");
+    await wrapper.vm.$nextTick();
+
+    expect(vm.fileTab).toBe("git");
+    expect(wrapper.findComponent({ name: "GitPanel" }).exists()).toBe(true);
+    expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(false);
+
+    // 切回文件子 tab
+    const filesTab = wrapper.findAll("button.file-panel-tab-btn").find((b: any) => b.text().includes("Files"));
+    expect(filesTab).toBeTruthy();
+    await filesTab!.trigger("click");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(true);
   });
 });

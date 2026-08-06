@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <rect width="256" height="256" rx="48" fill="#1a1a2e"/>
+  <g fill="none" stroke="#0ea5e9">
+    <circle cx="128" cy="128" r="56" stroke-width="2" opacity="0.5"/>
+    <circle cx="128" cy="128" r="88" stroke-width="2" opacity="0.3"/>
+  </g>
+  <!-- 光环点 -->
+  <circle cx="216.0" cy="128.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="204.2" cy="172.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="172.0" cy="204.2" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="128.0" cy="216.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="84.0" cy="204.2" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="51.8" cy="172.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="40.0" cy="128.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="51.8" cy="84.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="84.0" cy="51.8" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="128.0" cy="40.0" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="172.0" cy="51.8" r="3.5" fill="#0ea5e9" opacity="0.8"/><circle cx="204.2" cy="84.0" r="3.5" fill="#0ea5e9" opacity="0.8"/>
+  <!-- 瞳孔：虹膜 + 瞳孔 + 高光 -->
+  <circle cx="128" cy="128" r="42" fill="#0369a1"/>
+  <circle cx="128" cy="128" r="30" fill="#0ea5e9"/>
+  <circle cx="128" cy="128" r="15" fill="#0b1220"/>
+  <circle cx="118" cy="117" r="8" fill="#fff" opacity="0.9"/>
+  <circle cx="140" cy="136" r="3.5" fill="#fff" opacity="0.5"/>
+</svg>

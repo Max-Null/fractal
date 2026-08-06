@@ -92,9 +92,6 @@ const totalLabel = computed(() => {
   return s ? `⏱${s}s` : "";
 });
 
-// 非 Anthropic 提供商的费用估算无意义
-const showCost = computed(() => settings.providerId === "anthropic");
-
 // ── 纯思考时间 ──
 const thinkingLabel = computed(() => {
   const ms = totalThinkingMs();
@@ -160,11 +157,11 @@ function summarizeResult(content: string): string {
       :style="{
         background: message.role === 'user'
           ? 'linear-gradient(135deg, #3b82f6, #6366f1)'
-          : 'linear-gradient(135deg, #06d6a0, #0891b2)',
+          : 'linear-gradient(135deg, var(--accent), #0891b2)',
         color: 'white'
       }"
     >
-      {{ message.role === 'user' ? 'U' : 'C' }}
+      {{ message.role === 'user' ? 'U' : '分' }}
     </div>
 
     <!-- Body -->
@@ -172,7 +169,7 @@ function summarizeResult(content: string): string {
       <!-- Name + actions -->
       <div class="flex items-center gap-1.5 px-0.5">
         <span class="text-[11px] font-medium" style="color:var(--text-muted)">
-          {{ message.role === 'user' ? 'You' : 'Claude' }}
+          {{ message.role === 'user' ? 'You' : '分形' }}
         </span>
         <!-- Copy -->
         <button
@@ -300,9 +297,9 @@ function summarizeResult(content: string): string {
           {{ $t('chat.toolsExecuted', { n: message.toolUses.filter(t => t.result).length }) }}
         </div>
 
-        <!-- 统计行：耗时 / token / cost -->
+        <!-- 统计行：耗时 / token -->
         <div
-          v-if="totalLabel || thinkingLabel || tokenLabel || (showCost && message.costUSD !== undefined)"
+          v-if="totalLabel || thinkingLabel || tokenLabel"
           class="flex items-center gap-2 text-[11px] mt-2"
           style="color: var(--text-muted)"
         >
@@ -311,7 +308,6 @@ function summarizeResult(content: string): string {
           <template v-if="!message.isStreaming">
             <span v-if="tokenLabel" style="opacity:0.5">·</span>
             <span v-if="tokenLabel">{{ tokenLabel }}</span>
-            <span v-if="showCost && message.costUSD !== undefined">${{ message.costUSD.toFixed(4) }}</span>
           </template>
         </div>
       </div>
