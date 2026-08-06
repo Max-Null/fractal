@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers, startEngineEvents } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
+import { initPreset, ensurePresetConfig } from './preset'
 import { watchSettings } from './settings'
 
 // ── 单实例锁：SQLite 用户数据（settings/session 缓存）不支持双实例并发——第二个实例直接退出并聚焦已有窗口
@@ -94,6 +95,20 @@ app.whenReady().then(async () => {
 
   // e2e 复制正式配置后再注册 IPC（渲染进程 initFromDb 依赖 provider-configs.json）
   if (isE2E) await copyRealConfigForE2E()
+
+  // 预置配置体系（阶段 8）：先初始化 oc-plus 全家桶（agents/skills/plugins 拷贝 + 幂等检测），
+  // 再 merge default_agent/plugin/instructions 进 opencode.json——必须在 registerIpcHandlers 前完成，
+  // 渲染进程经 IPC 启动 serve 时预置配置已就绪；ensureConfig（provider 受管字段）在 startServer 前再次合并。
+  try {
+    const presetResult = await initPreset(app.getPath('userData'))
+    if (presetResult.initialized) {
+      console.log(`[preset] 预置初始化完成 v${presetResult.version}`)
+    }
+    await ensurePresetConfig(app.getPath('userData'))
+  } catch (err) {
+    // 预置资源缺失（打包缺陷）不应阻断应用启动——记录后继续，serve 仍可跑但预置 agent/技能不生效
+    console.error('[preset] 预置初始化失败（预置资源缺失？）：', err)
+  }
 
   // 注册 IPC 通道（引擎通道注入 serverManager）
   registerIpcHandlers(serverManager)

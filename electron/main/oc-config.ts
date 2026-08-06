@@ -105,19 +105,9 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   // userDataDir 注入 settings.json 目录例外（阶段 6：agent 可自检自改配置的前提，方案 3.8.4）
   cfg.permission = buildPermissionRule(opts.permissionMode, userDataDir) as Record<string, unknown>
 
-  // 预置「双星」agent：D15 预置包的最小占位定义（阶段 8 用完整 oc-plus 定义替换）。
-  // 必要性：serve 找不到 agent 时 promptAsync 会 400，而分形默认 currentAgent=双星（用户首次发消息即触发）。
-  // merge 保留用户已有 agent 定义，仅补缺。
-  const agents = (cfg.agent as Record<string, unknown> | undefined) ?? {}
-  if (!agents['双星']) {
-    agents['双星'] = {
-      description: '分形默认主 agent：研究→综合→实现→验证四阶段协作',
-      mode: 'primary',
-      prompt:
-        '你是分形（Fractal）的主 agent「双星」。遵循四阶段工作法：阶段 1 研究（探索代码、并行调研）、阶段 2 综合（制定规格并持久化）、阶段 3 实现（按规格编码自测）、阶段 4 验证（亲自审查 diff、跑全量测试）。动手前先输出「###思考结论」与用户对齐。',
-    }
-  }
-  cfg.agent = agents
+  // 预置 agent 由 preset 包 agents/*.md 提供（阶段 8），ensureConfig 不再写内联占位——
+  // 原因：config.agent.双星 与 agents/双星.md 同名会被 OC 双层配置 merge，占位定义会污染完整 md 定义（行为不确定）。
+  // default_agent 由 ensurePresetConfig 写入，serve 找不到 agent 的 400 问题由预置 md 本身解决。
 
   await fsp.mkdir(join(userDataDir, 'config', 'opencode'), { recursive: true })
   const content = JSON.stringify(cfg, null, 2)

@@ -20,6 +20,12 @@ extraResources:
     to: bin
     filter:
       - '**/*'
+  # 预置包：oc-plus 全家桶（agents/skills/plugins/preset.json）——打包后 process.resourcesPath/preset/
+  # electron/main/preset.ts getDefaultPresetRoot 经 process.resourcesPath 定位；electron/** 源码不打包，必须显式携带
+  - from: electron/resources/preset
+    to: preset
+    filter:
+      - '**/*'
 win:
   executableName: oc-gui
 nsis:

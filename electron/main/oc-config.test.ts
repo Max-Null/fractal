@@ -69,6 +69,8 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
     // ensureConfig 注入 userDataDir（=dir）→ permission 为对象语法 + settings.json 目录例外
     expect(cfg.permission).toEqual(buildPermissionRule('default', dir))
+    // 阶段 8：agent 定义由预置包 agents/*.md 提供，ensureConfig 不再写内联占位（同名会被 OC 双层 merge 污染）
+    expect(cfg.agent).toBeUndefined()
     const readRule = (cfg.permission as Record<string, unknown>).read as Record<string, string>
     expect(readRule['*']).toBe('ask')
     expect(Object.values(readRule)).toContain('allow')
