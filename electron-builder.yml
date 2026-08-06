@@ -6,12 +6,20 @@ files:
   - '!**/.vscode/*'
   - '!src/**'
   - '!electron/**'
+  - '!resources/bin/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
 asarUnpack:
-  - resources/**
+  - resources/icon.png
+  - resources/icons/**
+extraResources:
+  # sidecar：内置 opencode 二进制（scripts/download-opencode.js 下载）——打包后 process.resourcesPath/bin/
+  - from: resources/bin
+    to: bin
+    filter:
+      - '**/*'
 win:
   executableName: oc-gui
 nsis:

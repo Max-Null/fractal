@@ -12,6 +12,7 @@
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
     "test": "vitest run",
     "test:e2e": "npm run build && playwright test",
+    "download:opencode": "node scripts/download-opencode.js",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",

@@ -6,6 +6,7 @@
 // - 健康检查轮询 GET /doc（带 Basic 头）200 即就绪
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 
+import { app } from 'electron'
 import { promises as fsp } from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
@@ -96,13 +97,34 @@ function getFreePort(): Promise<number> {
   })
 }
 
+/** 内置 sidecar 运行失败标记：spawn error 后置 true，下次解析跳过内置走系统兜底（军师审查 🔴3） */
+let sidecarBroken = false
+/** 最近一次解析是否来自内置 sidecar（spawn error 时判断是否标记 broken） */
+let lastResolvedFromSidecar = false
+
 /**
- * 解析系统安装的 opencode 到原生可执行文件。
- * Windows 下 `where opencode` 返回的可能是 .cmd shim（npm 全局安装），
- * Node CreateProcess 不解析 .cmd → 读 shim 内容提取真实 exe 路径（阶段 0 踩坑 #2）。
+ * 解析 opencode 可执行文件（优先内置 sidecar，系统安装兜底——D8 阶段 7 实现）：
+ * 1. resources/bin/opencode.exe（开发）或 process.resourcesPath/bin/opencode.exe（打包 extraResources）
+ * 2. 系统安装（where opencode）：原生 exe 或 .cmd/.bat shim（Node CreateProcess 不解析 .cmd → 读 shim 提取真实 exe，阶段 0 踩坑 #2）
  */
 async function resolveOpencodeBin(): Promise<string> {
-  // 非 Windows：PATH 直接可执行，交给 spawn 解析
+  // ① 内置 sidecar（优先）：打包 = process.resourcesPath/bin/；开发 = <项目根>/resources/bin/
+  // 单测环境无 electron app（undefined）——按开发模式解析（process.cwd() 为项目根，vitest 由项目根运行）
+  const isPackaged = app?.isPackaged === true
+  const appRoot = isPackaged ? process.resourcesPath : join(app?.getAppPath?.() ?? process.cwd(), 'resources')
+  const bundled = join(appRoot, 'bin', process.platform === 'win32' ? 'opencode.exe' : 'opencode')
+  if (!sidecarBroken) {
+    try {
+      await fsp.access(bundled)
+      lastResolvedFromSidecar = true
+      return bundled
+    } catch {
+      // 内置不存在或已标记损坏 → 系统兜底
+    }
+  }
+  lastResolvedFromSidecar = false
+
+  // ② 非 Windows：PATH 直接可执行，交给 spawn 解析
   if (process.platform !== 'win32') return 'opencode'
 
   // where opencode：可能返回多条（PATH 中多处安装），取第一条可用的
@@ -115,7 +137,7 @@ async function resolveOpencodeBin(): Promise<string> {
 
   const candidates = stdout.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
   if (candidates.length === 0) {
-    throw new Error('未安装 OC，sidecar 待阶段 7')
+    throw new Error('未找到 opencode：内置 sidecar 与系统安装均缺失（运行 scripts/download-opencode.js 安装内置引擎）')
   }
 
   for (const cand of candidates) {
@@ -228,9 +250,12 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
       }
     })
 
-    // spawn 失败（ENOENT 等）→ 置 failed，回调通知前端
+    // spawn 失败（ENOENT 等）→ 置 failed，回调通知前端；内置 sidecar 失败则标记损坏，下次解析走系统兜底
     child.on('error', (err) => {
-
+      if (lastResolvedFromSidecar && !sidecarBroken) {
+        sidecarBroken = true
+        console.error('[server-manager] 内置 sidecar spawn 失败，后续将使用系统安装的 OC 兜底')
+      }
       state.failed = true
       state.child = null
       state.startPromise = null // 启动缓存失效，允许下次 ready 重建

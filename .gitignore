@@ -28,3 +28,7 @@ desktop.ini
 
 # OpenCode 临时分析
 .tmp-omo-analysis/
+
+# sidecar 二进制（scripts/download-opencode.js 下载产物，不入版本控制）
+resources/bin/
+
