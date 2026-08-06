@@ -183,6 +183,66 @@ describe("useStreamProcessor", () => {
 
     stopListening();
   });
+
+  it("todo 事件（活跃会话）→ 覆盖 chat.todos", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-todo");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "todo",
+      session_id: "ses-todo",
+      text: "",
+      thinking: "",
+      todos: [
+        { content: "写 README", status: "pending", priority: "high" },
+        { content: "运行测试", status: "in_progress", priority: "medium" },
+        { content: "git 提交", status: "completed", priority: "low" },
+      ],
+    });
+
+    expect(chat.todos).toHaveLength(3);
+    expect(chat.todos[0].content).toBe("写 README");
+    expect(chat.todos[0].status).toBe("pending");
+    expect(chat.todos[0].priority).toBe("high");
+    expect(chat.todos[1].status).toBe("in_progress");
+    expect(chat.todos[2].status).toBe("completed");
+
+    stopListening();
+  });
+
+  it("todo 事件（后台会话）→ 写入 sessionCache，不污染活跃会话", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-active");
+    chat.addUserMessage("hi");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "todo",
+      session_id: "ses-background",
+      text: "",
+      thinking: "",
+      todos: [{ content: "后台任务", status: "pending", priority: "high" }],
+    });
+
+    // 活跃会话 todos 未被污染
+    expect(chat.todos).toHaveLength(0);
+
+    // 切到后台会话：从缓存恢复待办
+    chat.clearMessages();
+    const cached = chat.loadFromCache("ses-background");
+    expect(cached).not.toBeNull();
+    expect(chat.todos).toHaveLength(1);
+    expect(chat.todos[0].content).toBe("后台任务");
+
+    stopListening();
+  });
 });
 
 // ── buildContentBlocks 专项测试 ──

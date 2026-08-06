@@ -1,0 +1,469 @@
+{
+  "question": [
+    {
+      "id": "evt_fd8af7f58001LdYF0mmf4j9YJl",
+      "type": "question.asked",
+      "properties": {
+        "id": "que_fd8af7f57001NRjzeP16LuW3nX",
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "questions": [
+          {
+            "question": "你更偏好哪个配色方案？",
+            "header": "配色方案",
+            "options": [
+              {
+                "label": "A 深色",
+                "description": "深色主题配色"
+              },
+              {
+                "label": "B 浅色",
+                "description": "浅色主题配色"
+              },
+              {
+                "label": "C 跟随系统",
+                "description": "根据系统自动切换"
+              }
+            ]
+          }
+        ],
+        "tool": {
+          "messageID": "msg_fd8af7395001nzytN0Tk18njXw",
+          "callID": "call_00_1GIrIstbWKTJkrJtVdlY4006"
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af8054001UKkqUdNaPZC891",
+      "type": "question.replied",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "requestID": "que_fd8af7f57001NRjzeP16LuW3nX",
+        "answers": [
+          [
+            "A 深色"
+          ]
+        ]
+      }
+    }
+  ],
+  "permission": [
+    {
+      "id": "evt_fd8af9f70002QBaonKfpjhXxxT",
+      "type": "permission.asked",
+      "properties": {
+        "id": "per_fd8af9f70001flUnvGdVXVgILk",
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "permission": "bash",
+        "patterns": [
+          "echo probe-permission-check"
+        ],
+        "metadata": {
+          "command": "echo probe-permission-check"
+        },
+        "always": [
+          "echo *"
+        ],
+        "tool": {
+          "messageID": "msg_fd8af98d0001maFbb1j1edlRsc",
+          "callID": "call_00_ET_Ugr8pbRbRmI9aOSxESA20763"
+        }
+      }
+    }
+  ],
+  "todo": [
+    {
+      "id": "evt_fd8af9616001KkQ42mSyOka2KJ",
+      "type": "todo.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "todos": [
+          {
+            "content": "写 README",
+            "status": "pending",
+            "priority": "high"
+          },
+          {
+            "content": "运行测试",
+            "status": "pending",
+            "priority": "high"
+          },
+          {
+            "content": "git 提交",
+            "status": "pending",
+            "priority": "high"
+          }
+        ]
+      }
+    }
+  ],
+  "othersSample": [
+    {
+      "id": "evt_fd8af721f0011D4jwyyjB0LJoo",
+      "type": "server.connected",
+      "properties": {}
+    },
+    {
+      "id": "evt_fd8af728e001mS4Dlv9odHZwUT",
+      "type": "session.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "id": "ses_027508debffevqj6TbCKpkg1Bi",
+          "slug": "mighty-otter",
+          "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+          "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+          "path": "stage0",
+          "title": "协议探测",
+          "agent": "build",
+          "model": {
+            "id": "deepseek-v4-flash",
+            "providerID": "deepseek",
+            "variant": "default"
+          },
+          "version": "1.18.5",
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "time": {
+            "created": 1786046804500,
+            "updated": 1786046804620
+          }
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af7293001sBBdNHkbI37Y6E",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "id": "msg_fd8af728c001N9uHaKak8cF8cw",
+          "role": "user",
+          "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+          "time": {
+            "created": 1786046804620
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "deepseek",
+            "modelID": "deepseek-v4-flash"
+          }
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af738a001URXQmE500z1OBN",
+      "type": "message.part.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "part": {
+          "type": "text",
+          "text": "请使用 question 工具向我提问一个问题：你更偏好哪个配色方案？选项 A 深色 / B 浅色 / C 跟随系统。给出后停止。",
+          "messageID": "msg_fd8af728c001N9uHaKak8cF8cw",
+          "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+          "id": "prt_fd8af7292001Xdy9VVToopy4DY"
+        },
+        "time": 1786046804874
+      }
+    },
+    {
+      "id": "evt_fd8af738d001pQlOCoLyyszI8g",
+      "type": "session.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "id": "ses_027508debffevqj6TbCKpkg1Bi",
+          "slug": "mighty-otter",
+          "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+          "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+          "path": "stage0",
+          "title": "协议探测",
+          "agent": "build",
+          "model": {
+            "id": "deepseek-v4-flash",
+            "providerID": "deepseek",
+            "variant": "default"
+          },
+          "version": "1.18.5",
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "time": {
+            "created": 1786046804500,
+            "updated": 1786046804876
+          }
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af7392001DSrDhXQxmPvObt",
+      "type": "session.status",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "status": {
+          "type": "busy"
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af7395001UnTfjg0AAwwd0c",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "id": "msg_fd8af7395001nzytN0Tk18njXw",
+          "parentID": "msg_fd8af728c001N9uHaKak8cF8cw",
+          "role": "assistant",
+          "mode": "build",
+          "agent": "build",
+          "path": {
+            "cwd": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+            "root": "H:\\MaxNull\\WorkStation\\fractal"
+          },
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "modelID": "deepseek-v4-flash",
+          "providerID": "deepseek",
+          "time": {
+            "created": 1786046804885
+          },
+          "sessionID": "ses_027508debffevqj6TbCKpkg1Bi"
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af751d0019przqNEiJjjD29",
+      "type": "session.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "id": "ses_027508debffevqj6TbCKpkg1Bi",
+          "slug": "mighty-otter",
+          "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+          "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+          "path": "stage0",
+          "title": "协议探测",
+          "agent": "build",
+          "model": {
+            "id": "deepseek-v4-flash",
+            "providerID": "deepseek",
+            "variant": "default"
+          },
+          "version": "1.18.5",
+          "summary": {
+            "additions": 0,
+            "deletions": 0,
+            "files": 0
+          },
+          "cost": 0,
+          "tokens": {
+            "input": 0,
+            "output": 0,
+            "reasoning": 0,
+            "cache": {
+              "read": 0,
+              "write": 0
+            }
+          },
+          "time": {
+            "created": 1786046804500,
+            "updated": 1786046805276
+          }
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af751f0010fQnYN7yk6Huup",
+      "type": "session.diff",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "diff": []
+      }
+    },
+    {
+      "id": "evt_fd8af7520001WcNg8Um3JE71iG",
+      "type": "message.updated",
+      "properties": {
+        "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+        "info": {
+          "role": "user",
+          "time": {
+            "created": 1786046804620
+          },
+          "agent": "build",
+          "model": {
+            "providerID": "deepseek",
+            "modelID": "deepseek-v4-flash"
+          },
+          "id": "msg_fd8af728c001N9uHaKak8cF8cw",
+          "sessionID": "ses_027508debffevqj6TbCKpkg1Bi",
+          "summary": {
+            "diffs": []
+          }
+        }
+      }
+    },
+    {
+      "id": "evt_fd8af7626001xsCdhnP1uRkMUZ",
+      "type": "plugin.added",
+      "properties": {
+        "id": "core/config-reference"
+      }
+    },
+    {
+      "id": "evt_fd8af7626002avMIGn25vOhniK",
+      "type": "plugin.added",
+      "properties": {
+        "id": "agent"
+      }
+    },
+    {
+      "id": "evt_fd8af7627001EvgGEs2n0EJRJw",
+      "type": "plugin.added",
+      "properties": {
+        "id": "command"
+      }
+    },
+    {
+      "id": "evt_fd8af7627002O5rDbT6GsmddZm",
+      "type": "plugin.added",
+      "properties": {
+        "id": "skill"
+      }
+    },
+    {
+      "id": "evt_fd8af7628001hPiLDuGJMuT4iK",
+      "type": "plugin.added",
+      "properties": {
+        "id": "models-dev"
+      }
+    },
+    {
+      "id": "evt_fd8af7629001iOOFcdd41Wz3Bb",
+      "type": "plugin.added",
+      "properties": {
+        "id": "config-agent"
+      }
+    },
+    {
+      "id": "evt_fd8af76290021pVaTS8Zn1jMQ9",
+      "type": "plugin.added",
+      "properties": {
+        "id": "config-command"
+      }
+    },
+    {
+      "id": "evt_fd8af7629003NwNeEJYU3rVi3h",
+      "type": "plugin.added",
+      "properties": {
+        "id": "config-skill"
+      }
+    },
+    {
+      "id": "evt_fd8af762a0010xMV4CiG8OUw4w",
+      "type": "plugin.added",
+      "properties": {
+        "id": "alibaba"
+      }
+    },
+    {
+      "id": "evt_fd8af762a002DJ8ilkK7MW5qSm",
+      "type": "plugin.added",
+      "properties": {
+        "id": "amazon-bedrock"
+      }
+    },
+    {
+      "id": "evt_fd8af762a003BR0FOTCmoupemr",
+      "type": "plugin.added",
+      "properties": {
+        "id": "anthropic"
+      }
+    },
+    {
+      "id": "evt_fd8af762b001olgmokvcq8MceW",
+      "type": "plugin.added",
+      "properties": {
+        "id": "azure-cognitive-services"
+      }
+    },
+    {
+      "id": "evt_fd8af766d001F9PjtAW4s14H2I",
+      "type": "plugin.added",
+      "properties": {
+        "id": "azure"
+      }
+    },
+    {
+      "id": "evt_fd8af766d002NW8Ci6DfiOi0Cy",
+      "type": "plugin.added",
+      "properties": {
+        "id": "cerebras"
+      }
+    },
+    {
+      "id": "evt_fd8af766d003QAtEmYVKM2K56h",
+      "type": "plugin.added",
+      "properties": {
+        "id": "cloudflare-ai-gateway"
+      }
+    },
+    {
+      "id": "evt_fd8af766e001d4ct1qsUj9WXs5",
+      "type": "plugin.added",
+      "properties": {
+        "id": "cloudflare-workers-ai"
+      }
+    },
+    {
+      "id": "evt_fd8af766e002eDziYhU5HzD4Fm",
+      "type": "plugin.added",
+      "properties": {
+        "id": "cohere"
+      }
+    },
+    {
+      "id": "evt_fd8af766f001bq2asgyhhVPMdZ",
+      "type": "plugin.added",
+      "properties": {
+        "id": "deepinfra"
+      }
+    },
+    {
+      "id": "evt_fd8af766f0025dF8GYq2Zwx9sy",
+      "type": "plugin.added",
+      "properties": {
+        "id": "gateway"
+      }
+    },
+    {
+      "id": "evt_fd8af766f003JO4dFi40sS8Htu",
+      "type": "plugin.added",
+      "properties": {
+        "id": "github-copilot"
+      }
+    }
+  ]
+}

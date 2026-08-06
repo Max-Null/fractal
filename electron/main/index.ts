@@ -14,7 +14,8 @@ const isE2E = process.env.OC_GUI_E2E === '1'
 const gotSingleInstanceLock = isE2E || app.requestSingleInstanceLock()
 
 // e2e 隔离：独立 userData（SQLite + serve 配置目录都走临时目录），不碰正式数据、不与运行中的 app 竞争
-if (isE2E) {
+// OC_GUI_E2E_SHARE=1 时跳过隔离（诊断用：豁免锁 + 复用正式 userData，需先关闭正式 app）
+if (isE2E && process.env.OC_GUI_E2E_SHARE !== '1') {
   app.setPath('userData', join(app.getPath('temp'), 'oc-gui-e2e'))
 }
 

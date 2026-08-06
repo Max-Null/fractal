@@ -24,6 +24,7 @@ const ALLOWED_INVOKE = [
   'chat:sendMessage', 'chat:stopSession',
   'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork',
   'message:list', 'permission:respond',
+  'question:reply', 'question:reject',
   'engine:testConnection',
   'engine:refresh'
 ] as const

@@ -4,7 +4,7 @@ import { useChatStore, type TodoItem } from "@/stores/chat";
 
 const chat = useChatStore();
 
-// 过滤 deleted，保留原始顺序（pending / in_progress / completed 按 CC 产出顺序排列）
+// 过滤 deleted，保留原始顺序（cancelled 保留显示但灰掉，仅 deleted 视为已移除）
 const visibleTodos = computed(() =>
   chat.todos.filter(t => t.status !== "deleted")
 );
@@ -17,35 +17,40 @@ const hasTodos = computed(() => visibleTodos.value.length > 0);
 
 function statusIcon(s: TodoItem["status"]): string {
   switch (s) {
-    case "completed": return "✓";
+    case "completed": return "☑";
     case "in_progress": return "●";
-    case "pending": return "○";
+    case "pending": return "☐";
+    case "cancelled": return "✕";
     default: return "";
   }
 }
 </script>
 
 <template>
-  <div v-if="hasTodos" class="todo-panel">
-    <div class="todo-panel-header">
-      <span class="todo-panel-title">📋 {{ $t('chat.todos') }}</span>
-      <span v-if="completedCount > 0" class="todo-count">
-        {{ completedCount }}/{{ visibleTodos.length }}
-      </span>
-    </div>
-    <div class="todo-panel-list">
-      <div
-        v-for="(t, i) in visibleTodos"
-        :key="i"
-        class="todo-chip"
-        :class="`todo-chip--${t.status}`"
-        :title="t.content"
-      >
-        <span class="todo-chip-num">{{ i + 1 }}</span>
-        <span class="todo-chip-status">{{ statusIcon(t.status) }}</span>
-        <span class="todo-chip-text">{{ t.status === 'in_progress' ? t.activeForm || t.content : t.content }}</span>
+  <div class="todo-panel">
+    <template v-if="hasTodos">
+      <div class="todo-panel-header">
+        <span class="todo-panel-title">📋 {{ $t('chat.todos') }}</span>
+        <span v-if="completedCount > 0" class="todo-count">
+          {{ completedCount }}/{{ visibleTodos.length }}
+        </span>
       </div>
-    </div>
+      <div class="todo-panel-list">
+        <div
+          v-for="(t, i) in visibleTodos"
+          :key="i"
+          class="todo-chip"
+          :class="`todo-chip--${t.status}`"
+          :title="t.content"
+        >
+          <span class="todo-chip-num">{{ i + 1 }}</span>
+          <span class="todo-chip-status">{{ statusIcon(t.status) }}</span>
+          <span class="todo-chip-text">{{ t.status === 'in_progress' ? t.activeForm || t.content : t.content }}</span>
+        </div>
+      </div>
+    </template>
+    <!-- 空态：会话尚无待办任务 -->
+    <div v-else class="todo-panel-empty">{{ $t('chat.noTodos') }}</div>
   </div>
 </template>
 
@@ -119,6 +124,21 @@ function statusIcon(s: TodoItem["status"]): string {
   background: var(--bg-root);
   border-color: transparent;
   text-decoration: line-through;
+}
+
+/* 已取消：比已完成更淡的灰 + 删除线，视觉上完全退场 */
+.todo-chip--cancelled {
+  color: var(--text-muted);
+  background: var(--bg-root);
+  border-color: transparent;
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+
+.todo-panel-empty {
+  font-size: 10px;
+  color: var(--text-muted);
+  padding: 0.15rem 0;
 }
 
 .todo-chip-num {

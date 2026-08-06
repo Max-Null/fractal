@@ -65,19 +65,30 @@ export interface ControlRequest {
   request_id?: string;
   /** Resolved: 'allow' | 'deny' | null (pending) */
   resolution?: string;
+  /** permission.asked 的免审批建议（通配符，如 ["echo *"]）——「总是允许」展示 */
+  always?: string[];
+  /** question.asked 的问题列表（subtype='question' 时）——提问弹窗渲染 */
+  questions?: Array<{
+    question: string;
+    header?: string;
+    options?: Array<{ label: string; description?: string }>;
+    multiple?: boolean;
+  }>;
 }
 
 function genId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
 }
 
-/** CC TodoWrite / TaskCreate 工具产出的工作清单项 */
+/** CC TodoWrite / TaskCreate / serve todo.updated 产出的工作清单项 */
 export interface TodoItem {
   content: string
-  status: "pending" | "in_progress" | "completed" | "deleted"
+  status: "pending" | "in_progress" | "completed" | "cancelled" | "deleted"
   activeForm: string
   /** TaskCreate/TaskUpdate 使用的任务 ID（TodoWrite 无此字段） */
   taskId?: string
+  /** serve 原生 todo.updated 的优先级（CC TodoWrite 无此字段） */
+  priority?: "high" | "medium" | "low"
 }
 
 export const useChatStore = defineStore("chat", () => {
@@ -208,6 +219,16 @@ export const useChatStore = defineStore("chat", () => {
         if (event.input_tokens != null) last.inputTokens = event.input_tokens;
         if (event.output_tokens != null) last.outputTokens = event.output_tokens;
       }
+    } else if (event.type === 'todo' && Array.isArray(event.todos)) {
+      // 后台会话：serve 原生 todo.updated → 整体覆盖缓存工作清单（切回时 loadFromCache 恢复）
+      cachedTodos.splice(0, cachedTodos.length,
+        ...(event.todos as Array<{ content: string; status: string; priority?: string }>).map(t => ({
+          content: t.content,
+          status: t.status as TodoItem["status"],
+          activeForm: t.content,
+          priority: t.priority as TodoItem["priority"],
+        })),
+      );
     }
 
     // 后台会话也拦截 TodoWrite / TaskCreate / TaskUpdate 更新工作清单
@@ -312,6 +333,16 @@ export const useChatStore = defineStore("chat", () => {
         todos.value[idx] = { ...todos.value[idx], status: input.status as TodoItem["status"] };
       }
     }
+  }
+
+  /** serve 原生 todo.updated 事件 → 整体覆盖工作清单（status 含 cancelled；无 activeForm/taskId 的 CC 扩展字段） */
+  function setTodos(updated: Array<{ content: string; status: string; priority?: string }>) {
+    todos.value = updated.map(t => ({
+      content: t.content,
+      status: t.status as TodoItem["status"],
+      activeForm: t.content,
+      priority: t.priority as TodoItem["priority"],
+    }));
   }
 
   /** 追加工具执行结果，同时更新 toolUses 数组和 contentBlocks 时间线 */
@@ -568,6 +599,7 @@ export const useChatStore = defineStore("chat", () => {
     setContentBlocks,
     addControlRequest,
     resolveControlRequest,
+    setTodos,
     markStopped,
     finishAssistantMessage,
     updateTodosFromTool,

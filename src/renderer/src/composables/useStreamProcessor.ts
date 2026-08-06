@@ -281,6 +281,11 @@ export function useStreamProcessor() {
           }
           break;
 
+        // serve 原生待办更新（todo.updated → type='todo'），整体覆盖活跃会话工作清单
+        case "todo":
+          if (Array.isArray(data.todos)) chat.setTodos(data.todos);
+          break;
+
         // message_delta 携带该轮 assistant 的最终 output_tokens
         case "token_usage":
           if (chat.currentAssistantMsg) {

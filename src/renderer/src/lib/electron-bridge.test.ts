@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   sendMessage,
   respondPermission,
+  questionReply,
+  questionReject,
   forkSession,
   testConnection,
   listMessages,
@@ -75,6 +77,37 @@ describe("respondPermission（审批响应）", () => {
       sessionId: "ses-1",
       permissionId: "perm-2",
       response: "reject",
+    });
+  });
+});
+
+describe("questionReply / questionReject（提问回答）", () => {
+  it("questionReply → question:reply 通道带 answers（string[][]，按 questions 顺序）", async () => {
+    invokeMock.mockResolvedValue({ ok: true });
+    await questionReply("ses-1", "que-1", [["A 深色"]]);
+    expect(invokeMock).toHaveBeenCalledWith("question:reply", {
+      sessionId: "ses-1",
+      requestId: "que-1",
+      answers: [["A 深色"]],
+    });
+  });
+
+  it("questionReply 多问题多选 answers 原样透传", async () => {
+    invokeMock.mockResolvedValue({ ok: true });
+    await questionReply("ses-1", "que-2", [["A", "B"], ["是"]]);
+    expect(invokeMock).toHaveBeenCalledWith("question:reply", {
+      sessionId: "ses-1",
+      requestId: "que-2",
+      answers: [["A", "B"], ["是"]],
+    });
+  });
+
+  it("questionReject 拒绝 → question:reject 通道（无 answers）", async () => {
+    invokeMock.mockResolvedValue({ ok: true });
+    await questionReject("ses-1", "que-1");
+    expect(invokeMock).toHaveBeenCalledWith("question:reject", {
+      sessionId: "ses-1",
+      requestId: "que-1",
     });
   });
 });

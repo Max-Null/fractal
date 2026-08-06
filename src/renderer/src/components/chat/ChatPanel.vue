@@ -7,6 +7,8 @@ import { useStderrLog } from "@/composables/useStderrLog";
 import {
   sendMessage,
   respondPermission,
+  questionReply,
+  questionReject,
   forkSession,
   getAutoModeStatus,
   stopSession,
@@ -156,7 +158,7 @@ const openFileInPanel = inject<(f: { name: string; path: string }) => void>("ope
 // ── 🧪 测试（Dev）──
 const showTestPanel = ref(false);
 function runTest(fn: () => void) { showTestPanel.value = false; fn(); }
-function testQuestion() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "approval", tool_name: "AskUserQuestion", tool_input: { questions: [{ question: "选择方案？", header: "Q", multiSelect: false, options: [{ label: "A", description: "desc" }] }] } }); }
+function testQuestion() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "question", tool_name: "AskUserQuestion", request_id: "que_test", tool_input: {}, questions: [{ question: "选择方案？", header: "Q", multiple: false, options: [{ label: "A", description: "desc A" }, { label: "B", description: "desc B" }] }] }); }
 function testApprove() { chat.pendingControlRequests.splice(0); chat.pendingControlRequests.push({ subtype: "approval", tool_name: "Bash", tool_input: { command: "echo test", description: "测试命令" } }); }
 function testTodos() { chat.todos = [{ status: "completed" as const, content: "已完成", activeForm: "已完成" }, { status: "in_progress" as const, content: "进行中", activeForm: "进行中…" }, { status: "pending" as const, content: "待处理 A", activeForm: "待处理 A" }, { status: "pending" as const, content: "待处理 B", activeForm: "待处理 B" }]; }
 function testStatusOk() { showStatus("✅ 文件保存成功 — report.md"); }
@@ -570,6 +572,23 @@ async function handleDeny() {
   try { await respondPermission(session.activeSessionId, cr.request_id, "reject"); } catch { /* 无活跃会话时静默 */ }
 }
 
+/** 「总是允许」：respondPermission always（会话记住），仅 control_request.always 有值（serve 免审批建议）时可用 */
+async function handleAlwaysAllow() {
+  const cr = chat.pendingControlRequest; if (!cr) return;
+  const sid = session.activeSessionId;
+  if (!sid || !cr.request_id) return;
+  debugLog.add(`🔐 respondPermission always: ${cr.request_id}`);
+  try { await respondPermission(sid, cr.request_id, "always"); } catch (e) { console.error("Permission always-allow failed:", e); }
+  chat.resolveControlRequest("always");
+}
+
+/** 审批条的「总是允许」建议文案（如「允许所有 echo *」）；无 always 建议时为空串不显示按钮 */
+const alwaysAllowHint = computed(() => {
+  const cr = chat.pendingControlRequest;
+  if (!cr || cr.subtype !== "approval" || !cr.always?.length) return "";
+  return t("chat.alwaysAllowHint", { patterns: cr.always.join("、") });
+});
+
 // ── Edit + Resend: 保留原消息不动，新消息追加到末尾 ──
 
 /** 从消息文本中提取 DOM 片段，恢复为卡片并返回去掉片段的文本 */
@@ -632,20 +651,21 @@ async function handleFork(msgId: string) {
   }
 }
 
-// ── AskUserQuestion 问答状态 ──
-interface Question { question: string; header: string; options: { label: string; description: string }[]; multiSelect: boolean }
+// ── AskUserQuestion 问答状态（serve question.asked → control_request{subtype:'question', questions}）──
+interface QuestionOption { label: string; description?: string }
+interface Question { question: string; header?: string; options?: QuestionOption[]; multiple?: boolean }
 const questionAnswers = ref<Map<string, string | string[]>>(new Map());
 const questionOther = ref<Map<string, string>>(new Map());
 
 function getQuestions(): Question[] {
-  const input = chat.pendingControlRequest?.tool_input as Record<string, unknown> | undefined;
-  if (!input || !Array.isArray(input.questions)) return [];
-  return input.questions as Question[];
+  const qs = chat.pendingControlRequest?.questions;
+  if (!Array.isArray(qs)) return [];
+  return qs as Question[];
 }
 
-function toggleAnswer(question: string, label: string, multi: boolean) {
+function toggleAnswer(question: string, label: string, multiple?: boolean) {
   const cur = questionAnswers.value.get(question);
-  if (multi) {
+  if (multiple) {
     const arr = (Array.isArray(cur) ? [...cur] : []) as string[];
     const idx = arr.indexOf(label);
     idx >= 0 ? arr.splice(idx, 1) : arr.push(label);
@@ -661,28 +681,35 @@ function setOther(question: string, text: string) {
   questionOther.value.set(question, text);
 }
 
+/** 提交答案：按 questions 顺序收集 string[][]（每项为该问题选中的 label 数组，单选也是单元素数组） */
 async function submitAnswers() {
   const cr = chat.pendingControlRequest; if (!cr) return;
-  const answers: Record<string, string | string[]> = {};
+  const sid = session.activeSessionId;
   const questions = getQuestions();
-  for (const q of questions) {
+  const answers: string[][] = questions.map(q => {
     const other = questionOther.value.get(q.question);
-    if (other !== undefined) { answers[q.question] = other; continue; }
+    if (other !== undefined) return [other];
     const ans = questionAnswers.value.get(q.question);
-    if (ans) answers[q.question] = ans;
-  }
-  // serve 无 stdin 通道，answers 无法回传 OC（AskUserQuestion 工具走权限审批路径）；
-  // 本地关闭弹窗 + 记录答案，完整回传机制待阶段 6 实测补充
-  debugLog.add(`📤 AskUserQuestion answers: ${JSON.stringify(answers)}`);
+    if (!ans) return [];
+    return Array.isArray(ans) ? ans : [ans];
+  });
+  // 先清队列关闭弹窗，再回传 serve（reply 失败不阻断关闭，答案已在本地记录）
+  chat.resolveControlRequest("allow");
   questionAnswers.value.clear();
   questionOther.value.clear();
-  chat.resolveControlRequest("allow");
+  if (!cr.request_id) return;
+  debugLog.add(`📤 question:reply request=${cr.request_id} answers=${JSON.stringify(answers)}`);
+  try { await questionReply(sid, cr.request_id, answers); } catch (e) { console.error("question:reply failed:", e); }
 }
 
-function skipQuestions() {
-  handleDeny(); // fire-and-forget，resolveControlRequest 已在 handleDeny 首行执行
+/** 拒绝提问：先清队列关闭弹窗，再通知 serve 取消（reject 失败不影响关闭） */
+async function skipQuestions() {
+  const cr = chat.pendingControlRequest;
+  chat.resolveControlRequest("deny");
   questionAnswers.value.clear();
   questionOther.value.clear();
+  if (!cr?.request_id) return;
+  try { await questionReject(session.activeSessionId, cr.request_id); } catch { /* 无活跃会话时静默 */ }
 }
 
 // ── Stop processing ──
@@ -871,9 +898,13 @@ watch(
 
     <!-- ═══ 底部通知区：审批条 + 工作清单 ═══ -->
     <div class="bottom-notices">
-      <div v-if="chat.pendingControlRequest && chat.pendingControlRequest.tool_name !== 'AskUserQuestion'" class="approval-bar">
+      <div v-if="chat.pendingControlRequest && chat.pendingControlRequest.subtype !== 'question'" class="approval-bar">
         <div class="w-0.5 h-5 rounded-full shrink-0" style="background:var(--accent)" />
-        <span class="text-xs flex-1" style="color:var(--text-secondary)">{{ $t('chat.allowTool', { tool: toolLabel(chat.pendingControlRequest.tool_name || '') }) }}</span>
+        <span class="text-xs flex-1" style="color:var(--text-secondary)">
+          {{ $t('chat.allowTool', { tool: toolLabel(chat.pendingControlRequest.tool_name || '') }) }}
+          <span v-if="alwaysAllowHint" class="block text-[10px] mt-0.5" style="color:var(--text-muted)">{{ alwaysAllowHint }}</span>
+        </span>
+        <button v-if="alwaysAllowHint" @click="handleAlwaysAllow" class="btn-ghost" style="color:var(--accent); border-color:var(--accent-dim)">{{ $t('chat.alwaysAllow') }}</button>
         <button @click="handleAllow" class="btn-primary">{{ $t('chat.allow') }}</button>
         <button @click="handleDeny" class="btn-ghost" style="color:var(--coral); border-color:var(--coral)">{{ $t('chat.deny') }}</button>
       </div>
@@ -946,8 +977,8 @@ watch(
     <ContextUsageModal :open="showContextModal" @close="showContextModal = false" @compact="showContextModal = false; handleSend('/compact')" />
     <ManagePanel :open="showManage" :initialTab="manageTab" @close="showManage = false" @send-slash="(t) => handleSend(t)" />
 
-    <!-- AskUserQuestion 问答弹窗 -->
-    <ModalShell :open="chat.pendingControlRequest?.tool_name === 'AskUserQuestion'" size="md" position="top" @close="skipQuestions">
+    <!-- AskUserQuestion 问答弹窗（serve question.asked → subtype='question'） -->
+    <ModalShell :open="chat.pendingControlRequest?.subtype === 'question'" size="md" position="top" @close="skipQuestions">
       <template #header>
         <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.askUserQuestion') }}</span>
       </template>
@@ -964,12 +995,12 @@ watch(
               class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]"
             >
               <input
-                :type="q.multiSelect ? 'checkbox' : 'radio'"
+                :type="q.multiple ? 'checkbox' : 'radio'"
                 :name="`q_${qi}`"
-                :checked="q.multiSelect
+                :checked="q.multiple
                   ? (Array.isArray(questionAnswers.get(q.question)) && (questionAnswers.get(q.question) as string[]).includes(opt.label))
                   : questionAnswers.get(q.question) === opt.label"
-                @change="toggleAnswer(q.question, opt.label, q.multiSelect)"
+                @change="toggleAnswer(q.question, opt.label, q.multiple)"
                 class="mt-0.5 shrink-0"
               />
               <div class="min-w-0">
@@ -980,7 +1011,7 @@ watch(
             <!-- Other 自由输入 -->
             <label class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]">
               <input
-                :type="q.multiSelect ? 'checkbox' : 'radio'"
+                :type="q.multiple ? 'checkbox' : 'radio'"
                 :name="`q_${qi}`"
                 :checked="questionOther.has(q.question)"
                 @change="questionOther.set(q.question, '')"

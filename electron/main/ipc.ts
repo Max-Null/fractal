@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { execFile } from 'node:child_process'
 import { type ServerManager } from './server-manager'
-import { type OcClient, type SessionMessage } from './oc-sdk'
+import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import type { Session } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
@@ -324,7 +324,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       args: { options: { directory?: boolean; multiple?: boolean; title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> } }
     ) => {
       const opts = args.options ?? {}
-      const win = BrowserWindow.getFocusedWindow() ?? undefined
+      // 父窗口保底：焦点不在 app 时 getFocusedWindow 为 null，无父对话框不置前（用户感觉「没效果」）——用主窗口兜底
+      const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
       const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = []
       // 目录模式与文件模式互斥，directory 优先
       if (opts.directory) {
@@ -478,6 +479,59 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
     await (await requireClient()).permission.respond(args.sessionId, args.permissionId, args.response)
     return { responded: true }
+  })
+
+  // 校验 question 回答数组：必须是非空 string[][]（每项是该问题选中的 label 数组）
+  function assertAnswersShape(answers: unknown): asserts answers is string[][] {
+    if (!Array.isArray(answers) || !answers.every((a) => Array.isArray(a) && a.every((x) => typeof x === 'string'))) {
+      throw new Error(`question:reply answers 非法: 需要 string[][]（每项为选中 label 数组）`)
+    }
+  }
+
+  // 取 serve 连接信息（requireClient 已保证 serve 就绪，getServerInfo 必有 baseURL/凭据）
+  const getServerAuth = (): { baseURL: string; authHeader: string } => {
+    if (!serverManager) throw new Error('引擎未初始化：server-manager 未注入')
+    const info = serverManager.getServerInfo()
+    if (!info.baseURL || !info.username || !info.password) {
+      throw new Error('question 通道：serve 连接信息不完整')
+    }
+    return { baseURL: info.baseURL, authHeader: basicAuthHeader(info.username, info.password) }
+  }
+
+  ipcMain.handle('question:reply', async (_e, args: { sessionId: string; requestId: string; answers: string[][] }) => {
+    // SDK 1.18.13 无 question 方法（阶段 0 实测），用裸 fetch 调 serve 原生端点
+    if (typeof args?.sessionId !== 'string' || !args.sessionId || typeof args?.requestId !== 'string' || !args.requestId) {
+      throw new Error(`question:reply 参数非法: ${JSON.stringify(args)}`)
+    }
+    assertAnswersShape(args.answers)
+    // 先 await ready（共享启动 promise），避免 serve 未就绪时 getServerInfo 拿不到连接信息
+    await requireClient()
+    const { baseURL, authHeader } = getServerAuth()
+    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+      body: JSON.stringify({ answers: args.answers }),
+    })
+    if (!res.ok) {
+      throw new Error(`question:reply 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
+    }
+    return { ok: true }
+  })
+
+  ipcMain.handle('question:reject', async (_e, args: { sessionId: string; requestId: string }) => {
+    if (typeof args?.sessionId !== 'string' || !args.sessionId || typeof args?.requestId !== 'string' || !args.requestId) {
+      throw new Error(`question:reject 参数非法: ${JSON.stringify(args)}`)
+    }
+    await requireClient()
+    const { baseURL, authHeader } = getServerAuth()
+    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reject`, {
+      method: 'POST',
+      headers: { Authorization: authHeader },
+    })
+    if (!res.ok) {
+      throw new Error(`question:reject 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
+    }
+    return { ok: true }
   })
 
   // 保留的 ping 通道（无业务用途，供调试探活）

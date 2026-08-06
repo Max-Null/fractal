@@ -34,7 +34,18 @@ export interface StreamEvent {
     tool_name?: string;
     tool_input: Record<string, unknown>;
     request_id?: string;
+    /** permission.asked 的免审批建议（通配符，如 ["echo *"]）——前端「总是允许」展示 */
+    always?: string[];
+    /** question.asked 的问题列表（subtype='question' 时）——提问弹窗渲染 */
+    questions?: Array<{
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      multiple?: boolean;
+    }>;
   };
+  /** serve todo.updated → 待办数据（type='todo' 时；status: pending|in_progress|completed|cancelled） */
+  todos?: Array<{ content: string; status: string; priority: string }>;
   duration_ms?: number;
   input_tokens?: number;
   output_tokens?: number;
@@ -337,6 +348,26 @@ export async function respondPermission(
   response: "once" | "always" | "reject"
 ): Promise<void> {
   await invoke<{ responded: boolean }>("permission:respond", { sessionId, permissionId, response });
+}
+
+/**
+ * 回答引擎提问（question.asked → POST /question/{requestId}/reply）。
+ * answers 按 questions 顺序排列，每项是该问题选中的 label 字符串数组（单选也包一层数组）。
+ */
+export async function questionReply(
+  sessionId: string,
+  requestId: string,
+  answers: string[][]
+): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("question:reply", { sessionId, requestId, answers });
+}
+
+/** 拒绝引擎提问（POST /question/{requestId}/reject，无 body） */
+export async function questionReject(
+  sessionId: string,
+  requestId: string
+): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("question:reject", { sessionId, requestId });
 }
 
 export async function createSession(model?: string, cwd?: string, mode?: string, title?: string): Promise<SessionData> {

@@ -473,4 +473,30 @@ describe("chat store", () => {
     expect(chat.messages).toHaveLength(0);
     expect(chat.todos).toHaveLength(0);
   });
+
+  // ── setTodos（serve 原生 todo.updated）──
+
+  it("setTodos 覆盖 serve 原生 todo.updated 数据（含 cancelled）", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "写 README", status: "pending", priority: "high" },
+      { content: "运行测试", status: "in_progress", priority: "medium" },
+      { content: "git 提交", status: "completed", priority: "low" },
+      { content: "已取消任务", status: "cancelled" },
+    ]);
+    expect(chat.todos).toHaveLength(4);
+    expect(chat.todos[0]).toEqual({ content: "写 README", status: "pending", activeForm: "写 README", priority: "high" });
+    expect(chat.todos[1].status).toBe("in_progress");
+    expect(chat.todos[2].status).toBe("completed");
+    expect(chat.todos[3].status).toBe("cancelled");
+    expect(chat.todos[3].priority).toBeUndefined();
+  });
+
+  it("setTodos 空数组清空 todos", () => {
+    const chat = useChatStore();
+    chat.setTodos([{ content: "x", status: "pending" }]);
+    expect(chat.todos).toHaveLength(1);
+    chat.setTodos([]);
+    expect(chat.todos).toHaveLength(0);
+  });
 });

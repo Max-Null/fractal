@@ -4,7 +4,7 @@
 // 映射表：docs/设计/分形-设计方案.md 3.1.2（v1.15 更新为 serve 实测事件名）
 
 import { createOpencodeClient } from '@opencode-ai/sdk'
-import type { Event as ServeEvent, Part, Permission } from '@opencode-ai/sdk'
+import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
 import { basicAuthHeader } from './oc-sdk'
 
 // ══════════════════════════════════════════════════════════════════
@@ -52,6 +52,15 @@ export type StreamFrontendEvent =
         tool_name?: string
         tool_input: Record<string, unknown>
         request_id?: string
+        /** permission.asked 的免审批建议（通配符，如 ["echo *"]）——前端「总是允许」展示 */
+        always?: string[]
+        /** question.asked 的问题列表（subtype='question' 时）——提问弹窗渲染 */
+        questions?: Array<{
+          question: string
+          header?: string
+          options?: Array<{ label: string; description?: string }>
+          multiple?: boolean
+        }>
       }
     }
   | {
@@ -71,6 +80,14 @@ export type StreamFrontendEvent =
       text: string
       thinking: string
       error: string
+    }
+  | {
+      // serve todo.updated → 待办面板数据（实测 2026-08-07：properties.todos[{content,status,priority}]）
+      type: 'todo'
+      session_id?: string
+      text: string
+      thinking: string
+      todos: Array<{ content: string; status: string; priority: string }>
     }
 
 // ══════════════════════════════════════════════════════════════════
@@ -294,25 +311,60 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       const evtOut: StreamFrontendEvent = { type: 'error', session_id: sessionID, text: '', thinking: '', error: errText }
       return [evtOut]
     }
+    case 'permission.asked':
     case 'permission.updated': {
-      // 权限请求 → control_request（前端复用现有审批弹窗）
-      // SDK Permission：{id, type, pattern?, sessionID, messageID, callID?, title, metadata, time}
-      // 结构按 SDK 类型推断；metadata 的 tool 名/参数缺实测报文 → [待实测]（阶段 0 S6 默认 allow 未捕获）
-      const p = props as unknown as Permission
-      const metadata = p.metadata ?? {}
+      // 权限请求 → control_request（前端审批弹窗）
+      // 实测结构（serve 1.18.5，2026-08-07 probe-extras）：properties = {id, sessionID,
+      //   permission: 'bash', patterns: ['echo x'], metadata: {command: 'echo x'},
+      //   always: ['echo *'], tool: {messageID, callID}}
+      // （SDK 类型 Permission 与实测不一致——事件名 served 发 asked，结构以实测为准）
+      const p = props as unknown as Record<string, unknown>
+      const meta = (p.metadata ?? {}) as Record<string, unknown>
       const evtOut: StreamFrontendEvent = {
         type: 'control_request',
         session_id: sessionID,
         text: '',
         thinking: '',
         control_request: {
-          subtype: p.type ?? 'request',
-          // 可读名优先：metadata.tool_name → SDK Permission.title（"Run Bash command"）→ callID 兜底
-          tool_name: (metadata.tool_name as string | undefined) ?? p.title ?? p.callID, // [待实测] metadata 结构
-          tool_input: metadata,
-          request_id: p.id,
+          subtype: 'approval',
+          // 可读名：metadata.tool_name（若 serve 携带）→ properties.permission（工具名）→ callID 兜底
+          tool_name: (meta.tool_name as string | undefined) ?? (p.permission as string | undefined) ?? 'tool',
+          tool_input: meta,
+          request_id: p.id as string | undefined,
+          always: Array.isArray(p.always) ? (p.always as string[]) : undefined,
         },
       }
+      return [evtOut]
+    }
+    case 'question.asked': {
+      // question 工具提问（实测 2026-08-07）：properties = {id: que_..., sessionID,
+      //   questions: [{question, header, options: [{label, description}], multiple?}],
+      //   tool: {messageID, callID}} → control_request(subtype='question') 复用审批队列
+      const p = props as unknown as Record<string, unknown>
+      const evtOut: StreamFrontendEvent = {
+        type: 'control_request',
+        session_id: sessionID,
+        text: '',
+        thinking: '',
+        control_request: {
+          subtype: 'question',
+          tool_name: 'AskUserQuestion',
+          tool_input: {},
+          request_id: p.id as string | undefined,
+          questions: Array.isArray(p.questions)
+            ? (p.questions as Array<{ question: string; header?: string; options?: Array<{ label: string; description?: string }>; multiple?: boolean }>)
+            : undefined,
+        },
+      }
+      return [evtOut]
+    }
+    case 'todo.updated': {
+      // 待办更新（实测 2026-08-07）：properties = {sessionID, todos: [{content, status, priority}]}
+      const p = props as unknown as Record<string, unknown>
+      const todos = Array.isArray(p.todos)
+        ? (p.todos as Array<{ content: string; status: string; priority: string }>)
+        : []
+      const evtOut: StreamFrontendEvent = { type: 'todo', session_id: sessionID, text: '', thinking: '', todos }
       return [evtOut]
     }
     default:

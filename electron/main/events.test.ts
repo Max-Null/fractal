@@ -323,31 +323,8 @@ describe('mapServeEvent 真实 fixture message.part.delta（events-round3-succes
 })
 
 describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
-  it('permission.updated → control_request（含 id/sessionID/metadata）', () => {
-    const ctx = createMapContext()
-    const evt = synthEvent('permission.updated', {
-      id: 'perm_1',
-      type: 'bash',
-      pattern: 'bash: ls',
-      sessionID: 'ses_test',
-      messageID: 'msg_test',
-      callID: 'call_1',
-      title: 'Run Bash command',
-      metadata: { command: 'ls', tool_name: 'Bash' },
-    })
-    const out = mapServeEvent(evt, ctx)
-    expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({
-      type: 'control_request',
-      session_id: 'ses_test',
-      control_request: {
-        subtype: 'bash',
-        tool_name: 'Bash',
-        request_id: 'perm_1',
-        tool_input: { command: 'ls', tool_name: 'Bash' },
-      },
-    })
-  })
+  // 旧 permission.updated 用例（SDK 类型结构）已删除：实测 serve 1.18.5 事件为 permission.asked，
+  // 结构以实测为准（下方 permission.asked 用例 + permission.updated 兼容用例覆盖）
 
   it('session.idle 附带最近 session.updated 的 tokens', () => {
     const ctx = createMapContext()
@@ -391,9 +368,103 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
     expect(mapServeEvent(evt, ctx)).toHaveLength(0)
   })
 
-  it('未知事件类型（todo.updated 等）→ 不产出', () => {
+  it('todo.updated → todo 事件（实测 2026-08-07 报文结构）', () => {
     const ctx = createMapContext()
-    const evt = synthEvent('todo.updated', { sessionID: 'ses_test', todos: [] })
-    expect(mapServeEvent(evt, ctx)).toHaveLength(0)
+    const evt = synthEvent('todo.updated', {
+      sessionID: 'ses_test',
+      todos: [
+        { content: '1 写README', status: 'pending', priority: 'high' },
+        { content: '运行测试', status: 'pending', priority: 'high' }
+      ]
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'todo',
+      session_id: 'ses_test',
+      todos: [
+        { content: '1 写README', status: 'pending', priority: 'high' },
+        { content: '运行测试', status: 'pending', priority: 'high' }
+      ]
+    })
+  })
+
+  it('permission.asked → control_request（实测结构：permission/patterns/metadata/always）', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('permission.asked', {
+      id: 'per_test123',
+      sessionID: 'ses_test',
+      permission: 'bash',
+      patterns: ['echo probe-permission-check'],
+      metadata: { command: 'echo probe-permission-check' },
+      always: ['echo *'],
+      tool: { messageID: 'msg_x', callID: 'call_x' }
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'control_request',
+      session_id: 'ses_test',
+      control_request: {
+        subtype: 'approval',
+        tool_name: 'bash',
+        tool_input: { command: 'echo probe-permission-check' },
+        request_id: 'per_test123',
+        always: ['echo *']
+      }
+    })
+  })
+
+  it('permission.updated（SDK 旧名）兼容映射', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('permission.updated', {
+      id: 'per_old',
+      sessionID: 'ses_test',
+      permission: 'edit',
+      metadata: { file_path: 'a.ts' },
+      always: ['edit **/*.ts']
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out[0]).toMatchObject({ type: 'control_request', control_request: { request_id: 'per_old', tool_name: 'edit' } })
+  })
+
+  it('question.asked → control_request(subtype=question) 携带 questions', () => {
+    const ctx = createMapContext()
+    const evt = synthEvent('question.asked', {
+      id: 'que_test123',
+      sessionID: 'ses_test',
+      questions: [
+        {
+          question: '你更偏好哪个配色方案？',
+          header: '配色方案',
+          options: [
+            { label: 'A 深色', description: '深色主题配色' },
+            { label: 'B 浅色', description: '浅色主题配色' }
+          ]
+        }
+      ],
+      tool: { messageID: 'msg_x', callID: 'call_x' }
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'control_request',
+      session_id: 'ses_test',
+      control_request: {
+        subtype: 'question',
+        tool_name: 'AskUserQuestion',
+        request_id: 'que_test123',
+        questions: [
+          {
+            question: '你更偏好哪个配色方案？',
+            header: '配色方案',
+            options: [
+              { label: 'A 深色', description: '深色主题配色' },
+              { label: 'B 浅色', description: '浅色主题配色' }
+            ]
+          }
+        ]
+      }
+    })
   })
 })
