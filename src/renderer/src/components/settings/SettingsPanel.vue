@@ -14,6 +14,7 @@ import { translateError } from "@/lib/utils";
 import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
+import SettingsJsonEditor from "./SettingsJsonEditor.vue";
 import changelogRaw from "../../../docs/变更记录.md?raw";
 
 // Windows CRLF → LF 归一化，防止 MarkdownRenderer 解析失败
@@ -221,6 +222,10 @@ async function handleTest() {
 
 // ── 更新日志弹窗 ──
 const showChangelog = ref(false);
+
+// ── 高级设置（settings.json JSONC 编辑器，阶段 6）──
+// 默认折叠：面向高级用户/agent 协作，避免小白误改配置（方案 3.8：高级配置类 VSCode settings.json）
+const showAdvanced = ref(false);
 </script>
 
 <template>
@@ -548,6 +553,25 @@ const showChangelog = ref(false);
             class="w-full py-2 rounded-lg text-xs font-medium transition-colors"
             style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent-dim)"
           >{{ $t('settings.reopenOnboarding') }}</button>
+        </section>
+
+        <!-- 高级设置（settings.json JSONC 编辑器，默认折叠，阶段 6 方案 3.8） -->
+        <section class="w-full shrink-0">
+          <button
+            @click="showAdvanced = !showAdvanced"
+            class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-xs font-medium transition-colors"
+            style="background: var(--bg-elevated); border: 1px solid var(--border-default); color: var(--text-primary)"
+          >
+            <span>{{ $t('settings.advanced') }}</span>
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+              :style="{ transition: 'transform 150ms', transform: showAdvanced ? 'rotate(180deg)' : '' }">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+          <div v-if="showAdvanced" class="mt-2 p-3 rounded-lg" style="background: var(--bg-elevated); border: 1px solid var(--border-default)">
+            <p class="mb-2 text-[10px]" style="color: var(--text-muted)">{{ $t('settings.advancedDesc') }}</p>
+            <SettingsJsonEditor />
+          </div>
         </section>
       </div>
 

@@ -1,8 +1,11 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir } from "@/lib/electron-bridge";
+import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig } from "@/lib/electron-bridge";
 
 const STORAGE_KEY = "sb-ui-settings";
+
+/** 模块级 guard：config-changed 监听只注册一次（pinia 单例下 setup 仅执行一次；测试多 pinia 场景事件用例直接调 applySettingsJson） */
+let configListenerRegistered = false;
 
 /**
  * 权限模式映射（对应 CLI --permission-mode 标志）:
@@ -169,6 +172,50 @@ export const useSettingsStore = defineStore("settings", () => {
       baseUrl.value = saved.baseUrl;
       model.value = saved.model;
     }
+    // 启动拉取 settings.json（阶段 6，方案 3.8.1）：settings.json 是高级层源，优先级高于表单
+    // （ui 偏好/引擎项以 settings.json 为准；API Key 仍在 providerConfigs，settings.json 不含密钥）
+    // 启动拉取 settings.json（阶段 6）：settings.json 是高级源，优先级高于表单——await 保证渲染前配置已就绪（避免 UI 先渲染默认值再被覆盖的闪烁）
+    try {
+      const r = await getSettingsConfig();
+      applySettingsJson(r.config);
+    } catch {
+      // 拉取失败保持表单值（首次启动/引擎不可用）
+    }
+  }
+
+  /**
+   * 应用 settings.json 配置（config-changed 事件 + 启动拉取共用）。
+   * settings.json 优先级高于表单：ui 偏好即时生效、agent 权限/思考深度同步、deepseek.model 更新模型选择。
+   * 注意：store 的 watch 会把合并结果写回 localStorage/ui-settings.json——这是运行时偏好记录（同步值），
+   * settings.json 本身不受表单影响（两通道并存，方案 3.8「三条路径统一走文件」）。
+   */
+  function applySettingsJson(config: Record<string, unknown>) {
+    // ui 偏好即时生效（settings.json 枚举无 system，只在 dark/light 时覆盖，保留表单的跟随系统）
+    if (config["ui.theme"] === "dark" || config["ui.theme"] === "light") theme.value = config["ui.theme"] as "dark" | "light";
+    if (config["ui.language"] === "zh" || config["ui.language"] === "en") locale.value = config["ui.language"] as "zh" | "en";
+    // 引擎相关：模型选择同步（settings.json 的 deepseek-v4-pro → store 显示名带 [1M] 标注，与 DEEPSEEK_MODELS 一致）
+    const m = config["deepseek.model"];
+    if (m === "deepseek-v4-pro") model.value = "deepseek-v4-pro[1M]";
+    else if (typeof m === "string" && DEEPSEEK_MODELS.includes(m)) model.value = m;
+    // 权限模式四值 → store 三联动（plan/auto 是独立开关，default/acceptEdits 落在 permissionMode）
+    const pm = config["agent.permissionMode"];
+    if (pm === "plan") { planMode.value = true; autoMode.value = false; }
+    else if (pm === "auto") { autoMode.value = true; planMode.value = false; }
+    else if (pm === "default" || pm === "acceptEdits") { planMode.value = false; autoMode.value = false; permissionMode.value = pm as PermissionMode; }
+    // 思考深度（settings.json 枚举 low/medium/high 是 store 枚举子集）
+    const ef = config["agent.effort"];
+    if (typeof ef === "string" && ["low", "medium", "high", "xhigh", "max", "ultracode"].includes(ef)) effort.value = ef as Effort;
+    if (typeof config["agent.contextLimit"] === "number") contextLimit.value = config["agent.contextLimit"];
+  }
+
+  // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
+  if (!configListenerRegistered) {
+    configListenerRegistered = true;
+    // 运行时 electronBridge 由 preload 注入；测试（happy-dom）无此对象，跳过注册（事件用例直接调 applySettingsJson）
+    const bridge = (window as unknown as { electronBridge?: { on: (c: string, cb: (d: unknown) => void) => () => void } }).electronBridge;
+    if (bridge?.on) {
+      onConfigChanged((payload) => { applySettingsJson(payload.config); });
+    }
   }
 
   // Provider 配置编辑 → 自动写 SQLite（500ms 防抖，避免每次按键都写盘）
@@ -234,5 +281,5 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem("sb-current-workspace");
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
 });

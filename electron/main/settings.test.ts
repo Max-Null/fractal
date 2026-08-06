@@ -1,0 +1,248 @@
+// settings.ts 单元测试：默认值/JSONC 解析/schema 校验/非法值回退/读写/文件监听（不依赖 electron 运行时）
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { promises as fsp } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import {
+  DEFAULT_SETTINGS,
+  getSettingsPath,
+  parseAndValidate,
+  loadSettings,
+  saveSettings,
+  getConfig,
+  getSchema,
+  watchSettingsFile,
+} from './settings'
+import { getConfigPath } from './oc-config'
+
+describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
+  it('包含全部 13 个字段与默认值', () => {
+    expect(DEFAULT_SETTINGS).toEqual({
+      'ui.theme': 'dark',
+      'ui.language': 'zh',
+      'ui.messageLayout': 'split',
+      'ui.nickname': '',
+      'ui.avatar': '',
+      'deepseek.model': 'deepseek-v4-flash',
+      'agent.permissionMode': 'default',
+      'agent.effort': 'high',
+      'agent.contextLimit': 0,
+      'preset.skills.enabled': true,
+      'preset.mcp.filesystem': true,
+      'engine.opencodePath': '',
+      'engine.logLevel': 'INFO',
+    })
+  })
+
+  it('getSchema 返回 schema（含 ui.theme 枚举）', () => {
+    const schema = getSchema()
+    const props = schema.properties as Record<string, { enum?: string[]; default?: unknown }>
+    expect(props['ui.theme']).toBeDefined()
+    expect(props['ui.theme'].enum).toEqual(['dark', 'light'])
+    expect(props['ui.theme'].default).toBe('dark')
+    expect(schema.additionalProperties).toBe(true)
+  })
+})
+
+describe('parseAndValidate（JSONC 解析 + schema 校验）', () => {
+  it('空对象 → 空配置（缺失字段不注入默认，消费方用默认兜底），无 warning', () => {
+    const { config, warnings } = parseAndValidate('{}')
+    expect(config).toEqual({})
+    expect(warnings).toEqual([])
+  })
+
+  it('合法 JSONC（带注释）→ 值正确覆盖，无 warning', () => {
+    const text = `
+      {
+        // 界面主题
+        "ui.theme": "light",
+        "ui.language": "en",
+        "deepseek.model": "deepseek-v4-pro",
+        "agent.permissionMode": "auto",
+        "agent.effort": "medium"
+      }`
+    const { config, warnings } = parseAndValidate(text)
+    expect(warnings).toEqual([])
+    expect(config['ui.theme']).toBe('light')
+    expect(config['ui.language']).toBe('en')
+    expect(config['deepseek.model']).toBe('deepseek-v4-pro')
+    expect(config['agent.permissionMode']).toBe('auto')
+    expect(config['agent.effort']).toBe('medium')
+    // 未指定的字段不注入（消费方用 DEFAULT 兜底，不覆盖表单值）
+    expect(config['preset.skills.enabled']).toBeUndefined()
+  })
+
+  it('非法枚举 → 回退默认 + warning（ui.theme: "red"）', () => {
+    const { config, warnings } = parseAndValidate('{ "ui.theme": "red" }')
+    expect(config['ui.theme']).toBe('dark')
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('ui.theme')
+    expect(warnings[0]).toContain('red')
+    expect(warnings[0]).toContain('dark')
+  })
+
+  it('类型错误 → 回退默认 + warning（agent.contextLimit: "abc"）', () => {
+    const { config, warnings } = parseAndValidate('{ "agent.contextLimit": "abc" }')
+    expect(config['agent.contextLimit']).toBe(0)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('agent.contextLimit')
+  })
+
+  it('未知 key 忽略（向前兼容，不产生 warning）', () => {
+    const { config, warnings } = parseAndValidate('{ "ui.theme": "light", "future.key": "whatever" }')
+    expect(config['ui.theme']).toBe('light')
+    expect(config['future.key']).toBeUndefined()
+    expect(warnings).toEqual([])
+  })
+
+  it('语法错误 → 空配置（不覆盖现有表单值）+ 语法 warning', () => {
+    const { config, warnings } = parseAndValidate('{ "ui.theme": "light", ')
+    expect(config).toEqual({})
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('语法错误')
+  })
+
+  it('顶层非对象 → 空配置 + warning', () => {
+    const { config, warnings } = parseAndValidate('[1, 2, 3]')
+    expect(config).toEqual({})
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('顶层必须是 JSON 对象')
+  })
+
+  it('部分非法部分合法：非法回退，合法保留', () => {
+    const text = '{ "ui.theme": "light", "agent.effort": "turbo", "agent.contextLimit": 128000 }'
+    const { config, warnings } = parseAndValidate(text)
+    expect(config['ui.theme']).toBe('light')
+    expect(config['agent.contextLimit']).toBe(128000)
+    // effort "turbo" 不在枚举 → 回退默认 high
+    expect(config['agent.effort']).toBe('high')
+    expect(warnings.some((w) => w.includes('agent.effort'))).toBe(true)
+  })
+})
+
+describe('loadSettings / saveSettings / getConfig（文件读写）', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(join(tmpdir(), 'settings-test-'))
+    // 重置内存态为默认（跨用例隔离：saveSettings 引擎快照/内存态不残留）
+    await loadSettings(dir)
+  })
+
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  it('loadSettings：文件不存在 → 默认值', async () => {
+    const r = await loadSettings(dir)
+    expect(r.config).toEqual(DEFAULT_SETTINGS)
+    expect(r.warnings).toEqual([])
+    expect(getSettingsPath(dir)).toBe(join(dir, 'settings.json'))
+  })
+
+  it('saveSettings：写盘 + 更新内存态 + getConfig 读回', async () => {
+    const text = '{ "ui.theme": "light", "deepseek.model": "deepseek-v4-pro" }'
+    const r = await saveSettings(dir, text)
+    expect(r).toEqual({ ok: true, warnings: [] })
+    const onDisk = await fsp.readFile(getSettingsPath(dir), 'utf-8')
+    expect(onDisk).toBe(text)
+    const cfg = getConfig()
+    expect(cfg.config['ui.theme']).toBe('light')
+    expect(cfg.jsoncText).toBe(text)
+  })
+
+  it('saveSettings：非法值写盘但返回 warning（不回写默认到文件——保留用户原文）', async () => {
+    const text = '{ "ui.theme": "red" }'
+    const r = await saveSettings(dir, text)
+    expect(r.ok).toBe(true)
+    expect(r.warnings).toHaveLength(1)
+    // 文件保留用户原文（JSONC 编辑器所见即所得），校验结果只在内存态/警告中体现
+    const onDisk = await fsp.readFile(getSettingsPath(dir), 'utf-8')
+    expect(onDisk).toBe(text)
+    expect(getConfig().config['ui.theme']).toBe('dark')
+  })
+
+  it('loadSettings：读回已保存的 JSONC（注释保留）', async () => {
+    const text = '{\n  // 注释\n  "ui.theme": "light"\n}'
+    await saveSettings(dir, text)
+    const r = await loadSettings(dir)
+    expect(r.config['ui.theme']).toBe('light')
+    expect(r.jsoncText).toContain('// 注释')
+  })
+
+  it('saveSettings 引擎联动：引擎字段变化 → 同步 opencode.json（含 userData 权限例外）', async () => {
+    await saveSettings(dir, '{ "deepseek.model": "deepseek-v4-pro" }')
+    const oc = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as { permission: Record<string, unknown> }
+    expect(oc.permission).toBeDefined()
+    // settings.json 目录（userData = dir）在 read 规则中有 allow 例外（方案 3.8.4 权限预置）
+    const readRule = oc.permission.read as Record<string, string>
+    expect(readRule['*']).toBe('ask')
+    expect(Object.values(readRule)).toContain('allow')
+  })
+
+  it('saveSettings 引擎联动：引擎字段未变化 → 不写 opencode.json', async () => {
+    await saveSettings(dir, '{ "ui.theme": "light" }')
+    // ui.theme 是纯 UI 项，引擎快照未变 → ensureConfig 不执行 → opencode.json 不存在
+    await expect(fsp.access(getConfigPath(dir))).rejects.toThrow()
+  })
+})
+
+describe('watchSettingsFile（文件监听 → config-changed）', () => {
+  let dir: string
+  let stop: (() => void) | null = null
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(join(tmpdir(), 'settings-watch-'))
+    await loadSettings(dir)
+  })
+
+  afterEach(async () => {
+    stop?.()
+    stop = null
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  it('文件变更 → 防抖后回调收到新配置', async () => {
+    const received: Array<{ config: Record<string, unknown>; warnings: string[] }> = []
+    stop = watchSettingsFile(dir, (payload) => received.push(payload))
+    // 先建文件（监听启动时文件不存在 → 默认值兜底，不崩溃）
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "dark" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 120)) // 让 watcher 看到首版
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "light" }', 'utf-8')
+    // 防抖 300ms + 异步加载余量
+    await new Promise((r) => setTimeout(r, 600))
+    expect(received.length).toBeGreaterThan(0)
+    const last = received[received.length - 1]
+    expect(last.config['ui.theme']).toBe('light')
+    expect(last.warnings).toEqual([])
+  })
+
+  it('非法值写入 → 回调收到回退 + warning', async () => {
+    const received: Array<{ config: Record<string, unknown>; warnings: string[] }> = []
+    stop = watchSettingsFile(dir, (payload) => received.push(payload))
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "dark" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 120))
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "red" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(received.length).toBeGreaterThan(0)
+    const last = received[received.length - 1]
+    expect(last.config['ui.theme']).toBe('dark')
+    expect(last.warnings.some((w) => w.includes('ui.theme'))).toBe(true)
+  })
+
+  it('stop 后不再收到回调', async () => {
+    const received: Array<{ config: Record<string, unknown> }> = []
+    stop = watchSettingsFile(dir, (payload) => received.push(payload))
+    // 先等监听生效并收到一次回调（文件创建 → 防抖 300ms → reload）
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "dark" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(received.length).toBeGreaterThan(0)
+    const countBefore = received.length
+    stop()
+    stop = null
+    // stop 后再写一次，不应新增（watcher 已 close + listener 已移除）
+    await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "light" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(received.length).toBe(countBefore)
+  })
+})

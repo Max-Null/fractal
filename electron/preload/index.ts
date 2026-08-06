@@ -19,6 +19,7 @@ const ALLOWED_INVOKE = [
   'git:status', 'git:diff', 'git:stage', 'git:unstage', 'git:commit', 'git:push',
   'settings:saveUiSettings', 'settings:loadUiSettings',
   'settings:saveProviderConfig', 'settings:loadProviderConfigs',
+  'settings:getConfig', 'settings:saveSettings', 'settings:getSchema',
   'logs:saveSessionDebugLog', 'logs:saveSessionStderrLog', 'logs:loadSessionLogs',
   'dialog:openDialog', 'dialog:saveDialog',
   'chat:sendMessage', 'chat:stopSession',
@@ -29,8 +30,8 @@ const ALLOWED_INVOKE = [
   'engine:refresh'
 ] as const
 
-/** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态） */
-const ALLOWED_ON = ['engine:event', 'engine:status'] as const
+/** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播） */
+const ALLOWED_ON = ['engine:event', 'engine:status', 'config-changed'] as const
 
 const electronBridge = {
   invoke: (channel: string, ...args: unknown[]) => {

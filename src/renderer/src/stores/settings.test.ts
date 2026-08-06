@@ -151,4 +151,58 @@ describe("settings store", () => {
     expect(settings.onboardingDismissed).toBe(false);
     expect(localStorage.getItem("sb-onboarding-dismissed")).toBeNull();
   });
+
+  // ── settings.json 合并（阶段 6 config-changed 事件 / 启动拉取共用 applySettingsJson）──
+
+  it("applySettingsJson：ui.theme / ui.language 即时生效", () => {
+    const settings = useSettingsStore();
+    expect(settings.theme).toBe("dark");
+    expect(settings.locale).toBe("zh");
+    settings.applySettingsJson({ "ui.theme": "light", "ui.language": "en" });
+    expect(settings.theme).toBe("light");
+    expect(settings.locale).toBe("en");
+  });
+
+  it("applySettingsJson：settings.json 无 system 主题，不覆盖表单的跟随系统", () => {
+    const settings = useSettingsStore();
+    settings.theme = "system";
+    // 未知/非法主题值 → 保持表单当前值（仅 dark/light 覆盖）
+    settings.applySettingsJson({ "ui.theme": "neon" });
+    expect(settings.theme).toBe("system");
+  });
+
+  it("applySettingsJson：deepseek.model 同步（pro 映射为 [1M] 显示名）", () => {
+    const settings = useSettingsStore();
+    settings.model = "deepseek-v4-flash";
+    settings.applySettingsJson({ "deepseek.model": "deepseek-v4-pro" });
+    expect(settings.model).toBe("deepseek-v4-pro[1M]");
+    settings.applySettingsJson({ "deepseek.model": "deepseek-v4-flash" });
+    expect(settings.model).toBe("deepseek-v4-flash");
+  });
+
+  it("applySettingsJson：agent.permissionMode 四值 → plan/auto/permissionMode 三联动", () => {
+    const settings = useSettingsStore();
+    // plan → planMode 开、autoMode 关
+    settings.applySettingsJson({ "agent.permissionMode": "plan" });
+    expect(settings.planMode).toBe(true);
+    expect(settings.autoMode).toBe(false);
+    // auto → autoMode 开
+    settings.applySettingsJson({ "agent.permissionMode": "auto" });
+    expect(settings.autoMode).toBe(true);
+    expect(settings.planMode).toBe(false);
+    // default / acceptEdits → permissionMode 落点
+    settings.applySettingsJson({ "agent.permissionMode": "acceptEdits" });
+    expect(settings.permissionMode).toBe("acceptEdits");
+    expect(settings.planMode).toBe(false);
+    expect(settings.autoMode).toBe(false);
+    settings.applySettingsJson({ "agent.permissionMode": "default" });
+    expect(settings.permissionMode).toBe("default");
+  });
+
+  it("applySettingsJson：agent.effort / agent.contextLimit 同步", () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "agent.effort": "medium", "agent.contextLimit": 128000 });
+    expect(settings.effort).toBe("medium");
+    expect(settings.contextLimit).toBe(128000);
+  });
 });

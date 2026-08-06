@@ -144,7 +144,14 @@
     "about": "About Fractal",
     "aboutDesc": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · DeepSeek API",
     "changelog": "Changelog",
-    "reopenOnboarding": "Reopen onboarding"
+    "reopenOnboarding": "Reopen onboarding",
+    "advanced": "Advanced Settings (settings.json)",
+    "advancedDesc": "VSCode-style JSONC config; the agent can edit it for you. Takes effect automatically after save",
+    "saving": "Saving…",
+    "loading": "Loading…",
+    "jsonUnsaved": "Unsaved changes",
+    "jsonSavedAt": "Saved at",
+    "jsonHint": "JSONC comments supported; validated on save, invalid values fall back to defaults with a notice. Engine items (model/permission mode/effort) sync to opencode.json automatically."
   },
   "session": {
     "new": "New Session",

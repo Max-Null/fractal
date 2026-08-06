@@ -144,7 +144,14 @@
     "about": "关于分形",
     "aboutDesc": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · DeepSeek API",
     "changelog": "更新日志",
-    "reopenOnboarding": "重新显示引导页"
+    "reopenOnboarding": "重新显示引导页",
+    "advanced": "高级设置（settings.json）",
+    "advancedDesc": "类 VSCode 的 JSONC 配置，agent 也可以帮你改；保存后自动生效",
+    "saving": "保存中…",
+    "loading": "加载中…",
+    "jsonUnsaved": "有未保存的更改",
+    "jsonSavedAt": "已保存于",
+    "jsonHint": "支持 JSONC 注释；保存时主进程校验，非法值自动回退默认并提示。引擎项（模型/权限模式/思考深度）变更会自动同步到 opencode.json。"
   },
   "session": {
     "new": "新会话",

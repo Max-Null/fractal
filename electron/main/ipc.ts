@@ -11,6 +11,7 @@ import type { Session } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig } from './oc-config'
+import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded } from './settings'
 
 // ── 工具函数 ──
 
@@ -292,6 +293,30 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   ipcMain.handle('settings:loadProviderConfigs', async () => {
     const cfg = await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})
     return cfg as Record<string, { apiKey: string; baseUrl: string; model: string }>
+  })
+
+  // ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──
+  // 与 provider-configs.json 分离：API Key 走 saveProviderConfig 通道（第 3 层密钥隔离，不进 settings.json）
+
+  ipcMain.handle('settings:getConfig', async () => {
+    // 首次调用（内存态尚未从磁盘加载）→ 主动读盘；之后直接返回内存态（watch/save 持续更新）
+    if (!isSettingsLoaded()) {
+      return loadSettings(app.getPath('userData'))
+    }
+    return getSettingsConfig()
+  })
+
+  ipcMain.handle('settings:saveSettings', async (_e, args: { jsoncText: string }) => {
+    if (typeof args?.jsoncText !== 'string') {
+      throw new Error(`settings:saveSettings jsoncText 参数非法: ${String(args?.jsoncText)}`)
+    }
+    // saveSettings 内部：写盘 + 校验 + 引擎联动（ensureConfig 增量同步 opencode.json）+ 广播 config-changed
+    return saveSettings(app.getPath('userData'), args.jsoncText)
+  })
+
+  ipcMain.handle('settings:getSchema', async () => {
+    // settings.schema.json 内容——SettingsJsonEditor 编辑器提示用
+    return getSettingsSchema()
   })
 
   // ── 会话日志持久化（userData/session-logs/{sessionId}/）──

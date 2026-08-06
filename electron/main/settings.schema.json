@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "oc-gui-settings",
+  "title": "分形应用设置",
+  "description": "settings.json（类 VSCode，JSONC 允许注释）的字段全集，方案 3.8.2。未知 key 忽略（additionalProperties: true 向前兼容）。",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "ui.theme": { "type": "string", "enum": ["dark", "light"], "default": "dark", "description": "界面主题" },
+    "ui.language": { "type": "string", "enum": ["zh", "en"], "default": "zh", "description": "界面语言" },
+    "ui.messageLayout": { "type": "string", "enum": ["left", "split"], "default": "split", "description": "消息排布：left=全部靠左 / split=左右分列" },
+    "ui.nickname": { "type": "string", "default": "", "description": "用户昵称（会话区展示）" },
+    "ui.avatar": { "type": "string", "default": "", "description": "用户头像（base64 或图片路径）" },
+    "deepseek.model": { "type": "string", "enum": ["deepseek-v4-flash", "deepseek-v4-pro"], "default": "deepseek-v4-flash", "description": "DeepSeek 默认模型（同步到 opencode.json）" },
+    "agent.permissionMode": { "type": "string", "enum": ["default", "acceptEdits", "plan", "auto"], "default": "default", "description": "权限模式（同步到 opencode.json permission）" },
+    "agent.effort": { "type": "string", "enum": ["low", "medium", "high"], "default": "high", "description": "思考深度" },
+    "agent.contextLimit": { "type": "integer", "minimum": 0, "default": 0, "description": "上下文上限（tokens）：0=自动获取模型窗口" },
+    "preset.skills.enabled": { "type": "boolean", "default": true, "description": "预置技能包开关" },
+    "preset.mcp.filesystem": { "type": "boolean", "default": true, "description": "预置文件系统 MCP 开关" },
+    "engine.opencodePath": { "type": "string", "default": "", "description": "OC 可执行文件路径：空 = 使用内置 sidecar" },
+    "engine.logLevel": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"], "default": "INFO", "description": "引擎日志级别" }
+  }
+}

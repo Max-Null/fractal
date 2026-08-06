@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers, startEngineEvents } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
+import { watchSettings } from './settings'
 
 // ── 单实例锁：SQLite 用户数据（settings/session 缓存）不支持双实例并发——第二个实例直接退出并聚焦已有窗口
 // e2e 测试注入 OC_GUI_E2E=1 豁免（多个测试实例需要独立进程，且 app 可能在运行）
@@ -98,6 +99,10 @@ app.whenReady().then(async () => {
   registerIpcHandlers(serverManager)
 
   const win = createWindow()
+
+  // 配置监听（阶段 6，方案 3.8.3）：settings.json 变更 → config-changed 广播（GUI 表单/JSON 编辑器/agent 工具三路统一走文件）
+  const stopConfigWatch = watchSettings(win, app.getPath('userData'))
+  win.on('closed', () => stopConfigWatch())
 
   // 引擎生命周期：启动 serve → 订阅 SSE 事件转发。
   // 未安装 OC 时抛错（sidecar 待阶段 7），应用仍可启动，前端经 engine:status 感知未连接。

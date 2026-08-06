@@ -39,11 +39,38 @@ export function getJsoncPath(userDataDir: string): string {
  * 按权限模式生成顶层 permission 规则（OC 权限模型 v1.18.x，v1.12 修正：工具级 allow/ask/deny）。
  * default：敏感工具 ask（read/edit/glob/grep/bash/task/lsp/external_directory/skill），
  * 贴合 OC 默认哲学（关键项询问，非一刀切全部询问）；auto：全放行。
+ * userDataDir（阶段 6 配置体系）：agent 改 settings.json 的前提——read/edit/write/glob/grep/external_directory
+ * 对 userData 目录放行。对象语法（{"*": "ask", "<path>/*": "allow"}）表达「目录例外」；
+ * 通配符最后匹配生效，catch-all "*" 必须放前面（v1.18.x 配置 schema 文档）。
  */
-export function buildPermissionRule(permissionMode: 'default' | 'auto'): Record<string, string> {
+export function buildPermissionRule(permissionMode: 'default' | 'auto', userDataDir?: string): Record<string, unknown> {
   if (permissionMode === 'auto') return { '*': 'allow' }
   const sensitiveTools = ['read', 'edit', 'glob', 'grep', 'bash', 'task', 'lsp', 'external_directory', 'skill']
-  return Object.fromEntries(sensitiveTools.map((t) => [t, 'ask']))
+  if (!userDataDir) {
+    return Object.fromEntries(sensitiveTools.map((t) => [t, 'ask']))
+  }
+  // 精确到 settings.json 文件而非整个 userData 目录——目录通配会暴露 provider-configs.json（API Key 明文）
+  // Windows 路径分隔符不确定（\ 或 /），两条规则都加，保证 OC 内部路径匹配命中
+  const settingsJsonPath = join(userDataDir, 'settings.json')
+  const allowPatterns = [settingsJsonPath, settingsJsonPath.replace(/\\/g, '/')]
+  // 对象语法：catch-all ask 在前，settings.json 文件 allow 在后（最后匹配生效）
+  const withFileAllow = (): Record<string, string> => ({ '*': 'ask', ...Object.fromEntries(allowPatterns.map((p) => [p, 'allow'])) })
+  const rule: Record<string, unknown> = {
+    read: withFileAllow(),
+    edit: withFileAllow(),
+    write: withFileAllow(),
+    // glob/grep 是目录扫描，单文件 allow 无意义——保持 ask（agent grep settings.json 需审批）
+    glob: 'ask',
+    grep: 'ask',
+    // bash/task/lsp/skill 保持字符串 ask（无目录维度，对象语法无意义）
+    bash: 'ask',
+    task: 'ask',
+    lsp: 'ask',
+    skill: 'ask',
+    // external_directory 默认 ask——对 settings.json 文件放行后 agent 才能自由读写（方案 3.8.4 权限预置）
+    external_directory: withFileAllow(),
+  }
+  return rule
 }
 
 /**
@@ -74,8 +101,9 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认
   cfg.model = 'deepseek/deepseek-v4-pro'
-  // 权限规则按模式生成（受管字段覆盖，用户自定义规则由设置面板二次调整）
-  cfg.permission = buildPermissionRule(opts.permissionMode)
+  // 权限规则按模式生成（受管字段覆盖，用户自定义规则由设置面板二次调整）；
+  // userDataDir 注入 settings.json 目录例外（阶段 6：agent 可自检自改配置的前提，方案 3.8.4）
+  cfg.permission = buildPermissionRule(opts.permissionMode, userDataDir) as Record<string, unknown>
 
   // 预置「双星」agent：D15 预置包的最小占位定义（阶段 8 用完整 oc-plus 定义替换）。
   // 必要性：serve 找不到 agent 时 promptAsync 会 400，而分形默认 currentAgent=双星（用户首次发消息即触发）。

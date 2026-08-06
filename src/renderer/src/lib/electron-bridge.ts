@@ -269,6 +269,39 @@ export async function loadProviderConfigs(): Promise<Record<string, { apiKey: st
   return invoke("settings:loadProviderConfigs");
 }
 
+// ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──
+
+export interface SettingsJsonConfig {
+  config: Record<string, unknown>;
+  warnings: string[];
+  jsoncText: string;
+}
+
+export interface SaveSettingsResult {
+  ok: boolean;
+  warnings: string[];
+}
+
+/** 获取当前生效配置（含 JSONC 原文 + 校验 warnings）——SettingsJsonEditor 加载用 */
+export async function getSettingsConfig(): Promise<SettingsJsonConfig> {
+  return invoke<SettingsJsonConfig>("settings:getConfig", {});
+}
+
+/** 保存 settings.json（JSONC 文本；主进程写盘 + 校验 + 引擎联动），返回校验 warnings */
+export async function saveSettingsJson(jsoncText: string): Promise<SaveSettingsResult> {
+  return invoke<SaveSettingsResult>("settings:saveSettings", { jsoncText });
+}
+
+/** 获取 settings.schema.json（编辑器 schema 提示用） */
+export async function getSettingsSchema(): Promise<Record<string, unknown>> {
+  return invoke<Record<string, unknown>>("settings:getSchema", {});
+}
+
+/** 订阅 settings.json 变更广播（主进程 fs.watch → config-changed），返回取消订阅函数 */
+export function onConfigChanged(cb: (payload: { config: Record<string, unknown>; warnings: string[] }) => void): () => void {
+  return window.electronBridge.on("config-changed", (data) => cb(data as { config: Record<string, unknown>; warnings: string[] }));
+}
+
 // ── 会话日志持久化 ──
 
 /** 持久化会话 debug 日志 */
