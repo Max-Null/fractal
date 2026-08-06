@@ -1,0 +1,89 @@
+{
+  "opened": {
+    "opencode": "1.18.5",
+    "serveArgs": [
+      "serve",
+      "--port",
+      "51662",
+      "--hostname",
+      "127.0.0.1",
+      "--print-logs"
+    ],
+    "env": {
+      "OPENCODE_APPNAME": "oc-gui",
+      "injectedKey": false
+    }
+  },
+  "eventTypeCounts": {
+    "server.connected": 1,
+    "session.created": 4,
+    "session.updated": 7,
+    "message.updated": 4,
+    "message.part.updated": 4,
+    "session.status": 6,
+    "session.error": 6,
+    "session.idle": 3
+  },
+  "results": [
+    {
+      "id": "S0",
+      "name": "serve 启动与健康检查",
+      "status": "PASS",
+      "detail": "port=51662，spec 路径 /doc 可达（默认）"
+    },
+    {
+      "id": "S1",
+      "name": "/doc OpenAPI spec",
+      "status": "PASS",
+      "detail": "状态 200，已存 fixtures/api-spec.json（size=478613）"
+    },
+    {
+      "id": "S2",
+      "name": "应用信息与版本",
+      "status": "PASS",
+      "detail": "spec info.version=1.0.0；GET /app 返回 HTML（Web UI 入口，非 API）（隔离验证改验 /config）"
+    },
+    {
+      "id": "S3",
+      "name": "provider/模型清单",
+      "status": "待确认",
+      "detail": "GET /provider 状态 200（all[] 含 181 provider）；serve 无 /model 端点（SPA HTML 兜底）"
+    },
+    {
+      "id": "S4",
+      "name": "SDK 建会话",
+      "status": "PASS",
+      "detail": "session.id=ses_02cbe716dffeirzgVVoA5LwnJc"
+    },
+    {
+      "id": "S5",
+      "name": "chat + SSE 事件流",
+      "status": "PASS",
+      "detail": "idle 达成，事件 11 条；chat 返回 tokens=?"
+    },
+    {
+      "id": "S6",
+      "name": "权限事件 + 审批响应",
+      "status": "待确认",
+      "detail": "未捕获 permission.updated（可能默认 allow 直接放行，符合 v1.12 设计；或工具未触发）"
+    },
+    {
+      "id": "S7",
+      "name": "abort 中断",
+      "status": "PASS",
+      "detail": "abort 返回 {\"error\":{\"name\":\"UnknownError\",\"data\":{\"message\":\"Unexpected server error. Check server logs for details.\",\"ref\":\"err_dcbe967c\"}},\"request\":{\"timeout\":false},\"response\":{}}，后续事件 10 条（见 events-round3.json）"
+    },
+    {
+      "id": "S8",
+      "name": "fork 分叉",
+      "status": "PASS",
+      "detail": "POST /session/:id/fork 状态 200，新会话=ses_02cbe64f1ffeypu4R5g1LbHjHs"
+    },
+    {
+      "id": "S9",
+      "name": "PATCH /session/:id 标题",
+      "status": "PASS",
+      "detail": "状态 200 body={\"id\":\"ses_02cbe716dffeirzgVVoA5LwnJc\",\"slug\":\"lucky-circuit\",\"projectID\":\"ff537c25e4ba05e33bb45a6694217ded74b7f8c8\",\"directory\":\"H:\\\\MaxNull\\\\WorkStation\\\\fractal\\\\stage0\",\"path\":\"stage0\",\"cost\":0,\"tokens\":{\"input\":0,\"output\":0,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"title\":\"阶段0-实测会话\",\"agent\":\"双星\",\"model\":{\"id\":\"deepseek-v4-flash\",\"providerID\":\"deepseek-v4-flash\",\"variant\":\"default\"},\"version\":\"1.18.5\",\"time\":{\"created\":1785955716754,\"updated\":1785955716816}}"
+    }
+  ]
+}

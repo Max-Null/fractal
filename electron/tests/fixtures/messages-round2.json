@@ -1,0 +1,13 @@
+{
+  "error": {
+    "name": "UnknownError",
+    "data": {
+      "message": "Unexpected server error. Check server logs for details.",
+      "ref": "err_c6bfc512"
+    }
+  },
+  "request": {
+    "timeout": false
+  },
+  "response": {}
+}

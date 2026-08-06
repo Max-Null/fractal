@@ -2,7 +2,8 @@
 node_modules/
 .slim/
 
-# 构建产物
+# 构建产物（electron-vite / 旧 Tauri 遗留）
+out/
 dist/
 src-tauri/target/
 test-results/
@@ -17,6 +18,7 @@ test-results/
 .DS_Store
 Thumbs.db
 desktop.ini
+*.log*
 
 # IDE
 .vscode/

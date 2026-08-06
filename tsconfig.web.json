@@ -1,0 +1,24 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/src/vite-env.d.ts",
+    "src/renderer/src/**/*",
+    "src/renderer/src/**/*.vue",
+    "electron/preload/*.d.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    // 迁移自 cc-gui 的代码保留大量未用变量/参数（cc-gui 未开启此检查），此处对齐源项目配置
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "paths": {
+      "@renderer/*": [
+        "src/renderer/src/*"
+      ],
+      "@/*": [
+        "src/renderer/src/*"
+      ]
+    }
+  }
+}

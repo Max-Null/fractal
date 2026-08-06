@@ -1,0 +1,12 @@
+{
+  "name": "stage0-probe",
+  "private": true,
+  "type": "module",
+  "description": "阶段 0 实测：OC serve 全链路探针（方案附录 B serve 轨）",
+  "scripts": {
+    "probe": "node probe-serve.mjs"
+  },
+  "dependencies": {
+    "@opencode-ai/sdk": "latest"
+  }
+}

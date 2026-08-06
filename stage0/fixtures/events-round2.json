@@ -1,0 +1,387 @@
+[
+  {
+    "id": "evt_fd3418d5800141lE7lf43HJP8M",
+    "type": "server.connected",
+    "properties": {}
+  },
+  {
+    "id": "evt_fd3418e930015Ixi8hPay08elh",
+    "type": "session.created",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "info": {
+        "id": "ses_02cbe716dffeirzgVVoA5LwnJc",
+        "slug": "lucky-circuit",
+        "version": "1.18.5",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:36.754Z",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955716754,
+          "updated": 1785955716754
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418eb4001enx88p7VamNe5C",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "info": {
+        "id": "ses_02cbe716dffeirzgVVoA5LwnJc",
+        "slug": "lucky-circuit",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:36.754Z",
+        "agent": "双星",
+        "model": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek-v4-flash",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955716754,
+          "updated": 1785955716786
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418eca0016FB2rLTiGFCMFw",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "info": {
+        "id": "msg_fd3418eb2001xChLoc5g271vaR",
+        "role": "user",
+        "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+        "time": {
+          "created": 1785955716786
+        },
+        "agent": "双星",
+        "model": {
+          "providerID": "deepseek-v4-flash",
+          "modelID": "deepseek-v4-flash"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418ecf00127uDZm0WWEbEio",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "part": {
+        "type": "text",
+        "text": "只回复两个字：你好",
+        "messageID": "msg_fd3418eb2001xChLoc5g271vaR",
+        "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+        "id": "prt_fd3418eb7001RlVs9UL4oBS590"
+      },
+      "time": 1785955716814
+    }
+  },
+  {
+    "id": "evt_fd3418ed1001dDZFoOgZrlbPO7",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "info": {
+        "id": "ses_02cbe716dffeirzgVVoA5LwnJc",
+        "slug": "lucky-circuit",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:36.754Z",
+        "agent": "双星",
+        "model": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek-v4-flash",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955716754,
+          "updated": 1785955716816
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418f4f001EIfWCmAMsp61yh",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418f52001Z7b25ngq4vG3X4",
+    "type": "session.error",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "error": {
+        "name": "UnknownError",
+        "data": {
+          "message": "Model not found: deepseek-v4-flash/deepseek-v4-flash."
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418f52002zJ3vJ74oktJ11c",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "status": {
+        "type": "idle"
+      }
+    }
+  },
+  {
+    "id": "evt_fd3418f530019jj5JQE9Xfiic4",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc"
+    }
+  },
+  {
+    "id": "evt_fd3418f54001cCyOseBUrjwg83",
+    "type": "session.error",
+    "properties": {
+      "sessionID": "ses_02cbe716dffeirzgVVoA5LwnJc",
+      "error": {
+        "name": "UnknownError",
+        "data": {
+          "message": "ProviderModelNotFoundError: Model not found: deepseek-v4-flash/deepseek-v4-flash.\n    at <anonymous> (B:/~BUN/root/chunk-pmxrjjm6.js:439:93199)\n    at SessionPrompt.getModel (B:/~BUN/root/chunk-0tmdtppe.js:1085:11482)\n    at SessionPrompt.getModel (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:908)\n    at SessionPrompt.run (B:/~BUN/root/chunk-0tmdtppe.js:1085:15298)\n    at SessionPrompt.run (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:10498)\n    at SessionRunState.ensureRunning (B:/~BUN/root/chunk-0tmdtppe.js:1085:15267)\n    at SessionRunState.ensureRunning (definition) (B:/~BUN/root/chunk-0tmdtppe.js:2:8179)\n    at SessionPrompt.loop (B:/~BUN/root/chunk-0tmdtppe.js:1085:10220)\n    at SessionPrompt.loop (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:15203)\n    at SessionPrompt.prompt (B:/~BUN/root/chunk-v4xpbh6g.js:4:13492)\n    at SessionPrompt.prompt (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:9838)"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd34190540023OvXUI8fLHYjlU",
+    "type": "session.created",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "info": {
+        "id": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+        "slug": "proud-meadow",
+        "version": "1.18.5",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:37.204Z",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955717204,
+          "updated": 1785955717204
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd341905b001N6XuPYBr0eIi30",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "info": {
+        "id": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+        "slug": "proud-meadow",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:37.204Z",
+        "agent": "双星",
+        "model": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek-v4-flash",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955717204,
+          "updated": 1785955717210
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd341905f001aKa1sSGYduUoSz",
+    "type": "message.updated",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "info": {
+        "id": "msg_fd341905a001Mq5zUw74n6XEwr",
+        "role": "user",
+        "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+        "time": {
+          "created": 1785955717210
+        },
+        "agent": "双星",
+        "model": {
+          "providerID": "deepseek-v4-flash",
+          "modelID": "deepseek-v4-flash"
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3419062001aqvN53f54Pdhgx",
+    "type": "message.part.updated",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "part": {
+        "type": "text",
+        "text": "用工具读取当前目录的文件列表",
+        "messageID": "msg_fd341905a001Mq5zUw74n6XEwr",
+        "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+        "id": "prt_fd341905e001wTA6u6U58BWKLN"
+      },
+      "time": 1785955717218
+    }
+  },
+  {
+    "id": "evt_fd34190640018iHxzqqEG0TXJJ",
+    "type": "session.updated",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "info": {
+        "id": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+        "slug": "proud-meadow",
+        "projectID": "ff537c25e4ba05e33bb45a6694217ded74b7f8c8",
+        "directory": "H:\\MaxNull\\WorkStation\\fractal\\stage0",
+        "path": "stage0",
+        "title": "New session - 2026-08-05T18:48:37.204Z",
+        "agent": "双星",
+        "model": {
+          "id": "deepseek-v4-flash",
+          "providerID": "deepseek-v4-flash",
+          "variant": "default"
+        },
+        "version": "1.18.5",
+        "cost": 0,
+        "tokens": {
+          "input": 0,
+          "output": 0,
+          "reasoning": 0,
+          "cache": {
+            "read": 0,
+            "write": 0
+          }
+        },
+        "time": {
+          "created": 1785955717204,
+          "updated": 1785955717220
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3419070001F79de7ybjqRc3q",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "status": {
+        "type": "busy"
+      }
+    }
+  },
+  {
+    "id": "evt_fd341907200188FKavIUCkhXc4",
+    "type": "session.error",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "error": {
+        "name": "UnknownError",
+        "data": {
+          "message": "Model not found: deepseek-v4-flash/deepseek-v4-flash."
+        }
+      }
+    }
+  },
+  {
+    "id": "evt_fd3419072002QwxxnrURj7tu8N",
+    "type": "session.status",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "status": {
+        "type": "idle"
+      }
+    }
+  },
+  {
+    "id": "evt_fd3419073001Q3l9mU5orL8pn1",
+    "type": "session.idle",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw"
+    }
+  },
+  {
+    "id": "evt_fd3419073002swCito1LPLl4u2",
+    "type": "session.error",
+    "properties": {
+      "sessionID": "ses_02cbe6fabffeBNPRLdgT1l0Xgw",
+      "error": {
+        "name": "UnknownError",
+        "data": {
+          "message": "ProviderModelNotFoundError: Model not found: deepseek-v4-flash/deepseek-v4-flash.\n    at <anonymous> (B:/~BUN/root/chunk-pmxrjjm6.js:439:93199)\n    at SessionPrompt.getModel (B:/~BUN/root/chunk-0tmdtppe.js:1085:11482)\n    at SessionPrompt.getModel (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:908)\n    at SessionPrompt.run (B:/~BUN/root/chunk-0tmdtppe.js:1085:15298)\n    at SessionPrompt.run (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:10498)\n    at SessionRunState.ensureRunning (B:/~BUN/root/chunk-0tmdtppe.js:1085:15267)\n    at SessionRunState.ensureRunning (definition) (B:/~BUN/root/chunk-0tmdtppe.js:2:8179)\n    at SessionPrompt.loop (B:/~BUN/root/chunk-0tmdtppe.js:1085:10220)\n    at SessionPrompt.loop (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:15203)\n    at SessionPrompt.prompt (B:/~BUN/root/chunk-v4xpbh6g.js:4:13492)\n    at SessionPrompt.prompt (definition) (B:/~BUN/root/chunk-0tmdtppe.js:1085:9838)"
+        }
+      }
+    }
+  }
+]
