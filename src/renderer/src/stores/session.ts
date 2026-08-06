@@ -51,10 +51,10 @@ export const useSessionStore = defineStore("session", () => {
     sessionActivity.value = next;
   }
 
-  /** Load sessions from Rust SQLite backend */
-  async function loadSessions() {
+  /** 加载会话列表；directory 传入时只加载该工作区的会话（serve ?directory= 过滤） */
+  async function loadSessions(directory?: string) {
     try {
-      const list = await listSessions();
+      const list = await listSessions(directory);
       sessions.value = list.map(toLocalSession);
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {

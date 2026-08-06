@@ -1,6 +1,7 @@
 {
-  "app": { "title": "Fractal" },
-
+  "app": {
+    "title": "Fractal"
+  },
   "onboarding": {
     "subtitle": "Your AI Workbench · Ready to use",
     "step1": "Enter API Key",
@@ -21,7 +22,6 @@
     "start": "Get Started",
     "skip": "Skip for now"
   },
-
   "chat": {
     "placeholder": "Type a message, Enter to send...",
     "send": "Send",
@@ -75,7 +75,6 @@
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · Multi-provider API",
     "aboutCopyright": "© 2026 Fractal contributors · MIT"
   },
-
   "provider": {
     "anthropic": "Anthropic",
     "deepseek": "DeepSeek",
@@ -86,7 +85,6 @@
     "minimax": "MiniMax",
     "custom": "Custom"
   },
-
   "tools": {
     "Bash": "Bash",
     "PowerShell": "PowerShell",
@@ -106,16 +104,15 @@
     "Glob": "Glob",
     "Grep": "Grep"
   },
-
   "settings": {
     "title": "Settings",
     "engineTitle": "Engine Settings",
-      "uiTitle": "Interface Settings",
-      "workspaceTitle": "Workspace",
-      "workspaceLabel": "Current working directory",
-      "workspacePlaceholder": "Not set (defaults to user home)",
-      "browseFolder": "Choose Folder",
-      "workspaceHint": "The AI assistant works in this directory; takes effect for new sessions",
+    "uiTitle": "Interface Settings",
+    "workspaceTitle": "Workspace",
+    "workspaceLabel": "Current working directory",
+    "workspacePlaceholder": "Not set (defaults to user home)",
+    "browseFolder": "Choose Folder",
+    "workspaceHint": "The AI assistant works in this directory; takes effect for new sessions",
     "apiKey": "API Key",
     "baseUrl": "API Base URL",
     "model": "Model",
@@ -144,7 +141,6 @@
     "changelog": "Changelog",
     "reopenOnboarding": "Reopen onboarding"
   },
-
   "session": {
     "new": "New Session",
     "alreadyNew": "Already a new session",
@@ -163,7 +159,6 @@
     "noSessions": "No sessions yet. Click + above to create one",
     "noMatching": "No matching sessions"
   },
-
   "mode": {
     "plan": "Plan mode",
     "planDesc": "The engine will explore code and present a plan before editing",
@@ -186,7 +181,6 @@
       "ultracode": "UltraCode (xhigh + auto workflows)"
     }
   },
-
   "file": {
     "title": "Files",
     "empty": "Empty directory",
@@ -212,7 +206,6 @@
     "convertSuccess": "✓ Converted to {path}",
     "docxSkillAvailable": "docx skill is installed. Use /docx command via CC as fallback."
   },
-
   "preview": {
     "edit": "Edit",
     "previewTab": "Preview",
@@ -236,9 +229,7 @@
     "xlsxPassword": "This workbook is password protected",
     "truncated": "Showing first {n} rows only"
   },
-
   "effortWarning": "xhigh + DeepSeek may cause API errors (WebSearch/WebFetch tools)",
-
   "toolbar": {
     "attach": "Attach",
     "attachTitle": "Attach file",
@@ -253,7 +244,6 @@
     "slashBrowseAll": "Browse all commands…",
     "slashEmpty": "No history yet. Send a / command to get started."
   },
-
   "composer": {
     "chipHint": "Attach files / reference files · Auto-parsed in input",
     "agentTitle": "Primary agent (applies to this session)",
@@ -276,7 +266,6 @@
     "effortHigh": "Default · More thorough",
     "sendHint": "Shift+Enter ↵"
   },
-
   "status": {
     "exportDone": "Export complete",
     "exportFail": "Export failed: {error}",
@@ -288,7 +277,6 @@
     "workspaceSwitched": "Workspace switched: {path}",
     "sessionCreateFailed": "Session creation failed"
   },
-
   "header": {
     "newSession": "New Session",
     "toggleSidebar": "Toggle sidebar",
@@ -296,7 +284,7 @@
     "exitFullscreen": "Exit Fullscreen",
     "lightMode": "Light mode",
     "darkMode": "Dark mode",
-    "refresh": "Refresh",
+    "refresh": "Refresh engine",
     "settings": "Settings",
     "cwdTitle": " — click to browse",
     "selectWorkspace": "Select Workspace",
@@ -305,7 +293,6 @@
     "noRecentWorkspaces": "None",
     "browseFolder": "Browse folder..."
   },
-
   "manage": {
     "title": "Manage",
     "loading": "Loading…",
@@ -355,7 +342,6 @@
     "hooksDesc": "Event → [matcher → {'type, command'}]. Supports SessionStart, PreToolUse, and other lifecycles. Configured in settings.json hooks field.",
     "stylesDesc": "Output styles control how the engine formats responses. Configured in settings.json under the outputStyles field. For example, setting \"json\": true formats responses as JSON."
   },
-
   "error": {
     "retry": "Retry",
     "claudeNotFound": "OpenCode engine not found (error: {detail}). Check the sidebar engine status and retry",
@@ -367,11 +353,9 @@
     "insufficientBalance": "Insufficient API balance. Please top up and try again.",
     "generic": "Error: {error}"
   },
-
   "modal": {
     "close": "Close"
   },
-
   "command": {
     "placeholder": "Type a command (pinyin supported)…",
     "noResults": "No matching commands",
@@ -451,7 +435,6 @@
     "managePermissions": "Manage Permissions",
     "manageOutputStyles": "Output Styles"
   },
-
   "git": {
     "notRepo": "Not a Git repository",
     "clean": "Working tree clean",
@@ -478,7 +461,6 @@
     "initRepoDesc": "Let CC set up Git version control for the workspace",
     "initMessage": "Please initialize a Git repository for the current workspace. First check if git is installed, install it if needed, then run git init and create an appropriate .gitignore file for this project."
   },
-
   "contextUsage": {
     "title": "Context Usage",
     "category": "Category",

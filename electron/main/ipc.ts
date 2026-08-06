@@ -415,6 +415,14 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   })
 
+  ipcMain.handle('engine:refresh', async () => {
+    // 右上角刷新按钮：重启 serve（配置/预置变更立即生效）；stopServer 幂等，startServer 内部有 ready 缓存
+    if (!serverManager) throw new Error('引擎未初始化：server-manager 未注入')
+    await serverManager.stopServer().catch(() => {})
+    await serverManager.startServer()
+    return { ok: true }
+  })
+
   ipcMain.handle('chat:stopSession', async (_e, args: { sessionId: string }) => {
     // 引擎未初始化（requireClient）失败必须抛给前端，不进入 abort 容错
     const client = await requireClient()
@@ -431,8 +439,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return toSessionData(s)
   })
 
-  ipcMain.handle('session:list', async () => {
-    const list = await (await requireClient()).session.list()
+  ipcMain.handle('session:list', async (_e, args: { directory?: string } = {}) => {
+    // directory 透传 serve 过滤：会话跟随工作区（OC session 绑定 project/directory）
+    const list = await (await requireClient()).session.list(args.directory)
     return list.map(toSessionData)
   })
 

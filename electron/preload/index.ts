@@ -24,7 +24,8 @@ const ALLOWED_INVOKE = [
   'chat:sendMessage', 'chat:stopSession',
   'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork',
   'message:list', 'permission:respond',
-  'engine:testConnection'
+  'engine:testConnection',
+  'engine:refresh'
 ] as const
 
 /** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态） */

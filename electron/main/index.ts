@@ -8,6 +8,43 @@ import { registerIpcHandlers, startEngineEvents } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
 
+// ── 单实例锁：SQLite 用户数据（settings/session 缓存）不支持双实例并发——第二个实例直接退出并聚焦已有窗口
+// e2e 测试注入 OC_GUI_E2E=1 豁免（多个测试实例需要独立进程，且 app 可能在运行）
+const isE2E = process.env.OC_GUI_E2E === '1'
+const gotSingleInstanceLock = isE2E || app.requestSingleInstanceLock()
+
+// e2e 隔离：独立 userData（SQLite + serve 配置目录都走临时目录），不碰正式数据、不与运行中的 app 竞争
+if (isE2E) {
+  app.setPath('userData', join(app.getPath('temp'), 'oc-gui-e2e'))
+}
+
+// e2e 继承正式配置（API Key），保证真实引擎对话 e2e 可跑；正式配置不存在则走无 key 场景（onboarding 测试）
+async function copyRealConfigForE2E(): Promise<void> {
+  try {
+    const e2eUserData = join(app.getPath('temp'), 'oc-gui-e2e')
+    const realCfgPath = join(app.getPath('appData'), 'oc-gui', 'provider-configs.json')
+    const raw = await fsp.readFile(realCfgPath, 'utf8')
+    const cfg = JSON.parse(raw.replace(/^\uFEFF/, ''))
+    if (cfg?.deepseek?.apiKey) {
+      await fsp.mkdir(e2eUserData, { recursive: true })
+      await fsp.writeFile(join(e2eUserData, 'provider-configs.json'), JSON.stringify(cfg), 'utf8')
+    }
+  } catch {
+    // 正式配置不可读：忽略，e2e 走无 key 路径
+  }
+}
+if (!gotSingleInstanceLock) {
+  app.quit()
+} else {
+  app.on('second-instance', () => {
+    const win = BrowserWindow.getAllWindows()[0]
+    if (win) {
+      if (win.isMinimized()) win.restore()
+      win.focus()
+    }
+  })
+}
+
 // serve 进程管理器：应用级单例（userData 隔离 XDG_CONFIG_HOME，D17 实测定案）
 const serverManager = createServerManager({ userDataDir: app.getPath('userData') })
 
@@ -52,6 +89,9 @@ app.whenReady().then(async () => {
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window)
   })
+
+  // e2e 复制正式配置后再注册 IPC（渲染进程 initFromDb 依赖 provider-configs.json）
+  if (isE2E) await copyRealConfigForE2E()
 
   // 注册 IPC 通道（引擎通道注入 serverManager）
   registerIpcHandlers(serverManager)

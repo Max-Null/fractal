@@ -158,8 +158,8 @@ export interface OcClientOptions {
 export interface OcSessionClient {
   /** 创建会话，返回新会话（title 可选） */
   create(options?: CreateSessionOptions): Promise<Session>
-  /** 列出全部会话 */
-  list(): Promise<Session[]>
+  /** 列出会话；directory 传入时按工作区过滤（serve ?directory=） */
+  list(directory?: string): Promise<Session[]>
   /** 获取单个会话详情 */
   get(id: string): Promise<Session>
   /** 删除会话（含数据），返回是否成功 */
@@ -227,7 +227,9 @@ export function createOcClient(options: OcClientOptions): OcClient {
   return {
     session: {
       create: async (opts) => normalizeError<Session>(await client.session.create({ body: opts ?? {} })),
-      list: async () => normalizeError<Session[]>(await client.session.list()),
+      list: async (directory?: string) =>
+    // serve 原生支持 GET /session?directory= 按工作区过滤（spec 实测）；未传目录返回全部
+    normalizeError<Session[]>(await client.session.list({ query: directory ? { directory } : undefined })),
       get: async (id) => normalizeError<Session>(await client.session.get({ path: { id } })),
       delete: async (id) => normalizeError<boolean>(await client.session.delete({ path: { id } })),
       rename: async (id, title) => normalizeError<Session>(await client.session.update({ path: { id }, body: { title } })),

@@ -1,6 +1,7 @@
 {
-  "app": { "title": "分形" },
-
+  "app": {
+    "title": "分形"
+  },
   "onboarding": {
     "subtitle": "你的 AI 工作台 · 打开即用",
     "step1": "输入 API Key",
@@ -21,7 +22,6 @@
     "start": "开始使用",
     "skip": "跳过，稍后配置"
   },
-
   "chat": {
     "placeholder": "输入消息，Enter 发送...",
     "send": "发送",
@@ -75,7 +75,6 @@
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · 多厂商 API",
     "aboutCopyright": "© 2026 分形 contributors · MIT"
   },
-
   "provider": {
     "anthropic": "Anthropic 官方",
     "deepseek": "DeepSeek",
@@ -86,7 +85,6 @@
     "minimax": "MiniMax",
     "custom": "自定义"
   },
-
   "tools": {
     "Bash": "命令行",
     "PowerShell": "PowerShell",
@@ -106,16 +104,15 @@
     "Glob": "文件搜索",
     "Grep": "内容搜索"
   },
-
   "settings": {
     "title": "设置",
     "engineTitle": "引擎设置",
-      "uiTitle": "界面设置",
-      "workspaceTitle": "工作目录",
-      "workspaceLabel": "当前工作目录",
-      "workspacePlaceholder": "未选择（默认用户主目录）",
-      "browseFolder": "选择目录",
-      "workspaceHint": "AI 助手在此目录下工作；切换后新会话生效",
+    "uiTitle": "界面设置",
+    "workspaceTitle": "工作目录",
+    "workspaceLabel": "当前工作目录",
+    "workspacePlaceholder": "未选择（默认用户主目录）",
+    "browseFolder": "选择目录",
+    "workspaceHint": "AI 助手在此目录下工作；切换后新会话生效",
     "apiKey": "API Key",
     "baseUrl": "API 地址",
     "model": "模型",
@@ -144,7 +141,6 @@
     "changelog": "更新日志",
     "reopenOnboarding": "重新显示引导页"
   },
-
   "session": {
     "new": "新会话",
     "alreadyNew": "已是新会话",
@@ -163,7 +159,6 @@
     "noSessions": "暂无会话，点击上方 + 新建",
     "noMatching": "无匹配会话"
   },
-
   "mode": {
     "plan": "计划模式",
     "planDesc": "引擎将先探索代码并制定计划，然后再进行编辑",
@@ -186,7 +181,6 @@
       "ultracode": "极高级 (xhigh + 自动工作流编排)"
     }
   },
-
   "file": {
     "title": "文件",
     "empty": "空目录",
@@ -212,7 +206,6 @@
     "convertSuccess": "✓ 已转换为 {path}",
     "docxSkillAvailable": "检测到 docx skill 已安装，可通过 CC 用 /docx 命令转换"
   },
-
   "preview": {
     "edit": "编辑",
     "previewTab": "预览",
@@ -236,9 +229,7 @@
     "xlsxPassword": "此工作簿受密码保护，无法预览",
     "truncated": "仅显示前 {n} 行"
   },
-
   "effortWarning": "xhigh + DeepSeek 可能导致 API 错误（WebSearch/WebFetch 等工具）",
-
   "toolbar": {
     "attach": "附件",
     "attachTitle": "附加文件",
@@ -252,7 +243,6 @@
     "slashBrowseAll": "浏览全部命令…",
     "slashEmpty": "暂无记录，发送 / 命令后自动出现"
   },
-
   "composer": {
     "chipHint": "可添加附件 / 引用文件 · 输入框中自动解析",
     "agentTitle": "主智能体（本会话生效）",
@@ -275,7 +265,6 @@
     "effortHigh": "默认 · 更细致",
     "sendHint": "Shift+Enter ↵"
   },
-
   "status": {
     "exportDone": "导出完成",
     "exportFail": "导出失败: {error}",
@@ -287,7 +276,6 @@
     "workspaceSwitched": "已切换工作区: {path}",
     "sessionCreateFailed": "会话创建失败"
   },
-
   "header": {
     "newSession": "新会话",
     "toggleSidebar": "切换侧边栏",
@@ -295,7 +283,7 @@
     "exitFullscreen": "退出全屏",
     "lightMode": "亮色模式",
     "darkMode": "暗色模式",
-    "refresh": "刷新",
+    "refresh": "刷新引擎（重启 serve）",
     "settings": "设置",
     "cwdTitle": " — 点击浏览",
     "selectWorkspace": "选择工作区",
@@ -304,7 +292,6 @@
     "noRecentWorkspaces": "暂无",
     "browseFolder": "浏览其他文件夹..."
   },
-
   "manage": {
     "title": "管理",
     "loading": "加载中…",
@@ -354,7 +341,6 @@
     "hooksDesc": "事件 → [匹配规则 → {'类型, 命令'}]。支持 SessionStart、PreToolUse 等生命周期。配置在 settings.json 的 hooks 字段。",
     "stylesDesc": "输出风格（outputStyles）控制引擎回复的格式和呈现方式。配置在 settings.json 的 outputStyles 字段中。例如设置 \"json\": true 使回复尽量以 JSON 格式输出。"
   },
-
   "error": {
     "retry": "重试",
     "claudeNotFound": "找不到 OpenCode 引擎（错误: {detail}）。请检查侧边栏引擎状态或稍后重试",
@@ -366,11 +352,9 @@
     "insufficientBalance": "API 余额不足，请充值后重试",
     "generic": "错误: {error}"
   },
-
   "modal": {
     "close": "关闭"
   },
-
   "command": {
     "placeholder": "输入命令（支持拼音搜索）…",
     "noResults": "无匹配命令",
@@ -450,7 +434,6 @@
     "managePermissions": "权限规则管理",
     "manageOutputStyles": "输出风格"
   },
-
   "git": {
     "notRepo": "非 Git 仓库",
     "clean": "工作区干净",
@@ -477,7 +460,6 @@
     "initRepoDesc": "让 CC 为工作空间建立 Git 版本控制",
     "initMessage": "请为当前工作空间初始化 Git 仓库。先检查 git 是否已安装，如果没安装就先安装 git，然后执行 git init，并创建适合该项目的 .gitignore 文件。"
   },
-
   "contextUsage": {
     "title": "上下文用量",
     "category": "分类",

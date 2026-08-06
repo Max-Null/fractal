@@ -11,7 +11,7 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine } from "@/lib/electron-bridge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
 import { useI18n } from "vue-i18n";
@@ -45,6 +45,21 @@ const showManagePanel = ref(false);
 const fileNavCounter = ref(0);
 const filePanelForceClose = ref(0);
 
+// 刷新引擎：重启 serve + 重载会话列表（右上角刷新按钮；转圈防连点）
+const isRefreshing = ref(false);
+async function handleRefresh() {
+  if (isRefreshing.value) return;
+  isRefreshing.value = true;
+  try {
+    await refreshEngine();
+    await sessionStore.loadSessions(settings.cwd || undefined);
+  } catch {
+    // 刷新失败静默：serve 状态由 engine:status 事件自行上报，UI 不额外弹错
+  } finally {
+    isRefreshing.value = false;
+  }
+}
+
 // 第四列：文件预览/编辑面板
 const panelFile = ref<{ name: string; path: string } | null>(null);
 // Git diff 面板（与文件编辑器互斥，共用第四列）
@@ -71,7 +86,7 @@ const sbBodyRef = ref<HTMLElement | null>(null);
 const panelLayout = usePanelLayout({ containerRef: sbBodyRef, sidebarOpen: drawerOpen });
 provide(PANEL_LAYOUT_KEY, panelLayout);
 
-// ── 工作区（状态由 settings store 管理，SQLite 持久化；入口在设置页）──
+// ── 工作区（状态由 settings store 管理，SQLite 持久化）──
 const cwd = computed(() => settings.cwd);
 
 function switchToWorkspace(path: string) {
@@ -80,7 +95,34 @@ function switchToWorkspace(path: string) {
   emitChatCommand(`switch-workspace:${path}`);
   filePanelForceClose.value++;  // 切工作区时收起文件面板
   panelFile.value = null;       // 关闭编辑器面板
+  // 会话跟随工作区（OC session 绑定 project/directory）：切换后刷新会话列表
+  sessionStore.loadSessions(path);
 }
+
+// ── ws-pill 工作区管理下拉（最近工作区 + 选择目录）──
+const showWsMenu = ref(false);
+async function onWsPillClick() {
+  // 点击胶囊切换下拉，不再直接弹选择框——最近工作区列表是主入口
+  showWsMenu.value = !showWsMenu.value;
+}
+function onWsPickDirectory() {
+  showWsMenu.value = false;
+  openDialog({ directory: true }).then((picked) => {
+    if (!picked) return;
+    const path = Array.isArray(picked) ? picked[0] : picked;
+    if (path) switchToWorkspace(path);
+  });
+}
+function onWsPickRecent(path: string) {
+  showWsMenu.value = false;
+  switchToWorkspace(path);
+}
+function onBodyClickForWs(e: MouseEvent) {
+  // 点击菜单外部区域时收起工作区下拉
+  if (!(e.target as HTMLElement).closest(".ws-pill, .ws-menu")) showWsMenu.value = false;
+}
+onMounted(() => document.addEventListener("click", onBodyClickForWs));
+onUnmounted(() => document.removeEventListener("click", onBodyClickForWs));
 
 const commandPalette = ref<InstanceType<typeof CommandPalette> | null>(null);
 
@@ -217,7 +259,8 @@ onMounted(async () => {
   // 并行初始化所有持久化数据：会话列表 + settings + 工作区
   try {
     await Promise.all([
-      sessionStore.loadSessions(),
+      // cwd 已持久化时按工作区加载会话（会话跟随工作区）；无 cwd 时全量
+      sessionStore.loadSessions(settings.cwd || undefined),
       settings.initFromDb(),
       (async () => {
         if (!settings.cwd) {
@@ -240,14 +283,6 @@ onUnmounted(() => {
 
 function isActive(path: string): boolean {
   return route.path === path;
-}
-
-// ws-pill：点击选择工作目录 → 复用 switchToWorkspace（更新 cwd + 最近列表 + 通知引擎）
-async function onWsPillClick() {
-  const picked = await openDialog({ directory: true });
-  if (!picked) return;
-  const path = Array.isArray(picked) ? picked[0] : picked;
-  if (path) switchToWorkspace(path);
 }
 
 async function openFilePanelTo(_path: string) {
@@ -278,13 +313,31 @@ async function openFilePanelTo(_path: string) {
           <span class="brand-name">{{ $t('app.title') }}</span>
         </div>
 
-        <!-- 工作区胶囊：点击选择工作目录（无 cwd 时显示占位） -->
-        <button class="ws-pill" :title="$t('header.cwdTitle')" @click="onWsPillClick">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ws-pill-folder">
-            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-          </svg>
-          <span class="ws-pill-path">{{ cwd || $t('header.selectWorkspace') }}</span>
-        </button>
+        <!-- 工作区胶囊：点击展开管理下拉（最近工作区 + 选择目录） -->
+        <div class="ws-wrap" style="position:relative">
+          <button class="ws-pill" :title="$t('header.cwdTitle')" @click="onWsPillClick">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ws-pill-folder">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+            </svg>
+            <span class="ws-pill-path">{{ cwd || $t('header.selectWorkspace') }}</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:.6"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <!-- 工作区管理下拉：最近工作区 + 选择目录 -->
+          <div v-if="showWsMenu" class="ws-menu">
+            <div class="ws-menu-head">{{ $t('header.recentWorkspaces') }}</div>
+            <template v-if="settings.recentWorkspaces.length">
+              <button v-for="p in settings.recentWorkspaces" :key="p" class="ws-menu-item" :class="{ 'ws-menu-item-active': p === cwd }" @click="onWsPickRecent(p)">
+                <span class="ws-menu-item-path">{{ p }}</span>
+              </button>
+            </template>
+            <div v-else class="ws-menu-empty">{{ $t('header.noRecentWorkspaces') }}</div>
+            <div class="ws-menu-sep"></div>
+            <button class="ws-menu-item" @click="onWsPickDirectory">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>{{ $t('header.browseFolder') }}</span>
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- app-bar-right：4 个 icon-btn -->
@@ -321,6 +374,19 @@ async function openFilePanelTo(_path: string) {
           </svg>
           <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+          </svg>
+        </button>
+
+        <!-- 刷新引擎（重启 serve，配置/预置变更生效） -->
+        <button
+          @click="handleRefresh"
+          class="icon-btn"
+          :title="$t('header.refresh')"
+          :disabled="isRefreshing"
+        >
+          <svg :class="{ 'icon-btn--spin': isRefreshing }" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+            <polyline points="21 3 21 9 15 9" />
           </svg>
         </button>
 
@@ -577,7 +643,15 @@ async function openFilePanelTo(_path: string) {
 }
 .icon-btn--hover:hover {
   background: var(--bg-hover);
-  color: var(--text-bright);
+}
+
+/* 刷新按钮转圈动画（点击期间） */
+.icon-btn--spin {
+  animation: icon-btn-spin 0.9s linear infinite;
+}
+@keyframes icon-btn-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .sb-main {

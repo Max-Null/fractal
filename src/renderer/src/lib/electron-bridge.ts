@@ -345,8 +345,9 @@ export async function createSession(model?: string, cwd?: string, mode?: string,
   return invoke<SessionData>("session:create", { title: title ?? undefined });
 }
 
-export async function listSessions(): Promise<SessionData[]> {
-  return invoke<SessionData[]>("session:list");
+export async function listSessions(directory?: string): Promise<SessionData[]> {
+  // directory 指定时只返回该工作区的会话（serve ?directory= 过滤）
+  return invoke<SessionData[]>("session:list", { directory });
 }
 
 export async function deleteSession(sessionId: string): Promise<void> {
@@ -376,6 +377,11 @@ export async function listMessages(sessionId: string): Promise<MessageData[]> {
 /** 测试连接：写 API Key 到 serve 隔离配置 + 验证 serve 可达，返回 {ok, message}（设置面板「测试连接」） */
 export async function testConnection(apiKey: string): Promise<{ ok: boolean; message: string }> {
   return invoke<{ ok: boolean; message: string }>("engine:testConnection", { apiKey });
+}
+
+/** 刷新引擎：重启 serve 进程（右上角刷新按钮；配置/预置包变更立即生效） */
+export async function refreshEngine(): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("engine:refresh");
 }
 
 // ── Approved Scenarios ──
