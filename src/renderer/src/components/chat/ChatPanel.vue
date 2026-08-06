@@ -43,6 +43,11 @@ const slashCommands = useSlashCommands();
 const settings = useSettingsStore();
 const appVersion = __APP_VERSION__;
 
+/** 当前活跃会话（离线占位展示标题用） */
+const currentSession = computed(() =>
+  session.sessions.find((s) => s.id === session.activeSessionId) || null
+);
+
 const debugLog = useDebugLog();
 const stderrLog = useStderrLog();
 const scrollContainer = ref<HTMLElement | null>(null);
@@ -296,9 +301,14 @@ watch(() => chatCommand.value.ts, async (ts) => {
         const target = others[0];
         session.setActiveSession(target.id);
         listMessages(target.id).then(msgs => {
+          chat.setHistoryError(false);
           chat.loadMessages(msgs.map(m => ({ id: m.id, role: m.role, content: m.content, created_at: m.created_at })));
           showStatus(t('session.switchSuccess', { title: target.title }));
-        }).catch(() => showStatus(t('session.loadFailed')));
+        }).catch(() => {
+          // 加载失败（serve 未就绪）→ 置离线标记，消息区灰显占位（G3）
+          chat.setHistoryError(true);
+          showStatus(t('session.loadFailed'));
+        });
       }
       break;
     }
@@ -809,7 +819,21 @@ watch(
       </details>
       <!-- Welcome -->
       <div v-if="chat.messages.length === 0" class="welcome-container">
-        <div class="welcome-page">
+        <!-- 离线占位（G3）：serve 未就绪时历史消息不可用，灰显提示 + 当前会话标题正常展示 -->
+        <div v-if="chat.historyError" class="welcome-page offline-placeholder">
+          <div class="welcome-logo offline-logo" style="background:var(--bg-elevated)">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+            </svg>
+          </div>
+          <h2 class="welcome-title" style="color:var(--text-secondary)">{{ $t('chat.historyOfflineTitle') }}</h2>
+          <p class="text-sm leading-relaxed mb-6" style="color:var(--text-muted)">{{ $t('chat.historyOfflineSubtitle') }}</p>
+          <!-- 当前会话标题/时间正常展示（离线不影响会话信息） -->
+          <div v-if="session.activeSessionId" class="text-xs" style="color:var(--text-muted)">
+            <span v-if="currentSession">{{ currentSession.title }}</span>
+          </div>
+        </div>
+        <div v-else class="welcome-page">
           <!-- Icon: terminal cursor -->
           <div class="welcome-logo" style="background:var(--accent-glow)">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
@@ -1119,5 +1143,13 @@ watch(
   border-bottom: 1px solid var(--border-dim);
   color: var(--text-muted);
   backdrop-filter: blur(8px);
+}
+
+/* 离线占位（G3）：serve 未就绪时历史消息不可用，整体灰显弱化 */
+.offline-placeholder {
+  opacity: 0.85;
+}
+.offline-logo {
+  border: 1px solid var(--border-dim);
 }
 </style>

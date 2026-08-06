@@ -71,6 +71,8 @@
     "welcomeSubtitle": "分形 — OpenCode 的极简桌面客户端",
     "welcomeSend": "发送",
     "welcomeNewline": "换行",
+    "historyOfflineTitle": "引擎未就绪",
+    "historyOfflineSubtitle": "历史消息暂不可用，引擎启动后将自动加载",
     "debugLabel": "调试",
     "llmRequestLabel": "LLM 请求",
     "aboutTitle": "关于分形",

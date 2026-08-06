@@ -499,4 +499,23 @@ describe("chat store", () => {
     chat.setTodos([]);
     expect(chat.todos).toHaveLength(0);
   });
+
+  // ── historyError（G3：serve 未就绪离线灰显标记）──
+
+  it("historyError 默认 false，setHistoryError 可置位/清除", () => {
+    const chat = useChatStore();
+    expect(chat.historyError).toBe(false);
+    chat.setHistoryError(true);
+    expect(chat.historyError).toBe(true);
+    chat.setHistoryError(false);
+    expect(chat.historyError).toBe(false);
+  });
+
+  it("loadMessages 成功不重置 historyError（标记由调用方在 IPC 成败处管理）", () => {
+    const chat = useChatStore();
+    chat.setHistoryError(true);
+    chat.loadMessages([{ id: "a1", role: "user", content: "x", created_at: "2026-01-01T00:00:00" }]);
+    // loadMessages 只管还原消息，不擅自改离线状态（避免覆盖 IPC 层判断）
+    expect(chat.historyError).toBe(true);
+  });
 });

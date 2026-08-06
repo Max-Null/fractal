@@ -4,11 +4,11 @@ import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useStreamProcessor } from "./useStreamProcessor";
 
-const { listeners, saveMessageMock } = vi.hoisted(() => ({
+const { listeners, saveMessageMock, listMessagesMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
   saveMessageMock: vi.fn(),
+  listMessagesMock: vi.fn(),
 }));
-
 // 桩 window.electronBridge：useStreamProcessor 的事件订阅入口（原 @tauri-apps/api/event listen）
 window.electronBridge = {
   invoke: (() => Promise.resolve()) as any,
@@ -53,6 +53,7 @@ vi.mock("@/lib/electron-bridge", async () => {
     saveSessionDebugLog: vi.fn().mockResolvedValue(undefined),
     saveSessionStderrLog: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue([]),
+    listMessages: listMessagesMock,
   };
 });
 
@@ -62,6 +63,7 @@ describe("useStreamProcessor", () => {
     listeners.clear();
     saveMessageMock.mockReset();
     saveMessageMock.mockResolvedValue(undefined);
+    listMessagesMock.mockReset();
   });
 
   afterEach(() => {
@@ -150,6 +152,87 @@ describe("useStreamProcessor", () => {
     expect(session.serving).toBe(true);
     listeners.get("engine:status")?.({ running: false });
     expect(session.serving).toBe(false);
+
+    stopListening();
+  });
+
+  it("G3: engine:status running=true 且 historyError → 自动重载当前会话历史并清除离线标记", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-recover");
+    chat.setHistoryError(true);
+    // serve 恢复：消息端点返回含 JSON blob 的历史（模拟主进程 toMessageData 输出）
+    const assistantBlob = JSON.stringify({
+      text: "恢复后的回答",
+      thinking: "思考中",
+      toolUses: [{ id: "call_x", name: "Bash", input: { command: "ls" }, result: "out.txt", isError: false }],
+      contentBlocks: [
+        { type: "thinking", content: "思考中" },
+        { type: "tool_use", toolUse: { id: "call_x", name: "Bash", input: { command: "ls" } } },
+        { type: "tool_result", toolResult: { toolUseId: "call_x", content: "out.txt", isError: false } },
+        { type: "text", content: "恢复后的回答" },
+      ],
+    });
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "user", content: "原始问题", created_at: "2026-01-01T00:00:00" },
+      { id: "m2", role: "assistant", content: assistantBlob, created_at: "2026-01-01T00:00:05" },
+    ]);
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:status")?.({ running: true });
+    await flushPromises();
+
+    // 离线标记清除，消息完整还原（thinking/toolUses/contentBlocks）
+    expect(chat.historyError).toBe(false);
+    expect(chat.messages).toHaveLength(2);
+    expect(chat.messages[1].thinking).toBe("思考中");
+    expect(chat.messages[1].toolUses).toHaveLength(1);
+    expect(chat.messages[1].toolUses[0].name).toBe("Bash");
+    expect(chat.messages[1].contentBlocks).toHaveLength(4);
+    expect(chat.messages[1].content).toBe("恢复后的回答");
+
+    stopListening();
+  });
+
+  it("G3: engine:status running=false 不触发重载；running=true 但无 historyError 也不重载", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // 无 historyError → 不重载
+    listeners.get("engine:status")?.({ running: true });
+    await flushPromises();
+    expect(listMessagesMock).not.toHaveBeenCalled();
+
+    // running=false → 不重载
+    chat.setHistoryError(true);
+    listeners.get("engine:status")?.({ running: false });
+    await flushPromises();
+    expect(listMessagesMock).not.toHaveBeenCalled();
+
+    stopListening();
+  });
+
+  it("G3: 自动重载失败 → 保留离线标记等待下次恢复", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-fail");
+    chat.setHistoryError(true);
+    listMessagesMock.mockRejectedValue(new Error("serve 未就绪"));
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:status")?.({ running: true });
+    await flushPromises();
+
+    expect(chat.historyError).toBe(true);
+    expect(chat.messages).toHaveLength(0);
 
     stopListening();
   });
@@ -394,3 +477,8 @@ describe("extractToolResultContent", () => {
     expect(extractToolResultContent(42)).toBe("");
   });
 });
+
+/** 等待微任务队列排空（mockResolvedValue 链 + engine:status 回调内的异步链） */
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}

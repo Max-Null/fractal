@@ -36,6 +36,8 @@ export function useSessionSwitch() {
     // 优先从缓存恢复，缓存无数据则从 DB 加载
     const cached = chat.loadFromCache(id);
     if (cached) {
+      // 缓存命中 = 会话消息已就绪，清除离线标记（恢复场景：serve 已回连但缓存存在）
+      chat.setHistoryError(false);
       chat.messages.push(...cached);
       // 恢复流式状态：若最后一条消息在流式中，保持引用以继续接收事件
       const last = chat.messages[chat.messages.length - 1];
@@ -56,8 +58,12 @@ export function useSessionSwitch() {
             created_at: m.created_at,
           })),
         );
+        // 加载成功 → 清除离线标记（serve 恢复后重载命中此分支）
+        chat.setHistoryError(false);
       } catch {
         if (session.activeSessionId !== id) return;
+        // 加载失败（serve 未启动/未注入）→ 置离线标记，消息区灰显占位（G3）
+        chat.setHistoryError(true);
         // messages 已在第二步清空，无需额外清理
       }
     }

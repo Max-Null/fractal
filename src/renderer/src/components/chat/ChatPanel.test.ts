@@ -38,6 +38,8 @@ const i18n = createI18n({
         welcomeSubtitle: "Subtitle",
         welcomeSend: "Enter to send",
         welcomeNewline: "Shift+Enter newline",
+        historyOfflineTitle: "Engine not ready",
+        historyOfflineSubtitle: "History unavailable until the engine starts",
         allow: "Allow",
         deny: "Deny",
         alwaysAllow: "Always allow",
@@ -256,6 +258,36 @@ describe("ChatPanel 弹窗", () => {
 
     expect(wrapper.text()).not.toContain("Always allow");
     expect(wrapper.text()).toContain("Allow Bash?");
+  });
+
+  it("G3: historyError 且无消息 → 显示离线占位而非欢迎页", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    session.sessions.push({ id: "ses-1", title: "测试会话", createdAt: 1, updatedAt: 2, messageCount: 0 });
+    chat.setHistoryError(true);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.find(".offline-placeholder").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Engine not ready");
+    // 会话标题正常展示（离线不影响会话信息）
+    expect(wrapper.text()).toContain("测试会话");
+    // 不显示正常欢迎页（welcome-keywords 是正常欢迎页独有元素）
+    expect(wrapper.find(".welcome-keywords").exists()).toBe(false);
+  });
+
+  it("G3: 无 historyError 且无消息 → 正常欢迎页（非离线占位）", async () => {
+    const chat = useChatStore();
+    chat.setHistoryError(false);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.find(".offline-placeholder").exists()).toBe(false);
+    expect(wrapper.find(".welcome-page").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Welcome");
   });
 });
 

@@ -71,6 +71,8 @@
     "welcomeSubtitle": "A minimalist GUI client for OpenCode",
     "welcomeSend": "send",
     "welcomeNewline": "newline",
+    "historyOfflineTitle": "Engine not ready",
+    "historyOfflineSubtitle": "History unavailable until the engine starts — it will load automatically",
     "debugLabel": "Debug",
     "llmRequestLabel": "LLM Request",
     "aboutTitle": "About Fractal",

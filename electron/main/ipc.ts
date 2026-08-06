@@ -585,7 +585,62 @@ export function toSessionData(s: Session): {
   }
 }
 
-/** OC SessionMessage → 前端 MessageData（text part 拼接为 content；tokens 序列化为字符串） */
+/** serve FilePart → 前端 AttachedFile（{name, path}）；path 优先本地 source.path，兜底 url */
+function filePartToAttachment(p: { filename?: string; url: string; source?: { path?: string } }): { name: string; path: string } {
+  const path = p.source?.path ?? p.url
+  const name = p.filename ?? basename(path) ?? p.url
+  return { name, path }
+}
+
+/** assistant 消息 parts → 前端 contentBlocks 时间线（thinking → tool_use+tool_result → text，工具结果紧跟工具卡片） */
+function buildHistoryContentBlocks(
+  parts: Array<{ type: string; text?: string; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
+): Array<{
+  type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
+  content?: string
+  toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+  toolResult?: { toolUseId: string; content: string; isError?: boolean }
+}> {
+  const blocks: Array<{
+    type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
+    content?: string
+    toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+    toolResult?: { toolUseId: string; content: string; isError?: boolean }
+  }> = []
+  // 思考块：全部 reasoning part 聚合（与流式 synthesizeBlocks 一致，thinking 在最前）
+  const thinking = parts
+    .filter((p) => p.type === 'reasoning')
+    .map((p) => p.text ?? '')
+    .filter(Boolean)
+    .join('\n')
+  if (thinking) blocks.push({ type: 'thinking', content: thinking })
+  // 工具块：仅完成/错误态（pending/running 是流式中间态，历史消息取终态）
+  for (const p of parts) {
+    if (p.type !== 'tool' || !p.callID || !p.tool) continue
+    const status = p.state?.status
+    if (status !== 'completed' && status !== 'error') continue
+    const isError = status === 'error'
+    const toolUse = { id: p.callID, name: p.tool, input: p.state?.input ?? {}, result: isError ? p.state?.error ?? '' : p.state?.output ?? '', isError }
+    blocks.push({ type: 'tool_use', toolUse })
+    // 工具结果块紧跟对应工具卡片（MessageBubble 渲染 tool_use 内嵌结果，tool_result 块保证数据完整性）
+    blocks.push({ type: 'tool_result', toolResult: { toolUseId: p.callID, content: toolUse.result, isError } })
+  }
+  // 文本块：非 synthetic text part 聚合（synthetic 是 serve 回显的临时占位，历史消息应排除）
+  const text = parts
+    .filter((p) => p.type === 'text' && !(p as { synthetic?: boolean }).synthetic)
+    .map((p) => p.text ?? '')
+    .filter(Boolean)
+    .join('\n')
+  if (text) blocks.push({ type: 'text', content: text })
+  return blocks
+}
+
+/**
+ * OC SessionMessage → 前端 MessageData（content 为 JSON blob，与前端 saveMessage 存档格式一致）。
+ * 结构保持 message:list 契约不变（id/session_id/role/content/token_usage/created_at），
+ * 仅 content 从纯文本升级为完整还原的 JSON 串——前端 loadMessages 已内置 JSON blob 解析（chat.ts），
+ * 工具调用/思考在切会话后不再丢失（G2 拍板项）。
+ */
 export function toMessageData(sm: SessionMessage): {
   id: string
   session_id: string
@@ -594,14 +649,61 @@ export function toMessageData(sm: SessionMessage): {
   token_usage: string
   created_at: string
 } {
-  // 一个 OC 消息可能含多个 text part（step 之间分段），按行拼接还原完整内容
-  const content = sm.parts
-    .filter((p) => p.type === 'text')
-    .map((p) => (p as { text?: string }).text ?? '')
-    .filter(Boolean)
-    .join('\n')
+  const info = sm.info as { id: string; sessionID: string; role: string; time: { created: number; completed?: number }; tokens?: { input: number; output: number; cost?: number } }
+  const parts = sm.parts as Array<{ type: string; text?: string; synthetic?: boolean; filename?: string; url?: string; source?: { path?: string }; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
+
+  let content: string
+  if (info.role === 'user') {
+    // 用户消息：text parts 拼接 + FilePart 附件（有附件才出 JSON blob，纯文本保持旧格式兼容）
+    const text = parts
+      .filter((p) => p.type === 'text')
+      .map((p) => p.text ?? '')
+      .filter(Boolean)
+      .join('\n')
+    const attachments = parts
+      .filter((p) => p.type === 'file' && p.url)
+      .map((p) => filePartToAttachment(p as { filename?: string; url: string; source?: { path?: string } }))
+    content = attachments.length ? JSON.stringify({ text, attachments }) : text
+  } else {
+    // assistant 消息：完整还原 thinking/toolUses/contentBlocks/durationMs/tokens/cost
+    const text = parts
+      .filter((p) => p.type === 'text' && !p.synthetic)
+      .map((p) => p.text ?? '')
+      .filter(Boolean)
+      .join('\n')
+    const thinking = parts
+      .filter((p) => p.type === 'reasoning')
+      .map((p) => p.text ?? '')
+      .filter(Boolean)
+      .join('\n')
+    // 工具调用：仅终态（completed/error），id=callID、name=tool、input=state.input、result=output/error
+    const toolUses = parts
+      .filter((p) => p.type === 'tool' && p.callID && p.tool && (p.state?.status === 'completed' || p.state?.status === 'error'))
+      .map((p) => ({
+        id: p.callID!,
+        name: p.tool!,
+        input: p.state?.input ?? {},
+        result: p.state?.status === 'error' ? p.state?.error ?? '' : p.state?.output ?? '',
+        isError: p.state?.status === 'error',
+      }))
+    const contentBlocks = buildHistoryContentBlocks(parts)
+    // 尽力而为的统计：durationMs 用消息 completed-created 差；tokens 取 SDK 顶层字段；
+    // cost 在 step-finish part 上（SDK AssistantMessage.tokens 无 cost 字段，阶段 0 实测）
+    const durationMs = info.time.completed !== undefined ? info.time.completed - info.time.created : undefined
+    const stepFinish = parts.find((p) => p.type === 'step-finish') as { cost?: number } | undefined
+    content = JSON.stringify({
+      text,
+      thinking,
+      toolUses,
+      contentBlocks,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+      ...(info.tokens?.input !== undefined ? { inputTokens: info.tokens.input } : {}),
+      ...(info.tokens?.output !== undefined ? { outputTokens: info.tokens.output } : {}),
+      ...(stepFinish?.cost !== undefined ? { costUSD: stepFinish.cost } : {}),
+    })
+  }
+
   // assistant 消息带 tokens（SDK AssistantMessage.tokens），user 消息无——转 JSON 串兼容 MessageData.token_usage
-  const info = sm.info as { id: string; sessionID: string; role: string; time: { created: number }; tokens?: { input: number; output: number; cost?: number } }
   const tokenUsage = info.tokens ? JSON.stringify(info.tokens) : ''
   return {
     id: info.id,

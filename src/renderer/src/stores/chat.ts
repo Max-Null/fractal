@@ -95,6 +95,8 @@ export const useChatStore = defineStore("chat", () => {
   const messages = ref<Message[]>([]);
   const currentAssistantMsg = ref<Message | null>(null);
   const isProcessing = ref(false);
+  /** 历史消息加载失败标记（serve 未就绪时 message:list 报错）——消息区展示离线占位而非正常空态 */
+  const historyError = ref(false);
   // CC 工作清单（TodoWrite / TaskCreate → 前端实时展示）
   const todos = ref<TodoItem[]>([]);
   // 审批队列：防止子 agent 并发 control_request 互相覆盖
@@ -420,6 +422,11 @@ export const useChatStore = defineStore("chat", () => {
     usedAgents.value = new Set();
   }
 
+  /** 设置历史消息加载失败标记（true=serve 未就绪，消息区灰显离线占位；false=恢复可加载） */
+  function setHistoryError(v: boolean) {
+    historyError.value = v;
+  }
+
   /** Update a specific message's content (for edit) */
   function updateMessage(id: string, content: string) {
     const msg = messages.value.find(m => m.id === id);
@@ -587,6 +594,8 @@ export const useChatStore = defineStore("chat", () => {
     messages,
     currentAssistantMsg,
     isProcessing,
+    historyError,
+    setHistoryError,
     todos,
     pendingControlRequest,
     pendingControlRequests,

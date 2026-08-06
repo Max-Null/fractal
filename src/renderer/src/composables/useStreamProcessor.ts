@@ -3,7 +3,7 @@ import { useChatStore, type ToolUse, type ContentBlock, type ToolResult } from "
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
-import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
@@ -390,6 +390,30 @@ export function useStreamProcessor() {
       const info = payload as { running?: boolean };
       session.setServing(!!info?.running);
       debugLog.add(`🔌 engine status: running=${info?.running}`, session.activeSessionId);
+      // G3：serve 恢复（running=true）且当前会话历史加载失败过 → 自动重试加载
+      // （离线灰显占位只应短暂存在，引擎就绪后应立即恢复历史消息）
+      if (info?.running && chat.historyError && session.activeSessionId) {
+        const sid = session.activeSessionId;
+        listMessages(sid)
+          .then((msgs) => {
+            // 竞态 guard：重试期间可能已切换会话，丢弃过期结果
+            if (session.activeSessionId !== sid) return;
+            chat.loadMessages(
+              msgs.map((m) => ({
+                id: m.id,
+                role: m.role,
+                content: m.content,
+                created_at: m.created_at,
+              })),
+            );
+            chat.setHistoryError(false);
+            debugLog.add(`🔌 历史消息已自动重载: ${msgs.length} 条`, sid);
+          })
+          .catch(() => {
+            // 重试仍失败（serve 刚启动但消息端点未就绪）→ 保持离线标记，等待下次 status 事件
+            debugLog.add(`🔌 历史消息重载失败，等待下次恢复`, sid);
+          });
+      }
     });
     // stream-debug / stream-error / process-exited 已移除：serve 单进程模型无这些事件源
     // （引擎状态经 engine:status 上报，异常退出也走 running=false 指示）
