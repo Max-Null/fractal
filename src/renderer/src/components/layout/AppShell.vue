@@ -112,8 +112,8 @@ async function onWsPillClick() {
 }
 function onWsPickDirectory() {
   showWsMenu.value = false;
-  // 对话框弹出后由用户操作（模态等待）——pending 期间无提示；3s 未返回且非 pending 异常给提示
-  openDialog({ directory: true }).then((picked) => {
+  // 对话框默认定位到当前工作区（Windows 默认是「下载」——用户要求跟随当前工作区）
+  openDialog({ directory: true, defaultPath: cwd.value || undefined }).then((picked) => {
     if (!picked) return;
     const path = Array.isArray(picked) ? picked[0] : picked;
     if (path) switchToWorkspace(path);
