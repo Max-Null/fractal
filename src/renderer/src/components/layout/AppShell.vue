@@ -43,7 +43,8 @@ function showRailTip(title: string, e: MouseEvent) {
 // 滚动位置（scrollTop）决定上下哪个方向有遮挡内容——用户建议的方案（2026-08-08）
 // 注：直接 querySelector 而非 Vue ref——实测 ref 绑定在折叠/挂载时序下偶发未就绪
 const railAtTop = ref(true);
-const railAtBottom = ref(true);
+// 初始假设不在底部（启动默认在顶部，底部有内容时应显示底部渐变——若初始 true 则测量前底部渐变缺失，2026-08-08 用户指正）
+const railAtBottom = ref(false);
 const railScrollable = ref(false);
 function updateRailScroll() {
   const dots = document.querySelector(".rail-dots") as HTMLElement | null;
@@ -58,13 +59,24 @@ function updateRailScroll() {
 }
 // 触发路径：挂载/延迟重查（布局时序兜底）/resize/侧栏 DOM 变化（折叠切换与会话增删）/滚动
 let railObserver: MutationObserver | null = null;
+// 多次重算兜底：DOM 变化瞬间 rail-dots 高度/内容可能未稳定（瞬态 0 或未挂载），
+// 若只算一次可能停在错误值且后续无事件再触发（2026-08-08 实测：observer 触发后 500ms 才算稳定）
+function scheduleRailUpdate() {
+  requestAnimationFrame(updateRailScroll);
+  setTimeout(updateRailScroll, 120);
+  setTimeout(updateRailScroll, 500);
+}
 onMounted(() => {
-  updateRailScroll();
-  for (const ms of [300, 1000, 3000]) setTimeout(updateRailScroll, ms);
+  scheduleRailUpdate();
+  for (const ms of [1000, 3000]) setTimeout(updateRailScroll, ms);
+  // 轮询兜底（最可靠）：会话可能在 AppShell 挂载前已加载完（observer 观察时已稳定、无后续触发），
+  // onMounted 时 rail-dots 高度可能未就绪——每秒重算直到 10 次覆盖所有时序（2026-08-08 实测自动路径失效）
+  const railTimer = setInterval(updateRailScroll, 1000);
+  setTimeout(() => clearInterval(railTimer), 10000);
   window.addEventListener("resize", updateRailScroll);
   const aside = document.querySelector(".sb-sidebar");
   if (aside && typeof MutationObserver !== "undefined") {
-    railObserver = new MutationObserver(() => requestAnimationFrame(updateRailScroll));
+    railObserver = new MutationObserver(scheduleRailUpdate);
     railObserver.observe(aside, { childList: true, subtree: true, attributes: true });
   }
 });
