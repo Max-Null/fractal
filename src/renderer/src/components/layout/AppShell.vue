@@ -835,10 +835,16 @@ async function openFilePanelTo(_path: string) {
   align-items: center;
   gap: 6px;
   overflow-y: auto;
-  /* x 滚动条消除：overflow-y:auto 会让 overflow-x 计算为 auto（tip 等绝对定位子元素撑出 scrollWidth 时出现横条） */
+  /* x 滚动条消除：overflow-y:auto 会让 overflow-x 计算为 auto（绝对定位子元素撑出 scrollWidth 时出现横条） */
   overflow-x: hidden;
+  /* 滚动条视觉全隐藏（XY 均不显示），保留 overflow-y:auto 的滚轮/键盘滚动能力——56px 窄条不该有滚动条占位（2026-08-08 用户要求） */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   width: 100%;
   padding: 4px 0;
+}
+.rail-dots::-webkit-scrollbar {
+  display: none;
 }
 /* 会话圆点：首字符按钮，active 高亮（原型 rail-dot） */
 .rail-dot {
