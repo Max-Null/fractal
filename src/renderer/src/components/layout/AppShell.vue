@@ -515,10 +515,6 @@ async function openFilePanelTo(_path: string) {
           <div class="rail-sep" />
 
           <div class="rail-dots" @scroll.passive="updateRailScroll">
-            <!-- 顶部渐变：滚动后上方还有未显示会话（下淡上浓，accent 色半透明，不挡点击） -->
-            <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
-            <!-- 底部渐变：滚动前下方还有未显示会话（上淡下浓） -->
-            <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
             <button
               v-for="s in railSessions"
               :key="s.id"
@@ -537,6 +533,9 @@ async function openFilePanelTo(_path: string) {
               />
             </button>
           </div>
+          <!-- 滚动渐变（rail 层，滚动容器外——absolute 定位在滚动容器内会随内容滚动，2026-08-08 实测） -->
+          <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
+          <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
         </nav>
       </aside>
 
@@ -888,9 +887,9 @@ async function openFilePanelTo(_path: string) {
 .rail-dots::-webkit-scrollbar {
   display: none;
 }
-/* 滚动渐变提示：rail-dots 可滚动时显示（absolute 贴边，accent 半透明渐变，上/下双向；
-   滚动条已隐藏，此渐变替代「还有更多」的可发现性信号；pointer-events:none 不挡滚轮/点击） */
-.rail-dots {
+/* 滚动渐变提示（rail 层 absolute，非 rail-dots 内——滚动容器内的 absolute 包含块=内容，会随滚动，
+   放 rail-dots 外相对 sidebar-rail 定位才能固定在可视区边缘；pointer-events:none 不挡滚轮/点击） */
+.sidebar-rail {
   position: relative;
 }
 .rail-fade {
@@ -901,12 +900,13 @@ async function openFilePanelTo(_path: string) {
   pointer-events: none;
   z-index: 2;
 }
+/* 对齐 rail-dots 可视区边缘（rail 上下 padding 12px/14px） */
 .rail-fade--bottom {
-  bottom: 0;
+  bottom: 14px;
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--accent) 30%, transparent));
 }
 .rail-fade--top {
-  top: 0;
+  top: 12px;
   background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
 }
 /* 会话圆点：首字符按钮，active 高亮（原型 rail-dot） */
