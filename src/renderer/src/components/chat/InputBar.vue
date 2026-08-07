@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /** 聊天 composer 卡片（对齐原型 v0.23）：
- *  ① chips 行（附件/引用，带 ×）② textarea（多行 + 拖放 + / 补全）
- *  ③ composer-foot：附件 / agent / 模型 / 权限 / 推理 / 命令小图标 / 上下文 + 发送
+ *  ① chips 行（附件/引用，带 ×）② 操作行（附件/agent/模型/权限/推理/命令/上下文，独立一行）
+ *  ③ 输入行（textarea + hint/发送 同一行，用户反馈布局）
  *  原独立 InputBarToolbar 的模式/effort/命令逻辑已并入（组件删除，见 ChatPanel 重构记录）。 */
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
@@ -368,6 +368,8 @@ const canSend = computed(() => input.value.trim().length > 0);
         <span v-else class="composer-chip-hint">{{ props.chipHint || $t('composer.chipHint') }}</span>
       </div>
 
+      <!-- ③ 输入行：textarea + hint/发送 同一行（cf-left 操作行用 order 显示在其上方） -->
+      <div class="composer-inputrow">
       <!-- ② textarea -->
       <textarea
         v-model="input"
@@ -384,6 +386,28 @@ const canSend = computed(() => input.value.trim().length > 0);
           caretColor: 'var(--accent)'
         }"
       ></textarea>
+
+        <div class="cf-right">
+          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
+          <!-- Stop button（处理中显示红色方块，替代发送） -->
+          <button
+            v-if="disabled"
+            class="send send--stop"
+            :title="$t('chat.stop')"
+            @click="emit('stop')"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+          <!-- Send button（带文字「发送 ↑」，空输入时透明底灰字禁用） -->
+          <button
+            v-else
+            class="send"
+            :disabled="!canSend"
+            :title="$t('chat.send')"
+            @click="send"
+          >{{ $t('chat.send') }} ↑</button>
+        </div>
+      </div>
 
       <!-- ③ foot 操作行 -->
       <div class="composer-foot">
@@ -514,27 +538,6 @@ const canSend = computed(() => input.value.trim().length > 0);
           <!-- 左侧扩展插槽：ChatPanel 注入 debug 按钮 -->
           <slot name="left" />
         </div>
-
-        <div class="cf-right">
-          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
-          <!-- Stop button（处理中显示红色方块，替代发送） -->
-          <button
-            v-if="disabled"
-            class="send send--stop"
-            :title="$t('chat.stop')"
-            @click="emit('stop')"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
-          </button>
-          <!-- Send button（带文字「发送 ↑」，空输入时透明底灰字禁用） -->
-          <button
-            v-else
-            class="send"
-            :disabled="!canSend"
-            :title="$t('chat.send')"
-            @click="send"
-          >{{ $t('chat.send') }} ↑</button>
-        </div>
       </div>
     </div>
 
@@ -558,6 +561,9 @@ const canSend = computed(() => input.value.trim().length > 0);
   user-select: none;
 }
 .composer {
+  /* flex column：chips(默认 order 0) → 操作行(order 2) → 输入行(order 3) 的显示顺序 */
+  display: flex;
+  flex-direction: column;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -665,13 +671,17 @@ const canSend = computed(() => input.value.trim().length > 0);
 }
 .composer-input::placeholder { color: var(--text-muted); }
 
-/* ── ③ foot 操作行 ── */
+/* ── ③ 操作行（原 foot 左区）+ 输入行 ── */
 .composer-foot {
+  /* 独立一行显示在输入行上方（用户反馈：与发送按钮同排会换行）；order 控制显示顺序 */
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 2px 8px 0;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 8px 4px;
+  order: 2;
+  border-bottom: 1px solid var(--border-dim);
+  margin-bottom: 2px;
 }
 .cf-left {
   display: flex;
@@ -680,11 +690,24 @@ const canSend = computed(() => input.value.trim().length > 0);
   gap: 4px;
   min-width: 0;
 }
+/* 输入行：textarea 与 hint/发送同一行（用户要求：textarea 和 cf-right 一行） */
+.composer-inputrow {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 4px 2px;
+  order: 3;
+}
+.composer-inputrow .composer-input {
+  flex: 1;
+  min-width: 0;
+}
 .cf-right {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  padding-bottom: 6px;
 }
 
 /* agent / 模型 pill（原型 .agent-pill / .model-pill：小圆角 + border + hover） */

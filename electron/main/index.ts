@@ -20,6 +20,11 @@ const gotSingleInstanceLock = isE2E || app.requestSingleInstanceLock()
 // OC_GUI_E2E_SHARE=1 时跳过隔离（诊断用：豁免锁 + 复用正式 userData，需先关闭正式 app）
 if (isE2E && process.env.OC_GUI_E2E_SHARE !== '1') {
   app.setPath('userData', join(app.getPath('temp'), 'oc-gui-e2e'))
+} else {
+  // 固定 userData = %APPDATA%\oc-gui：dev（electron .）默认 userData 是 %APPDATA%\Electron，
+  // 与打包 app（%APPDATA%\oc-gui）分裂——API Key/主题/会话配置在两种运行方式间各存各的，
+  // 表现为「dev 里设了亮色主题，打包 app 重启还是暗色」
+  app.setPath('userData', join(app.getPath('appData'), 'oc-gui'))
 }
 
 // e2e 继承正式配置（API Key），保证真实引擎对话 e2e 可跑；正式配置不存在则走无 key 场景（onboarding 测试）
