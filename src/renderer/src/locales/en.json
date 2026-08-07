@@ -38,6 +38,7 @@
     "timelineEllipsis": "{n} messages",
     "timelineExpandHint": "Hover or click to expand all",
     "timelineCollapseHint": "Click to collapse",
+    "timelineLockHint": "Keep expanded",
     "allow": "Allow",
     "deny": "Deny",
     "alwaysAllow": "Always allow",

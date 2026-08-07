@@ -635,15 +635,17 @@ export const useChatStore = defineStore("chat", () => {
 
   /**
    * 时间线全量索引：fullHistory 全量锚点 + messages 中超出 fullHistory 的新消息（流式新增）锚点合并去重。
+   * preview = content 前 80 字——50 条外锚点的 tooltip 数据源（messages 只渲染尾部，query 不到更早内容）。
    * 流式消息在 messages 尾部 push 但不在 fullHistory（DB 尚未落库），需要追加锚点保证时间线完整。
    */
-  const timelineIndex = computed<Array<{ id: string; created: number; role: string }>>(() => {
+  const timelineIndex = computed<Array<{ id: string; created: number; role: string; preview: string }>>(() => {
     const fullIds = new Set(fullHistory.value.map(m => m.id));
+    const toAnchor = (m: Message) => ({ id: m.id, created: m.timestamp || 0, role: m.role, preview: (m.content || "").slice(0, 80) });
     return [
-      ...fullHistory.value.map(m => ({ id: m.id, created: m.timestamp || 0, role: m.role })),
+      ...fullHistory.value.map(toAnchor),
       ...messages.value
         .filter(m => !fullIds.has(m.id))
-        .map(m => ({ id: m.id, created: m.timestamp || 0, role: m.role })),
+        .map(toAnchor),
     ];
   });
 

@@ -38,6 +38,7 @@
     "timelineEllipsis": "{n} 条消息",
     "timelineExpandHint": "悬停或点击展开全部",
     "timelineCollapseHint": "点击收起",
+    "timelineLockHint": "保持展开",
     "allow": "允许",
     "deny": "拒绝",
     "alwaysAllow": "总是允许",

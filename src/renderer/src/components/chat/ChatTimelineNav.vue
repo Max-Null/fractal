@@ -7,8 +7,8 @@ const { t } = useI18n();
 
 const props = defineProps<{
   messages: Message[];
-  /** 全量时间线索引（含未渲染的历史消息），完整目录的锚点来源 */
-  timeline: Array<{ id: string; created: number; role: string }>;
+  /** 全量时间线索引（含未渲染的历史消息），完整目录的锚点来源；preview 供 50 条外锚点 tooltip 兜底 */
+  timeline: Array<{ id: string; created: number; role: string; preview?: string }>;
   scrollContainer: HTMLElement | null;
 }>();
 
@@ -122,12 +122,12 @@ const timelineItems = computed<TimelineItem[]>(() => {
   return items;
 });
 
-/** 按全局锚点索引取 tooltip 文案：内容来自已渲染 messages（timeline 只含 id/created/role） */
+/** 按全局锚点索引取 tooltip 文案：优先已渲染 messages 实时内容（流式更新），50 条外 fallback timeline 的 preview 快照 */
 function tooltipFor(index: number): string {
   const anchor = userTimeline.value[index];
   if (!anchor) return "";
   const msg = props.messages.find(m => m.id === anchor.id);
-  return msg?.content?.slice(0, 80) || "";
+  return msg?.content?.slice(0, 80) || anchor.preview || "";
 }
 
 const justClickedIndex = ref(-1);
@@ -140,6 +140,17 @@ function onClick(index: number) {
   justClickedIndex.value = index;
   clickTimer = setTimeout(() => { justClickedIndex.value = -1; clickTimer = null; }, 600);
 }
+
+// 展开态末尾状态按钮：
+// - 已持久锁定（expandedClick）→ × 收起
+// - 仅悬停展开（hovered）→ ⏸ 锁定（保持展开，移出不收起）
+function onExpandAction() {
+  if (expandedClick.value) {
+    expandedClick.value = false;
+  } else {
+    expandedClick.value = true;
+  }
+}
 </script>
 
 <template>
@@ -151,8 +162,6 @@ function onClick(index: number) {
     @mouseleave="onMouseLeave"
   >
     <template v-for="item in timelineItems" :key="item.type === 'dot' ? 'd'+item.index : 'e'+item.jumpTo">
-      <!-- 展开模式下的收起按钮（置于首位，展开后省略号消失，需要独立收起入口） -->
-      <div v-if="item.type === 'dot' && item.index === 0 && showAll" class="chat-timeline-collapse" title="收起" @click="toggleExpanded">×</div>
       <!-- 消息点 -->
       <div
         v-if="item.type === 'dot'"
@@ -169,7 +178,7 @@ function onClick(index: number) {
           </div>
         </Transition>
       </div>
-      <!-- 省略号（点击展开/收起全部） -->
+      <!-- 省略号：点击展开/收起全部（压缩态） -->
       <div
         v-else
         class="chat-timeline-ellipsis"
@@ -177,6 +186,14 @@ function onClick(index: number) {
         @click="toggleExpanded"
       >…</div>
     </template>
+    <!-- 展开态末尾状态按钮：悬停临时展开 → ⏸ 锁定；已锁定 → × 收起 -->
+    <div
+      v-if="showAll"
+      class="chat-timeline-collapse"
+      :class="{ 'chat-timeline-collapse--locked': expandedClick }"
+      :title="expandedClick ? t('chat.timelineCollapseHint') : t('chat.timelineLockHint')"
+      @click="onExpandAction"
+    >{{ expandedClick ? "×" : "⏸" }}</div>
   </div>
 </template>
 
@@ -210,15 +227,15 @@ function onClick(index: number) {
   flex-shrink: 0;
   transition: background 150ms, scale 150ms;
 }
-/* 展开模式收起按钮：置于首位，与 dot 同尺寸但十字标记，hover 高亮 */
+/* 展开态末尾状态按钮：悬停 ⏸ 锁定 / 锁定 × 收起，hover 高亮 */
 .chat-timeline-collapse {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 8px;
   line-height: 1;
   color: var(--text-muted);
   background: var(--bg-elevated);
@@ -231,6 +248,11 @@ function onClick(index: number) {
 .chat-timeline-collapse:hover {
   background: var(--accent);
   color: #fff;
+}
+.chat-timeline-collapse--locked {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent);
 }
 .chat-timeline-dot:hover {
   background: var(--accent);

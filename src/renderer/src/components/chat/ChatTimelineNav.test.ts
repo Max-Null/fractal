@@ -159,10 +159,55 @@ describe("ChatTimelineNav", () => {
     await w.find(".chat-timeline-nav").trigger("mouseleave");
     expect(dotCount(w)).toBe(20);
 
-    // 展开后省略号消失，出现收起按钮 → 点击收起
+    // 展开后省略号消失，末尾按钮为锁定态 × → 点击收起
     expect(w.findAll(".chat-timeline-ellipsis")).toHaveLength(0);
+    expect(w.find(".chat-timeline-collapse").text()).toBe("×");
     await w.find(".chat-timeline-collapse").trigger("click");
     expect(dotCount(w)).toBe(4);
+  });
+
+  it("悬停展开时末尾按钮为 ⏸，点击锁定（移出不收起）", async () => {
+    const msgs: Message[] = [];
+    for (let i = 0; i < 20; i++) {
+      msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
+    }
+    const w = mountNav(msgs);
+    expect(dotCount(w)).toBe(4);
+
+    // 悬停 → 临时展开 + ⏸ 锁定按钮
+    await w.find(".chat-timeline-nav").trigger("mouseenter");
+    expect(dotCount(w)).toBe(20);
+    expect(w.find(".chat-timeline-collapse").text()).toBe("⏸");
+
+    // 点击 ⏸ → 锁定：移出不收起
+    await w.find(".chat-timeline-collapse").trigger("click");
+    await w.find(".chat-timeline-nav").trigger("mouseleave");
+    expect(dotCount(w)).toBe(20);
+    // 锁定态按钮变为 ×
+    expect(w.find(".chat-timeline-collapse").text()).toBe("×");
+
+    // 再点 × → 收起
+    await w.find(".chat-timeline-collapse").trigger("click");
+    expect(dotCount(w)).toBe(4);
+  });
+
+  it("50 条外锚点 tooltip 用 timeline preview 兜底（messages 只渲染尾部）", async () => {
+    // messages 只渲染尾部 1 条 user（u49），timeline 全量 50 个锚点且带 preview
+    const msgs = [userMsg("u49", "渲染的最后一条")];
+    const timeline = Array.from({ length: 50 }, (_, i) => ({
+      id: `u${i}`, created: i, role: "user" as const, preview: `历史消息 ${i} 的内容预览`,
+    }));
+    const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: null } });
+
+    // 悬停展开 → 50 个点；第 1 个点（u0，未渲染）tooltip 显示 preview 而非空
+    await w.find(".chat-timeline-nav").trigger("mouseenter");
+    const dots = w.findAll(".chat-timeline-dot");
+    expect(dots).toHaveLength(50);
+    // u0 在 messages 中不存在 → tooltip 用 preview
+    await dots[0].trigger("mouseenter");
+    const tips = w.findAll(".chat-timeline-tooltip");
+    const tipFor0 = tips.find(t => t.text().includes("历史消息 0"));
+    expect(tipFor0).toBeTruthy();
   });
 
   it("持久展开时省略号点击不触发跳转", async () => {
