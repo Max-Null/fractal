@@ -610,8 +610,22 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return toSessionData(s)
   })
 
-  ipcMain.handle('message:list', async (_e, args: { sessionId: string }) => {
-    const msgs = await (await requireClient()).session.messages(args.sessionId)
+  ipcMain.handle('message:list', async (_e, args: { sessionId: string; limit?: number; before?: string }) => {
+    // 参数校验：sessionId 必填；limit 可选正整数（1-1000）；before 可选字符串（消息 ID 分页游标）
+    if (typeof args?.sessionId !== 'string' || !args.sessionId) {
+      throw new Error(`message:list sessionId 参数非法: ${JSON.stringify(args)}`)
+    }
+    if (args.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 1000)) {
+      throw new Error(`message:list limit 必须是 1-1000 的正整数: ${String(args.limit)}`)
+    }
+    if (args.before !== undefined && typeof args.before !== 'string') {
+      throw new Error(`message:list before 必须是字符串: ${String(args.before)}`)
+    }
+    // 透传 limit/before：首屏 limit=50 取最近 N 条；滚动到顶 before=首条消息 id 取更早
+    const msgs = await (await requireClient()).session.messages(args.sessionId, {
+      limit: args.limit,
+      before: args.before,
+    })
     return msgs.map(toMessageData)
   })
 

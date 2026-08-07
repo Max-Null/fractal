@@ -51,7 +51,8 @@ export function useSessionSwitch() {
       }
     } else {
       try {
-        const msgs = await listMessages(id);
+        // 首屏分页：limit=50 取尾部最近 50 条（serve 返回升序——旧→新，最近的在底部秒出）
+        const msgs = await listMessages(id, { limit: 50 });
         // 竞态 guard：异步期间可能已切换到其他会话，检查后丢弃过期结果
         if (session.activeSessionId !== id) return;
         chat.setHistoryLoading(false);
@@ -63,6 +64,9 @@ export function useSessionSwitch() {
             created_at: m.created_at,
           })),
         );
+        // 响应满 50 条 → 可能还有更早（滚动到顶触发加载更早；<50 已到顶）。
+        // 必须在 loadMessages 之后设置：loadMessages 内部 clearMessages 会重置 hasMoreHistory
+        chat.setHasMoreHistory(msgs.length === 50);
         // 加载成功 → 清除离线标记（serve 恢复后重载命中此分支）
         chat.setHistoryError(false);
       } catch {

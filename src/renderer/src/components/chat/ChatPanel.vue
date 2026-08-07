@@ -496,8 +496,55 @@ function updateStickyBanner() {
 let scrollTimer: ReturnType<typeof setTimeout> | null = null;
 function onScrollThrottled() {
   updateAutoScroll(); // 立即处理，防止 autoScroll 滞后
+  checkLoadMore(); // 滚动到顶加载更早：不能节流（条件满足应立即发请求，防重入由 loadingMoreHistory 保证）
   if (scrollTimer) return;
   scrollTimer = setTimeout(() => { scrollTimer = null; updateStickyBanner(); }, 100);
+}
+
+/** 滚动到顶加载更早：距顶 < 80px 且还有更早且不在加载中（防重入）且消息非空 */
+function checkLoadMore() {
+  const container = scrollContainer.value;
+  if (!container) return;
+  if (container.scrollTop < 80 && chat.hasMoreHistory && !chat.loadingMoreHistory && chat.messages.length > 0) {
+    loadMoreHistory();
+  }
+}
+
+/** 加载更早消息（before=当前第一条消息 id，分页游标）——prepend 到头部并滚动补偿保持视口位置 */
+async function loadMoreHistory() {
+  const sid = session.activeSessionId;
+  const first = chat.messages[0];
+  // 双重防护：无活跃会话 / 无消息 / 已在加载中（防重入）直接返回
+  if (!sid || !first || chat.loadingMoreHistory) return;
+  chat.setLoadingMoreHistory(true);
+  // 记录 prepend 前高度与滚动位置，prepend 后补偿保持视口内容不动
+  const container = scrollContainer.value;
+  const prevHeight = container ? container.scrollHeight : 0;
+  const prevScrollTop = container ? container.scrollTop : 0;
+  try {
+    const msgs = await listMessages(sid, { limit: 50, before: first.id });
+    // 竞态 guard：加载更早期间用户切换会话 → 丢弃过期结果（新会话 clearMessages 已重置分页状态）
+    if (session.activeSessionId !== sid) return;
+    chat.prependMessages(
+      msgs.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        created_at: m.created_at,
+      })),
+    );
+    chat.setHasMoreHistory(msgs.length === 50);
+    // 滚动补偿：新内容高度差 = 新 scrollHeight - 旧 scrollHeight，加回原 scrollTop 即视口位置不变
+    if (container) {
+      await nextTick();
+      container.scrollTop = (container.scrollHeight - prevHeight) + prevScrollTop;
+    }
+  } catch (e) {
+    // 加载更早失败静默（下次滚动到顶自动重试），不影响已显示消息
+    console.error("[ChatPanel] 加载更早消息失败：", e);
+  } finally {
+    chat.setLoadingMoreHistory(false);
+  }
 }
 
 async function handleSend(text: string) {
@@ -880,6 +927,10 @@ watch(
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span>{{ $t('chat.export') }}</span>
           </button>
+        </div>
+        <!-- 加载更早进行中（滚动到顶触发）：消息列表上方小字提示 -->
+        <div v-if="chat.loadingMoreHistory" class="text-center py-1 text-[11px]" style="color:var(--text-muted)">
+          {{ $t('chat.loadingEarlier') }}
         </div>
         <TransitionGroup name="msg">
           <MessageBubble

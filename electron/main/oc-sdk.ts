@@ -178,8 +178,8 @@ export interface OcSessionClient {
   promptAsync(id: string, text: string, options?: PromptOptions): Promise<void>
   /** 异步发送带附件消息：parts 数组（text + file 混排），立即返回（204），结果通过 SSE 事件流接收（P6 附件链路） */
   promptPartsAsync(id: string, parts: Array<TextPartInput | FilePartInput>, options?: PromptOptions): Promise<void>
-  /** 拉取会话消息列表（limit 可选） */
-  messages(id: string, limit?: number): Promise<SessionMessage[]>
+  /** 拉取会话消息列表（limit=最近 N 条；before=消息 ID 游标，返回该消息之前的更早消息——长会话分页加载用） */
+  messages(id: string, options?: { limit?: number; before?: string }): Promise<SessionMessage[]>
 }
 
 /** 权限审批客户端 */
@@ -271,8 +271,17 @@ export function createOcClient(options: OcClientOptions): OcClient {
         if (opts?.agent) body.agent = opts.agent
         await client.session.promptAsync({ path: { id }, body })
       },
-      messages: async (id, limit) =>
-        normalizeError<SessionMessage[]>(await client.session.messages({ path: { id }, query: limit ? { limit } : undefined })),
+      messages: async (id, options) => {
+        // before 不在 SDK types.gen 的 SessionMessagesData.query（仅 directory/limit），
+        // 但 serve spec 实测支持（分页游标）——用 as never 类型断言绕过类型检查（@hey-api 运行时透传 query）
+        const query = options
+          ? ({
+              ...(options.limit !== undefined ? { limit: options.limit } : {}),
+              ...(options.before !== undefined ? { before: options.before } : {}),
+            } as never)
+          : undefined
+        return normalizeError<SessionMessage[]>(await client.session.messages({ path: { id }, query }))
+      },
     },
     permission: {
       // SDK 1.18.13 顶层方法 postSessionIdPermissionsPermissionId，body 仅 {response}

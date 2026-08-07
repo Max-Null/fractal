@@ -75,6 +75,7 @@
     "historyOfflineSubtitle": "History unavailable until the engine starts — it will load automatically",
     "historyLoadingTitle": "Loading history",
     "historyLoadingSubtitle": "Large sessions may take a few seconds — please wait",
+    "loadingEarlier": "Loading earlier messages…",
     "debugLabel": "Debug",
     "llmRequestLabel": "LLM Request",
     "aboutTitle": "About Fractal",

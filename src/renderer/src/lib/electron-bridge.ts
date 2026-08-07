@@ -447,8 +447,10 @@ export async function forkSession(sessionId: string, messageID?: string): Promis
   });
 }
 
-export async function listMessages(sessionId: string): Promise<MessageData[]> {
-  return invoke<MessageData[]>("message:list", { sessionId });
+export async function listMessages(sessionId: string, options?: { limit?: number; before?: string }): Promise<MessageData[]> {
+  // options 缺省时展开为 undefined → 与旧调用完全兼容（全量拉取）；
+  // limit=50 首屏最近 N 条 / before=首条消息 id 滚动加载更早
+  return invoke<MessageData[]>("message:list", { sessionId, ...options });
 }
 
 /** 测试连接：写 API Key 到 serve 隔离配置 + 验证 serve 可达，返回 {ok, message}（设置面板「测试连接」） */

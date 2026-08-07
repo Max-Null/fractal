@@ -518,4 +518,83 @@ describe("chat store", () => {
     // loadMessages 只管还原消息，不擅自改离线状态（避免覆盖 IPC 层判断）
     expect(chat.historyError).toBe(true);
   });
+
+  // ── prependMessages（滚动到顶加载更早：头部拼接）──
+
+  it("prependMessages 头部拼接且保持升序（旧→新）", () => {
+    const chat = useChatStore();
+    chat.loadMessages([
+      { id: "m3", role: "user", content: "已有第三条", created_at: "2026-01-01T00:03:00" },
+      { id: "m4", role: "user", content: "已有第四条", created_at: "2026-01-01T00:04:00" },
+    ]);
+    // 更早消息按升序传入（m1 最旧）→ prepend 后整体仍为 m1,m2,m3,m4
+    chat.prependMessages([
+      { id: "m1", role: "user", content: "更早一", created_at: "2026-01-01T00:01:00" },
+      { id: "m2", role: "user", content: "更早二", created_at: "2026-01-01T00:02:00" },
+    ]);
+    expect(chat.messages.map(m => m.id)).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(chat.messages[0].content).toBe("更早一");
+  });
+
+  it("prependMessages 解析 assistant JSON blob（与 loadMessages 同解析逻辑）", () => {
+    const chat = useChatStore();
+    chat.loadMessages([{ id: "m2", role: "user", content: "已有", created_at: "2026-01-01T00:02:00" }]);
+    chat.prependMessages([
+      {
+        id: "m1",
+        role: "assistant",
+        content: JSON.stringify({ text: "早前回答", thinking: "早前思考" }),
+        created_at: "2026-01-01T00:01:00",
+      },
+    ]);
+    expect(chat.messages[0].content).toBe("早前回答");
+    expect(chat.messages[0].thinking).toBe("早前思考");
+  });
+
+  it("prependMessages 不触碰现有尾部消息（加载更早与流式追加互不干扰）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("尾部消息");
+    chat.prependMessages([{ id: "m1", role: "user", content: "更早", created_at: "2026-01-01T00:01:00" }]);
+    expect(chat.messages).toHaveLength(2);
+    expect(chat.messages[1].content).toBe("尾部消息");
+  });
+
+  // ── hasMoreHistory / loadingMoreHistory（分页状态）──
+
+  it("hasMoreHistory 默认 false，setter 可置位/清除", () => {
+    const chat = useChatStore();
+    expect(chat.hasMoreHistory).toBe(false);
+    chat.setHasMoreHistory(true);
+    expect(chat.hasMoreHistory).toBe(true);
+    chat.setHasMoreHistory(false);
+    expect(chat.hasMoreHistory).toBe(false);
+  });
+
+  it("loadingMoreHistory 默认 false，setter 可置位/清除", () => {
+    const chat = useChatStore();
+    expect(chat.loadingMoreHistory).toBe(false);
+    chat.setLoadingMoreHistory(true);
+    expect(chat.loadingMoreHistory).toBe(true);
+    chat.setLoadingMoreHistory(false);
+    expect(chat.loadingMoreHistory).toBe(false);
+  });
+
+  it("loadMessages（全量重载）重置分页状态：hasMoreHistory/loadingMoreHistory 归零", () => {
+    const chat = useChatStore();
+    chat.setHasMoreHistory(true);
+    chat.setLoadingMoreHistory(true);
+    chat.loadMessages([{ id: "a1", role: "user", content: "x", created_at: "2026-01-01T00:00:00" }]);
+    // 全量重载 = 清空重建，旧会话分页状态不应残留
+    expect(chat.hasMoreHistory).toBe(false);
+    expect(chat.loadingMoreHistory).toBe(false);
+  });
+
+  it("clearMessages 重置分页状态（切会话防残留）", () => {
+    const chat = useChatStore();
+    chat.setHasMoreHistory(true);
+    chat.setLoadingMoreHistory(true);
+    chat.clearMessages();
+    expect(chat.hasMoreHistory).toBe(false);
+    expect(chat.loadingMoreHistory).toBe(false);
+  });
 });

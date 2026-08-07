@@ -422,6 +422,9 @@ export const useChatStore = defineStore("chat", () => {
     isProcessing.value = false;
     pendingControlRequests.value = [];
     usedAgents.value = new Set();
+    // 切会话/清空时重置分页状态（避免旧会话"还有更早/加载中"标记残留到新会话）
+    hasMoreHistory.value = false;
+    loadingMoreHistory.value = false;
   }
 
   /** 设置历史消息加载失败标记（true=serve 未就绪，消息区灰显离线占位；false=恢复可加载） */
@@ -535,64 +538,97 @@ export const useChatStore = defineStore("chat", () => {
     return blocks;
   }
 
+  /** 是否还有更早消息（首屏 limit=50 返回满 50 条 → 可能还有更早；<50 → 已到顶） */
+  const hasMoreHistory = ref(false);
+  /** 加载更早消息进行中（防滚动重复触发 + 顶部小提示） */
+  const loadingMoreHistory = ref(false);
+
+  /** 设置是否还有更早消息 */
+  function setHasMoreHistory(v: boolean) {
+    hasMoreHistory.value = v;
+  }
+
+  /** 设置加载更早进行中标记 */
+  function setLoadingMoreHistory(v: boolean) {
+    loadingMoreHistory.value = v;
+  }
+
+  /**
+   * 将单个历史消息记录还原为 Message（JSON blob 解析 + contentBlocks 重建）。
+   * loadMessages（全量清空重载）与 prependMessages（头部拼接加载更早）共用同一解析逻辑。
+   */
+  function recordToMessage(rec: { id: string; role: string; content: string; created_at: string }): Message {
+    let textContent = rec.content;
+    let thinking = "";
+    let toolUses: ToolUse[] = [];
+    let durationMs: number | undefined;
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let costUSD: number | undefined;
+
+    // Try to parse JSON for assistant messages (new format)
+    let attachments: AttachedFile[] | undefined;
+    let contentBlocks: ContentBlock[] | undefined;
+
+    // Try JSON parse for both user and assistant messages
+    try {
+      const parsed = JSON.parse(rec.content);
+      if (parsed && typeof parsed === "object") {
+        if (rec.role === "assistant") {
+          textContent = parsed.text || "";
+          thinking = parsed.thinking || "";
+          toolUses = parsed.toolUses || [];
+          durationMs = parsed.durationMs;
+          inputTokens = parsed.inputTokens;
+          outputTokens = parsed.outputTokens;
+          costUSD = parsed.costUSD;
+          // 新存档已有 contentBlocks，旧存档从现有字段重建时间线
+          contentBlocks = parsed.contentBlocks || synthesizeBlocks(thinking, toolUses, textContent);
+        } else if (rec.role === "user" && Array.isArray(parsed.attachments)) {
+          textContent = parsed.text || "";
+          attachments = parsed.attachments;
+        }
+      }
+    } catch {
+      // Old format: plain text, use as-is
+    }
+    // 纯文本旧格式也重建时间线
+    if (rec.role === "assistant" && !contentBlocks) {
+      contentBlocks = synthesizeBlocks(thinking, toolUses, textContent);
+    }
+
+    return {
+      id: rec.id,
+      role: rec.role as "user" | "assistant",
+      content: textContent,
+      thinking,
+      toolUses,
+      contentBlocks,
+      timestamp: new Date(rec.created_at + "Z").getTime(),
+      isStreaming: false,
+      durationMs,
+      inputTokens,
+      outputTokens,
+      costUSD,
+      attachments,
+    };
+  }
+
   /** Restore messages from database records */
   function loadMessages(records: Array<{ id: string; role: string; content: string; created_at: string }>) {
     clearMessages();
     for (const rec of records) {
-      let textContent = rec.content;
-      let thinking = "";
-      let toolUses: ToolUse[] = [];
-      let durationMs: number | undefined;
-      let inputTokens: number | undefined;
-      let outputTokens: number | undefined;
-      let costUSD: number | undefined;
+      messages.value.push(recordToMessage(rec));
+    }
+  }
 
-      // Try to parse JSON for assistant messages (new format)
-      let attachments: AttachedFile[] | undefined;
-      let contentBlocks: ContentBlock[] | undefined;
-
-      // Try JSON parse for both user and assistant messages
-      try {
-        const parsed = JSON.parse(rec.content);
-        if (parsed && typeof parsed === "object") {
-          if (rec.role === "assistant") {
-            textContent = parsed.text || "";
-            thinking = parsed.thinking || "";
-            toolUses = parsed.toolUses || [];
-            durationMs = parsed.durationMs;
-            inputTokens = parsed.inputTokens;
-            outputTokens = parsed.outputTokens;
-            costUSD = parsed.costUSD;
-            // 新存档已有 contentBlocks，旧存档从现有字段重建时间线
-            contentBlocks = parsed.contentBlocks || synthesizeBlocks(thinking, toolUses, textContent);
-          } else if (rec.role === "user" && Array.isArray(parsed.attachments)) {
-            textContent = parsed.text || "";
-            attachments = parsed.attachments;
-          }
-        }
-      } catch {
-        // Old format: plain text, use as-is
-      }
-      // 纯文本旧格式也重建时间线
-      if (rec.role === "assistant" && !contentBlocks) {
-        contentBlocks = synthesizeBlocks(thinking, toolUses, textContent);
-      }
-
-      messages.value.push({
-        id: rec.id,
-        role: rec.role as "user" | "assistant",
-        content: textContent,
-        thinking,
-        toolUses,
-        contentBlocks,
-        timestamp: new Date(rec.created_at + "Z").getTime(),
-        isStreaming: false,
-        durationMs,
-        inputTokens,
-        outputTokens,
-        costUSD,
-        attachments,
-      });
+  /**
+   * 头部拼接更早消息（滚动到顶加载历史用，不清空现有消息）。
+   * records 按时间升序（旧→新），unshift 从后往前保证最终顺序仍为旧→新。
+   */
+  function prependMessages(records: Array<{ id: string; role: string; content: string; created_at: string }>) {
+    for (let i = records.length - 1; i >= 0; i--) {
+      messages.value.unshift(recordToMessage(records[i]));
     }
   }
 
@@ -604,6 +640,10 @@ export const useChatStore = defineStore("chat", () => {
     setHistoryError,
     historyLoading,
     setHistoryLoading,
+    hasMoreHistory,
+    setHasMoreHistory,
+    loadingMoreHistory,
+    setLoadingMoreHistory,
     todos,
     pendingControlRequest,
     pendingControlRequests,
@@ -623,6 +663,7 @@ export const useChatStore = defineStore("chat", () => {
     usedAgents,
     clearMessages,
     loadMessages,
+    prependMessages,
     saveSessionCache,
     loadFromCache,
     handleBackgroundStreamEvent,

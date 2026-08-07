@@ -13,6 +13,7 @@ const questionReplyMock = vi.fn();
 const questionRejectMock = vi.fn();
 const respondPermissionMock = vi.fn();
 const sendMessageMock = vi.fn();
+const listMessagesMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
   respondPermission: (...args: unknown[]) => respondPermissionMock(...args),
@@ -21,7 +22,7 @@ vi.mock("@/lib/electron-bridge", () => ({
   forkSession: vi.fn().mockResolvedValue({ id: "ses-fork" }),
   getAutoModeStatus: vi.fn().mockResolvedValue(false),
   stopSession: vi.fn().mockResolvedValue(undefined),
-  listMessages: vi.fn().mockResolvedValue([]),
+  listMessages: (...args: unknown[]) => listMessagesMock(...args),
   writeFile: vi.fn().mockResolvedValue(undefined),
   loadSessionLogs: vi.fn().mockResolvedValue([null, null]),
   openDialog: vi.fn().mockResolvedValue(null),
@@ -43,6 +44,7 @@ const i18n = createI18n({
         historyOfflineSubtitle: "History unavailable until the engine starts",
         historyLoadingTitle: "Loading history",
         historyLoadingSubtitle: "Large sessions may take a few seconds",
+        loadingEarlier: "Loading earlier messages",
         allow: "Allow",
         deny: "Deny",
         alwaysAllow: "Always allow",
@@ -113,10 +115,12 @@ describe("ChatPanel 弹窗", () => {
     questionRejectMock.mockReset();
     respondPermissionMock.mockReset();
     sendMessageMock.mockReset();
+    listMessagesMock.mockReset();
     questionReplyMock.mockResolvedValue({ ok: true });
     questionRejectMock.mockResolvedValue({ ok: true });
     respondPermissionMock.mockResolvedValue({ responded: true });
     sendMessageMock.mockResolvedValue({ accepted: true });
+    listMessagesMock.mockResolvedValue([]);
   });
 
   it("question 弹窗提交 → questionReply 收集 answers（单选 → 单元素数组）并关闭", async () => {
@@ -348,6 +352,90 @@ describe("ChatPanel 弹窗", () => {
     expect(sid).toBe("ses-1");
     expect(msg).toBe("看下附件");
     expect(opts.attachments).toEqual([{ name: "a.txt", path: "C:\\tmp\\a.txt" }]);
+  });
+
+  // ── 滚动到顶加载更早（长会话分页）──
+
+  it("滚动到顶部 → 加载更早（before=第一条消息 id + limit=50），prepend 保持升序", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    // 首屏已有最近 2 条（模拟首屏 limit=50 后 hasMoreHistory=true）
+    chat.loadMessages([
+      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
+      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
+    ]);
+    chat.setHasMoreHistory(true);
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "user", content: "第一条（更早）", created_at: "2026-01-01T00:01:00" },
+    ]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    // 触发 scroll（jsdom 中 scrollTop=0 < 80 → 满足加载条件）
+    await wrapper.find(".chat-messages").trigger("scroll");
+    await flush();
+    await flush();
+
+    expect(listMessagesMock).toHaveBeenCalledWith("ses-1", { limit: 50, before: "m2" });
+    // prepend 后整体仍为旧→新
+    expect(chat.messages.map(m => m.id)).toEqual(["m1", "m2", "m3"]);
+    // 返回 1 条 < 50 → 已到顶
+    expect(chat.hasMoreHistory).toBe(false);
+    expect(chat.loadingMoreHistory).toBe(false);
+  });
+
+  it("hasMoreHistory=false（已到顶）→ 滚动不加载", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.loadMessages([
+      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
+      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
+    ]);
+    chat.setHasMoreHistory(false);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.find(".chat-messages").trigger("scroll");
+    await flush();
+
+    expect(listMessagesMock).not.toHaveBeenCalled();
+  });
+
+  it("loadingMoreHistory=true（加载中）→ 滚动不重复加载（防重入）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.loadMessages([
+      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
+      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
+    ]);
+    chat.setHasMoreHistory(true);
+    chat.setLoadingMoreHistory(true);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.find(".chat-messages").trigger("scroll");
+    await flush();
+
+    expect(listMessagesMock).not.toHaveBeenCalled();
+  });
+
+  it("loadingMoreHistory=true → 消息列表上方显示「加载更早」提示", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.loadMessages([{ id: "m1", role: "user", content: "已有", created_at: "2026-01-01T00:01:00" }]);
+    chat.setLoadingMoreHistory(true);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.text()).toContain("Loading earlier messages");
   });
 });
 

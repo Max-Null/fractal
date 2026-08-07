@@ -119,6 +119,7 @@ describe('normalizeError', () => {
 // mock SDK 客户端：vi.hoisted 暴露底层 spy（createOcClient 会包一层包装函数，不能直接断言返回值）
 const sdkMocks = vi.hoisted(() => ({
   sessionCreate: vi.fn().mockResolvedValue({ data: { id: 'ses_mock' } }),
+  sessionMessages: vi.fn().mockResolvedValue({ data: [] }),
 }))
 vi.mock('@opencode-ai/sdk', () => ({
   createOpencodeClient: () => ({
@@ -132,7 +133,7 @@ vi.mock('@opencode-ai/sdk', () => ({
       abort: vi.fn(),
       prompt: vi.fn(),
       promptAsync: vi.fn(),
-      messages: vi.fn(),
+      messages: sdkMocks.sessionMessages,
     },
     permission: { respond: vi.fn() },
     file: { list: vi.fn(), read: vi.fn(), status: vi.fn() },
@@ -160,5 +161,39 @@ describe('session.create 工作区绑定', () => {
     sdkMocks.sessionCreate.mockClear()
     await client.session.create({ title: 'T' })
     expect(sdkMocks.sessionCreate).toHaveBeenCalledWith({ query: undefined, body: { title: 'T', parentID: undefined } })
+  })
+})
+
+// ── session.messages 分页（limit/before 透传）──
+
+describe('session.messages 分页', () => {
+  it('传 limit + before → query 透传（before 为 serve spec 实测字段，SDK types.gen 缺失用 as never 绕过）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionMessages.mockClear()
+    await client.session.messages('ses_1', { limit: 50, before: 'msg_100' })
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
+      path: { id: 'ses_1' },
+      query: { limit: 50, before: 'msg_100' },
+    })
+  })
+
+  it('仅传 limit（首屏最近 N 条）→ query 不含 before', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionMessages.mockClear()
+    await client.session.messages('ses_1', { limit: 50 })
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
+      path: { id: 'ses_1' },
+      query: { limit: 50 },
+    })
+  })
+
+  it('不传 options → query undefined（全量拉取，旧调用兼容）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionMessages.mockClear()
+    await client.session.messages('ses_1')
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
+      path: { id: 'ses_1' },
+      query: undefined,
+    })
   })
 })

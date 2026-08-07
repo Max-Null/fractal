@@ -151,6 +151,18 @@ describe("forkSession / testConnection / listMessages（IPC 直连）", () => {
     await listMessages("ses-1");
     expect(invokeMock).toHaveBeenCalledWith("message:list", { sessionId: "ses-1" });
   });
+
+  it("listMessages 传 limit+before → 透传到 message:list（分页游标）", async () => {
+    invokeMock.mockResolvedValue([]);
+    await listMessages("ses-1", { limit: 50, before: "msg_100" });
+    expect(invokeMock).toHaveBeenCalledWith("message:list", { sessionId: "ses-1", limit: 50, before: "msg_100" });
+  });
+
+  it("listMessages 只传 limit → 透传不含 before", async () => {
+    invokeMock.mockResolvedValue([]);
+    await listMessages("ses-1", { limit: 50 });
+    expect(invokeMock).toHaveBeenCalledWith("message:list", { sessionId: "ses-1", limit: 50 });
+  });
 });
 
 
