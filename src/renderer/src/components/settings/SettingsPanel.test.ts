@@ -89,12 +89,15 @@ describe("SettingsPanel", () => {
     expect(wrapper.text()).toContain("Plan mode");
   });
 
-  it("shows auto label when autoMode=true", () => {
+  // auto/dontAsk 已从权限选项移除（CC 遗留模式，全自动语义由 bypassPermissions 承担）——
+  // 旧配置兼容：autoMode=true 仍应显示「完全放行」（activeMode 映射 bypassPermissions 分支）
+  it("shows bypass label when autoMode=true (legacy auto 兼容)", () => {
     const settings = useSettingsStore();
     settings.autoMode = true;
     settings.planMode = false;
+    settings.permissionMode = "bypassPermissions";
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Auto mode");
+    expect(wrapper.text()).toContain("Bypass");
   });
 
   it("shows bypass when permissionMode=bypassPermissions", () => {
@@ -106,13 +109,14 @@ describe("SettingsPanel", () => {
     expect(wrapper.text()).toContain("Bypass");
   });
 
-  it("shows dontAsk when permissionMode=dontAsk", () => {
+  // dontAsk 已移除：dontAsk 旧值兼容归入 bypass（activeMode 映射）
+  it("shows bypass when permissionMode=dontAsk (legacy 兼容)", () => {
     const settings = useSettingsStore();
     settings.permissionMode = "dontAsk";
     settings.autoMode = false;
     settings.planMode = false;
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Don't Ask");
+    expect(wrapper.text()).toContain("Bypass");
   });
 
   it("shows editAuto when permissionMode=acceptEdits", () => {

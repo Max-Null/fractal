@@ -11,7 +11,8 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions } from "@/lib/electron-bridge";
+import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
 import { useChatStore, FULL_HISTORY_LIMIT } from "@/stores/chat";
@@ -118,6 +119,24 @@ function switchToWorkspace(path: string) {
 
 // ── ws-pill 工作区管理下拉（最近工作区 + 选择目录）──
 const showWsMenu = ref(false);
+
+// ── serve 会话目录聚合（补充本地 recent：userData 迁移/清缓存后本地历史丢失仍可从引擎恢复工作区列表）──
+const serveDirs = ref<string[]>([]);
+
+/** 从 serve 全量会话聚合出去重工作区目录；serve 未就绪时静默（菜单仍显示本地 recent） */
+async function loadServeWorkspaces() {
+  try {
+    const sessions = await listSessions();
+    // OC session 的 directory 经主进程 toSessionData 映射为前端 cwd 字段；trim 后过滤空值（未绑定工作区/null）
+    serveDirs.value = [...new Set(sessions.map((s) => s.cwd.trim()).filter(Boolean))];
+  } catch {
+    // serve 未就绪 → 保持现有 serveDirs（首次为空），菜单降级为纯本地 recent
+  }
+}
+
+/** 工作区菜单合并列表：本地 recent 优先（原序），serve 会话目录补充（去重保序） */
+const mergedWorkspaces = computed(() => mergeWorkspaces(settings.recentWorkspaces, serveDirs.value));
+
 // 目录选择提示条（对话框不置前/失败时的可见反馈，3s 自动消失）
 const alertText = ref("");
 watch(alertText, (v) => {
@@ -126,6 +145,8 @@ watch(alertText, (v) => {
 async function onWsPillClick() {
   // 点击胶囊切换下拉，不再直接弹选择框——最近工作区列表是主入口
   showWsMenu.value = !showWsMenu.value;
+  // 打开时刷新 serve 会话目录聚合（serve 未就绪静默降级，不阻塞菜单展示）
+  if (showWsMenu.value) await loadServeWorkspaces();
 }
 function onWsPickDirectory() {
   showWsMenu.value = false;
@@ -332,8 +353,8 @@ async function openFilePanelTo(_path: string) {
           <!-- 工作区管理下拉：仅最近工作区（选择目录走胶囊本体点击） -->
           <div v-if="showWsMenu" class="ws-menu">
             <div class="ws-menu-head">{{ $t('header.recentWorkspaces') }}</div>
-            <template v-if="settings.recentWorkspaces.length">
-              <button v-for="p in settings.recentWorkspaces" :key="p" class="ws-menu-item" :class="{ 'ws-menu-item-active': p === cwd }" @click="onWsPickRecent(p)">
+            <template v-if="mergedWorkspaces.length">
+              <button v-for="p in mergedWorkspaces" :key="p" class="ws-menu-item" :class="{ 'ws-menu-item-active': p === cwd }" @click="onWsPickRecent(p)">
                 <span class="ws-menu-item-path">{{ p }}</span>
               </button>
             </template>

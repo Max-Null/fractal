@@ -113,21 +113,21 @@ watch(() => chat.messages.map(m => m.isStreaming), () => {
 });
 
 // ── 权限模式 computed（与工具栏 activeMode 逻辑一致）──
+// auto/dontAsk 已从选项移除（CC 遗留）——旧配置值归并到 bypassPermissions（全自动语义）
 const activeMode = computed({
   get: () => {
     if (settings.planMode) return "plan";
-    if (settings.autoMode) return "auto";
+    if (settings.autoMode) return "bypassPermissions";
     if (settings.permissionMode === "bypassPermissions") return "bypassPermissions";
-    if (settings.permissionMode === "dontAsk") return "dontAsk";
+    if (settings.permissionMode === "dontAsk") return "bypassPermissions";
     if (settings.permissionMode === "acceptEdits") return "acceptEdits";
     return "default";
   },
   set: (v: string) => {
     settings.planMode = v === "plan";
-    settings.autoMode = v === "auto";
+    settings.autoMode = v === "bypassPermissions";
     settings.permissionMode =
       v === "bypassPermissions" ? "bypassPermissions"
-      : v === "dontAsk" ? "dontAsk"
       : v === "acceptEdits" ? "acceptEdits"
       : "default";
   },
@@ -146,15 +146,14 @@ function onBodyClick(e: MouseEvent) {
 onMounted(() => document.addEventListener("click", onBodyClick));
 onUnmounted(() => document.removeEventListener("click", onBodyClick));
 
-// ── 权限模式选项（图标 + 中文 + 英文 CLI key + 描述）──
-interface PermOption { value: "auto" | "plan" | "default" | "acceptEdits" | "bypassPermissions" | "dontAsk"; icon: string; cliKey: string; labelKey: string; descKey: string }
+// ── 权限模式选项（对齐操作行 4 模式：全部询问/自动编辑/完全放行/计划；auto/dontAsk 为 CC 遗留已移除——
+// 全自动语义由 bypassPermissions 承担（OC --auto 映射）；旧 autoMode 配置兼容读取）──
+interface PermOption { value: "plan" | "default" | "acceptEdits" | "bypassPermissions"; icon: string; cliKey: string; labelKey: string; descKey: string }
 const permOptions: PermOption[] = [
-  { value: "auto",       icon: "🤖", cliKey: "auto",             labelKey: "mode.auto",       descKey: "mode.autoDesc" },
   { value: "plan",       icon: "📋", cliKey: "plan",             labelKey: "mode.plan",       descKey: "mode.planDesc" },
   { value: "default",    icon: "🔒", cliKey: "default",          labelKey: "mode.askBefore",  descKey: "mode.askBeforeDesc" },
   { value: "acceptEdits",icon: "✏️", cliKey: "acceptEdits",      labelKey: "mode.editAuto",   descKey: "mode.editAutoDesc" },
   { value: "bypassPermissions", icon: "⚡", cliKey: "bypassPermissions", labelKey: "mode.bypass", descKey: "mode.bypassDesc" },
-  { value: "dontAsk",    icon: "✅", cliKey: "dontAsk",           labelKey: "mode.dontAsk",    descKey: "mode.dontAskDesc" },
 ];
 const currentPerm = computed(() => permOptions.find(o => o.value === activeMode.value)!);
 

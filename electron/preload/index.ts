@@ -26,6 +26,7 @@ const ALLOWED_INVOKE = [
   'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork',
   'message:list', 'permission:respond',
   'question:reply', 'question:reject',
+  'provider:modelVariants',
   'engine:testConnection',
   'engine:refresh',
   'memory:list', 'memory:confirm', 'memory:remove',

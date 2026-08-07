@@ -4,7 +4,7 @@ import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
-import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, loadModelVariants, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
@@ -392,6 +392,14 @@ export function useStreamProcessor() {
       const info = payload as { running?: boolean };
       session.setServing(!!info?.running);
       debugLog.add(`🔌 engine status: running=${info?.running}`, session.activeSessionId);
+      // 思考强度 variant 重拉：启动早期 serve 未就绪时 watch(model) 的拉取失败（modelVariants=[]），
+      // 之后模型不变就不再触发——引擎就绪后补拉，否则思考强度选择器永远隐藏（2026-08-07 实测）
+      if (info?.running) {
+        const settings = useSettingsStore();
+        loadModelVariants(settings.model)
+          .then((v) => settings.setModelVariants(v))
+          .catch(() => settings.setModelVariants([]));
+      }
       // G3：serve 恢复（running=true）且当前会话历史加载失败过 → 自动重试加载
       // （离线灰显占位只应短暂存在，引擎就绪后应立即恢复历史消息）
       if (info?.running && chat.historyError && session.activeSessionId) {
