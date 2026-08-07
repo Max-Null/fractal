@@ -8,6 +8,8 @@ declare global {
     electronBridge: {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>
       on: (channel: string, cb: (data: unknown) => void) => () => void
+      /** 订阅新窗口工作区下发（window:init-workspace），返回取消订阅函数 */
+      onInitWorkspace: (cb: (path: string) => void) => () => void
     }
   }
 }

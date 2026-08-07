@@ -651,3 +651,17 @@ export async function getStatusState(): Promise<{ exists: boolean; state: unknow
 export function onPanelUpdate(cb: (payload: { kind: "memory" | "plans" | "status" }) => void): () => void {
   return window.electronBridge.on("engine:panel-update", (data) => cb(data as { kind: "memory" | "plans" | "status" }));
 }
+
+// ══════════════════════════════════════════════════════════════════
+// 多窗口（新开窗口并切到目标工作区，交互模式变更：最近工作区非当前项点击行为）
+// ══════════════════════════════════════════════════════════════════
+
+/** 新开窗口并切到目标工作区（主进程 createWindow(workspace) → 新窗口 did-finish-load 后下发 init-workspace） */
+export async function openWorkspaceWindow(path: string): Promise<void> {
+  return invoke("window:openWorkspace", { path });
+}
+
+/** 订阅新窗口工作区下发（主进程 createWindow(workspace) 后主动推送），返回取消订阅函数 */
+export function onInitWorkspace(cb: (path: string) => void): () => void {
+  return window.electronBridge.onInitWorkspace(cb);
+}

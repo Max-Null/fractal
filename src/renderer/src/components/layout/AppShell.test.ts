@@ -9,10 +9,19 @@ import AppShell from "./AppShell.vue";
 
 // mock electron-bridge：保留原模块（store 链条其他函数有 catch 兜底），仅覆盖 listSessions 返回可控会话
 // vi.hoisted：mock 工厂被提升到文件顶部，mock 变量必须同层提升否则工厂执行时尚未初始化
-const { listSessionsMock } = vi.hoisted(() => ({ listSessionsMock: vi.fn() }));
+const { listSessionsMock, openWorkspaceWindowMock, onInitWorkspaceMock } = vi.hoisted(() => ({
+  listSessionsMock: vi.fn(),
+  openWorkspaceWindowMock: vi.fn(),
+  onInitWorkspaceMock: vi.fn(),
+}));
 vi.mock("@/lib/electron-bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/electron-bridge")>();
-  return { ...actual, listSessions: listSessionsMock };
+  return {
+    ...actual,
+    listSessions: listSessionsMock,
+    openWorkspaceWindow: openWorkspaceWindowMock,
+    onInitWorkspace: onInitWorkspaceMock,
+  };
 });
 
 // ── 测试数据 ──
@@ -107,6 +116,12 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     pinia = createPinia();
     setActivePinia(pinia);
     listSessionsMock.mockReset();
+    openWorkspaceWindowMock.mockReset();
+    // 新窗口打开默认成功（.then 链依赖 Promise 形状；断言失败场景的用例单独 mockRejectedValue）
+    openWorkspaceWindowMock.mockResolvedValue(undefined);
+    // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
+    onInitWorkspaceMock.mockReset();
+    onInitWorkspaceMock.mockReturnValue(() => {});
   });
 
   it("打开菜单时聚合 serve 会话目录，补充本地 recent（local 在前，serve 按出现序）", async () => {
@@ -146,17 +161,51 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     expect(await openMenuAndGetPaths(wrapper)).toEqual([LOCAL_A, SERVE_A]);
   });
 
-  it("点击 serve 聚合目录项 → 切换工作区（settings.cwd 更新 + recentWorkspaces 头部）", async () => {
+  it("点击非当前工作区项（serve 聚合）→ 新开窗口（openWorkspaceWindow），当前窗口 cwd/recent 不变", async () => {
     listSessionsMock.mockResolvedValue([makeSession("s1", SERVE_A)]);
     const wrapper = mountAppShell();
     await openMenuAndGetPaths(wrapper);
 
-    // 第二个菜单项 = serve 聚合项（第一个是本地 recent）
+    // 第二个菜单项 = serve 聚合项（第一个是本地 recent，均非当前 cwd）
     await wrapper.findAll(".ws-menu-item")[1].trigger("click");
     await flushPromises();
 
+    // 交互模式变更（用户需求）：非当前项 → 新开窗口，不再当前窗口内切换
+    expect(openWorkspaceWindowMock).toHaveBeenCalledWith(SERVE_A);
     const settings = useSettingsStore();
-    expect(settings.cwd).toBe(SERVE_A);
-    expect(settings.recentWorkspaces[0]).toBe(SERVE_A);
+    expect(settings.cwd).not.toBe(SERVE_A);
+    expect(settings.recentWorkspaces[0]).not.toBe(SERVE_A);
+  });
+
+  it("点击当前工作区项 → 提示「已在该工作区」，不开新窗口", async () => {
+    // cwd 初始 = localStorage sb-current-workspace（initFromDb 在测试环境无 SQLite，不会覆盖）
+    localStorage.setItem("sb-current-workspace", LOCAL_A);
+    listSessionsMock.mockResolvedValue([]);
+    const wrapper = mountAppShell();
+    await openMenuAndGetPaths(wrapper);
+
+    // 第一个菜单项 = LOCAL_A（当前 cwd）
+    await wrapper.findAll(".ws-menu-item")[0].trigger("click");
+    await flushPromises();
+
+    expect(openWorkspaceWindowMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".ws-alert").text()).toBe("已在该工作区");
+  });
+
+  it("onInitWorkspace 收到工作区下发 → 切 cwd + 按新工作区加载会话（新窗口初始化链路）", async () => {
+    listSessionsMock.mockResolvedValue([]);
+    const wrapper = mountAppShell();
+    await flushPromises();
+
+    // onMounted 同步段注册监听：捕获回调并手动触发（模拟主进程 did-finish-load 下发 window:init-workspace）
+    expect(onInitWorkspaceMock).toHaveBeenCalledTimes(1);
+    const cb = onInitWorkspaceMock.mock.calls[0][0] as (path: string) => void;
+    cb(SERVE_B);
+    await flushPromises();
+
+    const settings = useSettingsStore();
+    expect(settings.cwd).toBe(SERVE_B);
+    // loadSessions 两次：onMounted 初始一次 + init-workspace 一次（按新工作区过滤）
+    expect(listSessionsMock).toHaveBeenLastCalledWith(SERVE_B);
   });
 });

@@ -32,7 +32,8 @@ const ALLOWED_INVOKE = [
   'engine:refresh',
   'memory:list', 'memory:confirm', 'memory:remove',
   'plans:list',
-  'status:get'
+  'status:get',
+  'window:openWorkspace'
 ] as const
 
 /** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */
@@ -53,6 +54,15 @@ const electronBridge = {
     ipcRenderer.on(channel, listener)
     return () => {
       ipcRenderer.removeListener(channel, listener)
+    }
+  },
+  // 新窗口工作区下发（window:init-workspace）：主进程 createWindow(workspace) 在 did-finish-load 后推送，
+  // 返回取消订阅函数（照现有 on 模式，但该通道只在「带工作区启动的新窗口」场景出现，单独暴露更明确）
+  onInitWorkspace: (cb: (path: string) => void) => {
+    const listener = (_e: IpcRendererEvent, path: string) => cb(path)
+    ipcRenderer.on('window:init-workspace', listener)
+    return () => {
+      ipcRenderer.removeListener('window:init-workspace', listener)
     }
   }
 }

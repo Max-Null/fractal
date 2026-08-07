@@ -1,6 +1,6 @@
 // 主进程入口：创建窗口、加载 renderer、串联 IPC 与 serve 生命周期
-import { app, shell, BrowserWindow } from 'electron'
-import { join } from 'path'
+import { app, shell, BrowserWindow, ipcMain } from 'electron'
+import { join, basename } from 'path'
 import { promises as fsp } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -57,11 +57,17 @@ if (!gotSingleInstanceLock) {
 // serve 进程管理器：应用级单例（userData 隔离 XDG_CONFIG_HOME，D17 实测定案）
 const serverManager = createServerManager({ userDataDir: app.getPath('userData') })
 
-function createWindow(): BrowserWindow {
+// createWindow：创建主窗口。workspace 有值时新窗口启动后切到目标工作区（多窗口支持，
+// 交互模式变更——渲染进程点最近工作区非当前项 → 新开窗口，不再当前窗口内切换）
+function createWindow(workspace?: string): BrowserWindow {
+  // 窗口标题：指定工作区显示「分形 — 目录名」便于多窗口识别。
+  // 注意：页面 <title>分形</title> 会在 load 完成后覆盖构造 title → did-finish-load 里 setTitle 兜底
+  const windowTitle = workspace ? `分形 — ${basename(workspace)}` : '分形'
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
     show: false,
+    title: windowTitle,
     autoHideMenuBar: true,
     // Windows/Linux 设置窗口图标（macOS 用 dock 图标，此字段无效）；resources/icon.png 由 scripts/gen-icons.js 生成
     ...(process.platform !== 'darwin' ? { icon } : {}),
@@ -74,6 +80,18 @@ function createWindow(): BrowserWindow {
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
   })
+
+  // 新窗口指定工作区：页面 load 完成后主进程主动下发工作区路径。
+  // 比 URL query 更可靠（无编码/编码路径问题）；渲染进程 AppShell 监听 window:init-workspace →
+  // cwd 切到目标工作区 + 会话列表按工作区过滤。once 保证只下发一次（页面重载不重复触发）
+  if (workspace) {
+    // 阻止页面 <title>（恒为「分形」）覆盖自定义窗口标题——多窗口用标题区分工作区
+    mainWindow.on('page-title-updated', (e) => e.preventDefault())
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.setTitle(windowTitle)
+      mainWindow.webContents.send('window:init-workspace', workspace)
+    })
+  }
 
   mainWindow.webContents.setWindowOpenHandler((details) => {
     // 外部链接一律走系统浏览器，避免在应用内新开窗口破坏单窗口会话模型
@@ -118,6 +136,13 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 通道（引擎通道注入 serverManager）
   registerIpcHandlers(serverManager)
+
+  // 多窗口支持：渲染进程点最近工作区非当前项 → 新开窗口并切到目标工作区（交互模式变更，用户需求）
+  // 校验 path 非空字符串——脏参数直接忽略，避免创建无意义窗口
+  ipcMain.handle('window:openWorkspace', (_e, args: { path?: unknown }) => {
+    if (typeof args?.path !== 'string' || args.path.length === 0) return
+    createWindow(args.path)
+  })
 
   const win = createWindow()
 

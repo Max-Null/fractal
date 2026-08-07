@@ -166,6 +166,12 @@ export const useSettingsStore = defineStore("settings", () => {
   // ── 工作区状态 ──
   const MAX_RECENT_WORKSPACES = 10;
   const cwd = ref(localStorage.getItem("sb-current-workspace") || "");
+  /**
+   * 新窗口工作区下发路径（多窗口支持）：AppShell 收到 window:init-workspace 时写入。
+   * initFromDb 的异步 cwd 恢复可能晚于下发（did-finish-load 早于 SQLite IPC 返回）——
+   * 有此标记时恢复逻辑以下发值为准，防止 SQLite 覆盖新窗口的目标工作区（2026-08-08 实测竞态）
+   */
+  const windowInitCwd = ref("");
 
   const recentWorkspaces = ref<string[]>([]);
   try {
@@ -198,7 +204,14 @@ export const useSettingsStore = defineStore("settings", () => {
       if (db.contextLimit != null) contextLimit.value = db.contextLimit;
       if (db.cwd) {
         // 校验路径是否仍存在，防止 exe 换位置后加载无效工作区
-        listDir(db.cwd).then(() => { cwd.value = db.cwd; }).catch(() => { /* 路径不存在，保持空让 AppShell 用 getWorkspaceRoot */ });
+        listDir(db.cwd).then(() => {
+          // 新窗口已收到 init-workspace 下发 → 以下发值为准，跳过 SQLite 恢复（多窗口竞态防护）
+          if (windowInitCwd.value) {
+            cwd.value = windowInitCwd.value;
+            return;
+          }
+          cwd.value = db.cwd;
+        }).catch(() => { /* 路径不存在，保持空让 AppShell 用 getWorkspaceRoot */ });
       }
       if (db.recentWorkspaces) recentWorkspaces.value = db.recentWorkspaces;
     } catch {}
@@ -364,5 +377,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd };
 });

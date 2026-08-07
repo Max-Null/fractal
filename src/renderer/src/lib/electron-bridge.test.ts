@@ -10,16 +10,23 @@ import {
   listMessages,
   loadModelVariants,
   compactSession,
+  openWorkspaceWindow,
+  onInitWorkspace,
   type SendOptions,
 } from "./electron-bridge";
 
 // 桩 window.electronBridge.invoke：记录通道与参数，返回可编程结果
 const invokeMock = vi.fn();
+// 桩 onInitWorkspace（preload 专用通道）：记录回调，返回可编程取消函数
+const onInitWorkspaceBridgeMock = vi.fn();
 beforeEach(() => {
   invokeMock.mockReset();
+  onInitWorkspaceBridgeMock.mockReset();
+  onInitWorkspaceBridgeMock.mockReturnValue(() => {});
   (window as unknown as { electronBridge: unknown }).electronBridge = {
     invoke: invokeMock,
     on: vi.fn().mockReturnValue(() => {}),
+    onInitWorkspace: onInitWorkspaceBridgeMock,
   };
 });
 
@@ -203,6 +210,21 @@ describe("loadModelVariants / compactSession（思考强度与压缩 API）", ()
     const r = await compactSession("ses-1");
     expect(invokeMock).toHaveBeenCalledWith("session:compact", { id: "ses-1" });
     expect(r.ok).toBe(true);
+  });
+});
+
+describe("openWorkspaceWindow / onInitWorkspace（多窗口）", () => {
+  it("openWorkspaceWindow → window:openWorkspace 通道带 path（新开窗口切工作区）", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await openWorkspaceWindow("H:\\ws-b");
+    expect(invokeMock).toHaveBeenCalledWith("window:openWorkspace", { path: "H:\\ws-b" });
+  });
+
+  it("onInitWorkspace 注册 preload 专用通道并返回取消函数", () => {
+    const cb = vi.fn();
+    const unsub = onInitWorkspace(cb);
+    expect(onInitWorkspaceBridgeMock).toHaveBeenCalledWith(cb);
+    expect(typeof unsub).toBe("function");
   });
 });
 

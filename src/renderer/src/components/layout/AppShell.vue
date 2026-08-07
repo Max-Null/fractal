@@ -11,7 +11,7 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace } from "@/lib/electron-bridge";
 import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
@@ -220,7 +220,15 @@ function onWsPickRecent(path: string) {
     alertText.value = "已在该工作区";
     return;
   }
-  switchToWorkspace(path);
+  // 交互模式变更（用户需求）：非当前工作区项 → 新开窗口并切到目标工作区，不再当前窗口内切换。
+  // 主进程 createWindow(path) 创建新窗口，did-finish-load 后下发 init-workspace → 新窗口切 cwd + 按工作区加载会话。
+  openWorkspaceWindow(path).then(() => {
+    // 新窗口已创建：可见反馈（取目录名展示，路径分隔符兼容 Windows/Linux）
+    alertText.value = `已在新窗口打开 ${path.split(/[\\/]/).pop()}`;
+  }).catch(() => {
+    // invoke reject：提示用户（异常不应无声）
+    alertText.value = "打开新窗口失败，请重试";
+  });
 }
 function onBodyClickForWs(e: MouseEvent) {
   // 点击菜单外部区域时收起工作区下拉（ws-pill-wrap 内点击不收起）
@@ -332,11 +340,24 @@ watch(() => globalCommand.value.ts, () => {
 
 const initializing = ref(true);
 
+// 新窗口工作区下发监听（多窗口支持）：注销函数存模块作用域，onUnmounted 时清理。
+// AppShell 是单例根组件，onMounted 仅执行一次——不会重复注册
+let stopInitWorkspace: (() => void) | null = null;
+
 // ── Onboarding 首屏引导：初始化完成后若仍无 API Key 且未跳过/完成过，则全屏展示引导 ──
 const showOnboarding = computed(() => !settings.apiKey && !settings.onboardingDismissed);
 function dismissOnboarding() { settings.markOnboardingDismissed(); }
 
 onMounted(async () => {
+  // 新窗口初始化链路（多窗口支持）：主进程 createWindow(workspace) 在 did-finish-load 后下发
+  // window:init-workspace → 本窗口 cwd 切到目标工作区 + 会话列表按新工作区过滤。
+  // 注册须在 onMounted 同步段完成（did-finish-load 可能早于下方 async IPC 返回——竞态防护）
+  stopInitWorkspace = onInitWorkspace((path) => {
+    // 先写竞态标记再切 cwd：initFromDb 的异步 cwd 恢复可能晚于本回调，标记让恢复逻辑以下发值为准
+    settings.windowInitCwd = path;
+    settings.cwd = path;
+    sessionStore.loadSessions(path);
+  });
   // 并行初始化所有持久化数据：会话列表 + settings + 工作区
   try {
     await Promise.all([
@@ -360,6 +381,8 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("keydown", onGlobalKeydown);
+  stopInitWorkspace?.();
+  stopInitWorkspace = null;
 });
 
 function isActive(path: string): boolean {
@@ -638,6 +661,11 @@ async function openFilePanelTo(_path: string) {
   background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
   border-bottom: 1px solid var(--border-dim);
   backdrop-filter: blur(12px);
+  /* 层叠提升：backdrop-filter 创建层叠上下文（z-index auto）→ 内部 absolute 菜单（.ws-menu z-index 60）
+     被困在 header 上下文内，与 main 的 static 内容比较时按 DOM 顺序被欢迎容器覆盖（菜单点不中）。
+     position:relative + z-index 把 header 整体提到内容之上，保证工作区菜单可点击（2026-08-08 实测拦截） */
+  position: relative;
+  z-index: 70;
 }
 
 /* ── Body ── */
