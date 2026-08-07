@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, inject } from "vue";
-import { useChatStore, type AttachedFile } from "@/stores/chat";
+import { useChatStore, FULL_HISTORY_LIMIT, type AttachedFile } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
@@ -300,9 +300,10 @@ watch(() => chatCommand.value.ts, async (ts) => {
       if (others.length > 0) {
         const target = others[0];
         session.setActiveSession(target.id);
-        listMessages(target.id).then(msgs => {
+        // 与 useSessionSwitch 一致的加载路径：全量拉取缓存 + DOM 分页渲染（时间线目录完整）
+        listMessages(target.id, { limit: FULL_HISTORY_LIMIT }).then(msgs => {
           chat.setHistoryError(false);
-          chat.loadMessages(msgs.map(m => ({ id: m.id, role: m.role, content: m.content, created_at: m.created_at })));
+          chat.loadFullHistory(msgs);
           showStatus(t('session.switchSuccess', { title: target.title }));
         }).catch(() => {
           // 加载失败（serve 未就绪）→ 置离线标记，消息区灰显占位（G3）
@@ -436,12 +437,6 @@ function scrollToSticky() {
   stickyTargetEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-function scrollToUserMsg(index: number) {
-  const userEls = scrollContainer.value?.querySelectorAll<HTMLElement>('[data-role="user"]');
-  if (userEls && userEls[index]) {
-    userEls[index].scrollIntoView({ behavior: "smooth", block: "start" });
-  }
-}
 // 消息清空（新建会话 / clear）时同步隐藏置顶问题横幅
 watch(() => chat.messages.length, (len) => {
   if (len === 0) {
@@ -496,55 +491,68 @@ function updateStickyBanner() {
 let scrollTimer: ReturnType<typeof setTimeout> | null = null;
 function onScrollThrottled() {
   updateAutoScroll(); // 立即处理，防止 autoScroll 滞后
-  checkLoadMore(); // 滚动到顶加载更早：不能节流（条件满足应立即发请求，防重入由 loadingMoreHistory 保证）
+  checkLoadMore(); // 滚动到顶加载更早：不能节流（同步内存切片，无网络延迟无重入问题）
   if (scrollTimer) return;
   scrollTimer = setTimeout(() => { scrollTimer = null; updateStickyBanner(); }, 100);
 }
 
-/** 滚动到顶加载更早：距顶 < 80px 且还有更早且不在加载中（防重入）且消息非空 */
+/** 滚动到顶加载更早：距顶 < 80px 且还有更早且消息非空（同步内存切片，无需 loading 标记防重入） */
 function checkLoadMore() {
   const container = scrollContainer.value;
   if (!container) return;
-  if (container.scrollTop < 80 && chat.hasMoreHistory && !chat.loadingMoreHistory && chat.messages.length > 0) {
+  if (container.scrollTop < 80 && chat.hasMoreHistory && chat.messages.length > 0) {
     loadMoreHistory();
   }
 }
 
-/** 加载更早消息（before=当前第一条消息 id，分页游标）——prepend 到头部并滚动补偿保持视口位置 */
-async function loadMoreHistory() {
-  const sid = session.activeSessionId;
-  const first = chat.messages[0];
-  // 双重防护：无活跃会话 / 无消息 / 已在加载中（防重入）直接返回
-  if (!sid || !first || chat.loadingMoreHistory) return;
-  chat.setLoadingMoreHistory(true);
-  // 记录 prepend 前高度与滚动位置，prepend 后补偿保持视口内容不动
+/** 加载更早消息（从 fullHistory 内存切片，同步无网络）——prepend 到头部并滚动补偿保持视口位置 */
+function loadMoreHistory() {
   const container = scrollContainer.value;
+  // 记录 prepend 前高度与滚动位置，prepend 后补偿保持视口内容不动
   const prevHeight = container ? container.scrollHeight : 0;
   const prevScrollTop = container ? container.scrollTop : 0;
-  try {
-    const msgs = await listMessages(sid, { limit: 50, before: first.id });
-    // 竞态 guard：加载更早期间用户切换会话 → 丢弃过期结果（新会话 clearMessages 已重置分页状态）
-    if (session.activeSessionId !== sid) return;
-    chat.prependMessages(
-      msgs.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        created_at: m.created_at,
-      })),
-    );
-    chat.setHasMoreHistory(msgs.length === 50);
+  if (chat.prependFromFullHistory()) {
     // 滚动补偿：新内容高度差 = 新 scrollHeight - 旧 scrollHeight，加回原 scrollTop 即视口位置不变
     if (container) {
-      await nextTick();
-      container.scrollTop = (container.scrollHeight - prevHeight) + prevScrollTop;
+      nextTick().then(() => {
+        container.scrollTop = (container.scrollHeight - prevHeight) + prevScrollTop;
+      });
     }
-  } catch (e) {
-    // 加载更早失败静默（下次滚动到顶自动重试），不影响已显示消息
-    console.error("[ChatPanel] 加载更早消息失败：", e);
-  } finally {
-    chat.setLoadingMoreHistory(false);
+  } else {
+    // 已到顶（内存切片耗尽）→ 关闭「还有更早」标记，避免滚动反复触发
+    chat.setHasMoreHistory(false);
   }
+}
+
+/**
+ * 时间线跳转：ChatTimelineNav 点击 dot/ellipsis 时按全局锚点索引定位。
+ * globalIndex 为「timeline 过滤 user 后」的锚点索引 → 先在 timelineIndex（全量含 assistant）中换算目标消息 id，
+ * 目标未渲染时从 fullHistory 内存循环切片（上限 10 次防死循环），再滚动到对应 DOM 元素。
+ */
+async function scrollToTimelineIndex(globalIndex: number) {
+  if (globalIndex < 0) return;
+  // 换算：timelineIndex 中第 globalIndex 个 user 锚点（timelineIndex 是全量索引，需过滤 assistant）
+  let target: { id: string; created: number; role: string } | undefined;
+  let userCount = 0;
+  for (const item of chat.timelineIndex) {
+    if (item.role === "user") {
+      if (userCount === globalIndex) { target = item; break; }
+      userCount++;
+    }
+  }
+  if (!target) return;
+  const id = target.id;
+  // 目标消息未渲染 → 循环 prepend 直到包含或切片耗尽（上限 10 次防死循环）
+  if (!chat.messages.some(m => m.id === id)) {
+    for (let i = 0; i < 10; i++) {
+      if (!chat.prependFromFullHistory()) break;
+      if (chat.messages.some(m => m.id === id)) break;
+    }
+  }
+  await nextTick();
+  // 滚动到目标消息 DOM 元素（MessageBubble 根节点带 data-message-id）
+  const el = scrollContainer.value?.querySelector<HTMLElement>(`[data-message-id="${id}"]`);
+  el?.scrollIntoView({ block: "start" });
 }
 
 async function handleSend(text: string) {
@@ -928,10 +936,7 @@ watch(
             <span>{{ $t('chat.export') }}</span>
           </button>
         </div>
-        <!-- 加载更早进行中（滚动到顶触发）：消息列表上方小字提示 -->
-        <div v-if="chat.loadingMoreHistory" class="text-center py-1 text-[11px]" style="color:var(--text-muted)">
-          {{ $t('chat.loadingEarlier') }}
-        </div>
+        <!-- 加载更早为同步内存切片（瞬时无感），不再需要顶部加载提示 -->
         <TransitionGroup name="msg">
           <MessageBubble
             v-for="msg in chat.messages"
@@ -951,11 +956,13 @@ watch(
         />
       </div>
     </div>
-    <!-- 时间线导航（竖排点，与 scroll 容器同级，不随滚动） -->
+    <!-- 时间线导航（竖排点，与 scroll 容器同级，不随滚动）：
+         timeline 传全量索引（完整目录），跳转由 scrollToTimelineIndex 处理（目标未渲染时先切片再滚动） -->
     <ChatTimelineNav
       :messages="chat.messages"
+      :timeline="chat.timelineIndex"
       :scrollContainer="scrollContainer"
-      @scrollTo="(i) => scrollToUserMsg(i)"
+      @jump="scrollToTimelineIndex"
     />
     </div>
 

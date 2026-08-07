@@ -93,17 +93,31 @@ function mountChatPanel(): VueWrapper {
       stubs: {
         ErrorBoundary: { template: "<div><slot /></div>" },
         InputBar: InputBarStub,
-        MessageBubble: { template: '<div class="msg-stub" />' },
+        // 渲染 data-message-id / data-role：时间线跳转与 scroll spy 定位依赖 DOM 属性
+        MessageBubble: {
+          props: ["message"],
+          template: '<div class="msg-stub" :data-message-id="message.id" :data-role="message.role" />',
+        },
         ThinkingIndicator: { template: "<div />" },
         ContextUsageModal: { props: ["open"], template: "<div />" },
         ManagePanel: { props: ["open", "initialTab"], template: "<div />" },
         ModalShell: ModalShellStub,
         MarkdownRenderer: { template: "<div />" },
-        ChatTimelineNav: { props: ["messages", "scrollContainer"], template: "<div />" },
+        ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
         TodoPanel: { template: "<div />" },
       },
     },
   });
+}
+
+/** 构造 N 条升序历史记录（m0 最旧） */
+function makeRecords(n: number): Array<{ id: string; role: string; content: string; created_at: string }> {
+  return Array.from({ length: n }, (_, i) => ({
+    id: `m${i}`,
+    role: "user",
+    content: `msg ${i}`,
+    created_at: `2026-01-01T00:${String(i % 60).padStart(2, "0")}:00`,
+  }));
 }
 
 describe("ChatPanel 弹窗", () => {
@@ -354,21 +368,15 @@ describe("ChatPanel 弹窗", () => {
     expect(opts.attachments).toEqual([{ name: "a.txt", path: "C:\\tmp\\a.txt" }]);
   });
 
-  // ── 滚动到顶加载更早（长会话分页）──
+  // ── 滚动到顶加载更早（内存分页：从 fullHistory 切片，无网络）──
 
-  it("滚动到顶部 → 加载更早（before=第一条消息 id + limit=50），prepend 保持升序", async () => {
+  it("滚动到顶部 → prependFromFullHistory 从内存切片更早消息（无网络请求）", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-    // 首屏已有最近 2 条（模拟首屏 limit=50 后 hasMoreHistory=true）
-    chat.loadMessages([
-      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
-      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
-    ]);
-    chat.setHasMoreHistory(true);
-    listMessagesMock.mockResolvedValue([
-      { id: "m1", role: "user", content: "第一条（更早）", created_at: "2026-01-01T00:01:00" },
-    ]);
+    // 全量 60 条 → 首屏渲染尾部 50 条（m10..m59），hasMore=true
+    chat.loadFullHistory(makeRecords(60));
+    expect(chat.messages).toHaveLength(50);
 
     const wrapper = mountChatPanel();
     await flush();
@@ -376,25 +384,23 @@ describe("ChatPanel 弹窗", () => {
     // 触发 scroll（jsdom 中 scrollTop=0 < 80 → 满足加载条件）
     await wrapper.find(".chat-messages").trigger("scroll");
     await flush();
-    await flush();
 
-    expect(listMessagesMock).toHaveBeenCalledWith("ses-1", { limit: 50, before: "m2" });
-    // prepend 后整体仍为旧→新
-    expect(chat.messages.map(m => m.id)).toEqual(["m1", "m2", "m3"]);
-    // 返回 1 条 < 50 → 已到顶
+    // 同步内存切片：无网络请求，listMessages 不被滚动触发
+    expect(listMessagesMock).not.toHaveBeenCalled();
+    // prepend 后整体 m0..m59（旧→新）
+    expect(chat.messages).toHaveLength(60);
+    expect(chat.messages[0].id).toBe("m0");
+    expect(chat.loadedFromFull).toBe(60);
+    // 已到顶
     expect(chat.hasMoreHistory).toBe(false);
-    expect(chat.loadingMoreHistory).toBe(false);
   });
 
-  it("hasMoreHistory=false（已到顶）→ 滚动不加载", async () => {
+  it("hasMoreHistory=false（已到顶）→ 滚动不触发切片", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-    chat.loadMessages([
-      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
-      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
-    ]);
-    chat.setHasMoreHistory(false);
+    // 全量 50 条 → 首屏全部渲染，hasMore=false
+    chat.loadFullHistory(makeRecords(50));
 
     const wrapper = mountChatPanel();
     await flush();
@@ -403,39 +409,110 @@ describe("ChatPanel 弹窗", () => {
     await flush();
 
     expect(listMessagesMock).not.toHaveBeenCalled();
+    expect(chat.messages).toHaveLength(50);
+    expect(chat.loadedFromFull).toBe(50);
   });
 
-  it("loadingMoreHistory=true（加载中）→ 滚动不重复加载（防重入）", async () => {
+  it("内存切片耗尽后 hasMoreHistory 置 false → 后续滚动不再触发", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-    chat.loadMessages([
-      { id: "m2", role: "user", content: "第二条", created_at: "2026-01-01T00:02:00" },
-      { id: "m3", role: "user", content: "第三条", created_at: "2026-01-01T00:03:00" },
-    ]);
-    chat.setHasMoreHistory(true);
-    chat.setLoadingMoreHistory(true);
+    // 全量 55 条 → 首屏 50 条（m5..m54），滚动一次切完剩余 5 条
+    chat.loadFullHistory(makeRecords(55));
+    expect(chat.hasMoreHistory).toBe(true);
 
     const wrapper = mountChatPanel();
     await flush();
 
+    // 第一次滚动：切出 m0..m4，到达全量 → hasMore=false
     await wrapper.find(".chat-messages").trigger("scroll");
     await flush();
+    expect(chat.messages).toHaveLength(55);
+    expect(chat.hasMoreHistory).toBe(false);
 
-    expect(listMessagesMock).not.toHaveBeenCalled();
+    // 第二次滚动：不再触发（已到顶）
+    const lengthAfterFirst = chat.messages.length;
+    await wrapper.find(".chat-messages").trigger("scroll");
+    await flush();
+    expect(chat.messages).toHaveLength(lengthAfterFirst);
   });
 
-  it("loadingMoreHistory=true → 消息列表上方显示「加载更早」提示", async () => {
+  // ── 时间线跳转（scrollToTimelineIndex：目标未渲染 → 循环 prepend 后滚动到 DOM）──
+
+  it("scrollToTimelineIndex：目标未渲染 → 从内存切片后滚动到目标 DOM", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-    chat.loadMessages([{ id: "m1", role: "user", content: "已有", created_at: "2026-01-01T00:01:00" }]);
-    chat.setLoadingMoreHistory(true);
+    // 全量 120 条 → 首屏尾部 50 条（m70..m119），m20 未渲染
+    chat.loadFullHistory(makeRecords(120));
 
-    const wrapper = mountChatPanel();
-    await flush();
+    const scrollIntoViewMock = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    try {
+      const wrapper = mountChatPanel();
+      await flush();
 
-    expect(wrapper.text()).toContain("Loading earlier messages");
+      // 跳到全局锚点 index 20（对应 m20）
+      await (wrapper.vm as unknown as { scrollToTimelineIndex: (i: number) => Promise<void> }).scrollToTimelineIndex(20);
+      await flush();
+
+      // 循环 prepend：m20 已进入渲染区（120-50-50=20 → 一次切片 m20..m69）
+      expect(chat.messages.some(m => m.id === "m20")).toBe(true);
+      expect(chat.loadedFromFull).toBe(100);
+      expect(scrollIntoViewMock).toHaveBeenCalled();
+      expect(scrollIntoViewMock.mock.calls[0][0]).toEqual({ block: "start" });
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("scrollToTimelineIndex：目标已渲染 → 不切片直接滚动", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.loadFullHistory(makeRecords(120)); // 首屏 m70..m119
+
+    const scrollIntoViewMock = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    try {
+      const wrapper = mountChatPanel();
+      await flush();
+
+      // m100 已在首屏 → 不触发 prepend
+      await (wrapper.vm as unknown as { scrollToTimelineIndex: (i: number) => Promise<void> }).scrollToTimelineIndex(100);
+      await flush();
+
+      expect(chat.loadedFromFull).toBe(50);
+      expect(chat.messages).toHaveLength(50);
+      expect(scrollIntoViewMock).toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  it("scrollToTimelineIndex：越界 index → 静默返回不滚动", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.loadFullHistory(makeRecords(50));
+
+    const scrollIntoViewMock = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = scrollIntoViewMock;
+    try {
+      const wrapper = mountChatPanel();
+      await flush();
+
+      await (wrapper.vm as unknown as { scrollToTimelineIndex: (i: number) => Promise<void> }).scrollToTimelineIndex(999);
+      await flush();
+
+      expect(chat.loadedFromFull).toBe(50);
+      expect(scrollIntoViewMock).not.toHaveBeenCalled();
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
   });
 });
 

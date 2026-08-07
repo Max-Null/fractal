@@ -91,8 +91,15 @@ export interface TodoItem {
   priority?: "high" | "medium" | "low"
 }
 
+/** 全量历史拉取上限：超限截断（后续虚拟滚动放开）。进入会话一次拉全，内存建索引 + DOM 分页渲染 */
+export const FULL_HISTORY_LIMIT = 500;
+
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<Message[]>([]);
+  /** 全量历史缓存（进入会话一次拉取 ≤FULL_HISTORY_LIMIT，不渲染 DOM，供滚动到顶切片与时间线索引） */
+  const fullHistory = ref<Message[]>([]);
+  /** 已从 fullHistory 尾部加载显示到 messages 的条数（含 prepend 累计），决定下次切片起点 */
+  const loadedFromFull = ref(0);
   const currentAssistantMsg = ref<Message | null>(null);
   const isProcessing = ref(false);
   /** 历史消息加载失败标记（serve 未就绪时 message:list 报错）——消息区展示离线占位而非正常空态 */
@@ -422,9 +429,10 @@ export const useChatStore = defineStore("chat", () => {
     isProcessing.value = false;
     pendingControlRequests.value = [];
     usedAgents.value = new Set();
-    // 切会话/清空时重置分页状态（避免旧会话"还有更早/加载中"标记残留到新会话）
+    // 切会话/清空时重置分页与内存全量状态（避免旧会话"还有更早/全量缓存/时间线"残留到新会话）
     hasMoreHistory.value = false;
-    loadingMoreHistory.value = false;
+    fullHistory.value = [];
+    loadedFromFull.value = 0;
   }
 
   /** 设置历史消息加载失败标记（true=serve 未就绪，消息区灰显离线占位；false=恢复可加载） */
@@ -538,19 +546,12 @@ export const useChatStore = defineStore("chat", () => {
     return blocks;
   }
 
-  /** 是否还有更早消息（首屏 limit=50 返回满 50 条 → 可能还有更早；<50 → 已到顶） */
+  /** 是否还有更早消息（首屏尾部 50 条未达全量 → 还有更早；已到顶 → false） */
   const hasMoreHistory = ref(false);
-  /** 加载更早消息进行中（防滚动重复触发 + 顶部小提示） */
-  const loadingMoreHistory = ref(false);
 
   /** 设置是否还有更早消息 */
   function setHasMoreHistory(v: boolean) {
     hasMoreHistory.value = v;
-  }
-
-  /** 设置加载更早进行中标记 */
-  function setLoadingMoreHistory(v: boolean) {
-    loadingMoreHistory.value = v;
   }
 
   /**
@@ -632,8 +633,61 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /**
+   * 时间线全量索引：fullHistory 全量锚点 + messages 中超出 fullHistory 的新消息（流式新增）锚点合并去重。
+   * 流式消息在 messages 尾部 push 但不在 fullHistory（DB 尚未落库），需要追加锚点保证时间线完整。
+   */
+  const timelineIndex = computed<Array<{ id: string; created: number; role: string }>>(() => {
+    const fullIds = new Set(fullHistory.value.map(m => m.id));
+    return [
+      ...fullHistory.value.map(m => ({ id: m.id, created: m.timestamp || 0, role: m.role })),
+      ...messages.value
+        .filter(m => !fullIds.has(m.id))
+        .map(m => ({ id: m.id, created: m.timestamp || 0, role: m.role })),
+    ];
+  });
+
+  /**
+   * 全量历史加载（进入会话时一次拉取 ≤FULL_HISTORY_LIMIT）：
+   * fullHistory 存全量（内存缓存 + timelineIndex 索引源），DOM 仍只渲染尾部 50 条（内存分页，秒出）。
+   * 内部 clearMessages 清空旧会话残留并负责 setHistoryLoading(false)，调用处勿重复设置。
+   */
+  function loadFullHistory(records: Array<{ id: string; role: string; content: string; created_at: string }>) {
+    clearMessages();
+    fullHistory.value = records.map(recordToMessage);
+    // 首屏只渲染尾部 50 条，其余留在内存供滚动到顶与时间线跳转切片
+    messages.value = fullHistory.value.slice(-50);
+    loadedFromFull.value = Math.min(50, fullHistory.value.length);
+    setHasMoreHistory(fullHistory.value.length > 50);
+    setHistoryLoading(false);
+  }
+
+  /**
+   * 从 fullHistory 内存切片更早消息（同步、无网络），prepend 到头部保持旧→新顺序。
+   * 返回 true=切出内容；false=已到顶（无更多历史）。
+   */
+  function prependFromFullHistory(): boolean {
+    // 已加载数量达到全量 → 没有更早消息
+    if (loadedFromFull.value >= fullHistory.value.length) return false;
+    const next = fullHistory.value.slice(
+      Math.max(0, fullHistory.value.length - loadedFromFull.value - 50),
+      fullHistory.value.length - loadedFromFull.value,
+    );
+    if (next.length === 0) return false;
+    // next 已是旧→新，从后往前 unshift 保证整体仍为旧→新
+    for (let i = next.length - 1; i >= 0; i--) {
+      messages.value.unshift(next[i]);
+    }
+    loadedFromFull.value += next.length;
+    setHasMoreHistory(loadedFromFull.value < fullHistory.value.length);
+    return true;
+  }
+
   return {
     messages,
+    fullHistory,
+    loadedFromFull,
+    timelineIndex,
     currentAssistantMsg,
     isProcessing,
     historyError,
@@ -642,8 +696,6 @@ export const useChatStore = defineStore("chat", () => {
     setHistoryLoading,
     hasMoreHistory,
     setHasMoreHistory,
-    loadingMoreHistory,
-    setLoadingMoreHistory,
     todos,
     pendingControlRequest,
     pendingControlRequests,
@@ -664,6 +716,8 @@ export const useChatStore = defineStore("chat", () => {
     clearMessages,
     loadMessages,
     prependMessages,
+    loadFullHistory,
+    prependFromFullHistory,
     saveSessionCache,
     loadFromCache,
     handleBackgroundStreamEvent,

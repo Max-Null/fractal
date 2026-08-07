@@ -1,5 +1,5 @@
 import { useI18n } from "vue-i18n";
-import { useChatStore, type ToolUse, type ContentBlock, type ToolResult } from "@/stores/chat";
+import { useChatStore, FULL_HISTORY_LIMIT, type ToolUse, type ContentBlock, type ToolResult } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
@@ -397,19 +397,13 @@ export function useStreamProcessor() {
       if (info?.running && chat.historyError && session.activeSessionId) {
         const sid = session.activeSessionId;
         chat.setHistoryLoading(true);
-        listMessages(sid)
+        // 恢复加载与 useSessionSwitch 一致：全量拉取（≤500）缓存 + DOM 分页渲染尾部 50 条
+        listMessages(sid, { limit: FULL_HISTORY_LIMIT })
           .then((msgs) => {
             // 竞态 guard：重试期间可能已切换会话，丢弃过期结果
             if (session.activeSessionId !== sid) return;
-            chat.setHistoryLoading(false);
-            chat.loadMessages(
-              msgs.map((m) => ({
-                id: m.id,
-                role: m.role,
-                content: m.content,
-                created_at: m.created_at,
-              })),
-            );
+            // loadFullHistory 内部已 setHistoryLoading(false)（成功路径），此处不再重复设置
+            chat.loadFullHistory(msgs);
             chat.setHistoryError(false);
             debugLog.add(`🔌 历史消息已自动重载: ${msgs.length} 条`, sid);
           })

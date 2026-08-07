@@ -559,7 +559,7 @@ describe("chat store", () => {
     expect(chat.messages[1].content).toBe("尾部消息");
   });
 
-  // ── hasMoreHistory / loadingMoreHistory（分页状态）──
+  // ── hasMoreHistory（分页状态）──
 
   it("hasMoreHistory 默认 false，setter 可置位/清除", () => {
     const chat = useChatStore();
@@ -570,31 +570,145 @@ describe("chat store", () => {
     expect(chat.hasMoreHistory).toBe(false);
   });
 
-  it("loadingMoreHistory 默认 false，setter 可置位/清除", () => {
-    const chat = useChatStore();
-    expect(chat.loadingMoreHistory).toBe(false);
-    chat.setLoadingMoreHistory(true);
-    expect(chat.loadingMoreHistory).toBe(true);
-    chat.setLoadingMoreHistory(false);
-    expect(chat.loadingMoreHistory).toBe(false);
-  });
-
-  it("loadMessages（全量重载）重置分页状态：hasMoreHistory/loadingMoreHistory 归零", () => {
+  it("loadMessages（全量重载）重置分页状态：hasMoreHistory 归零", () => {
     const chat = useChatStore();
     chat.setHasMoreHistory(true);
-    chat.setLoadingMoreHistory(true);
     chat.loadMessages([{ id: "a1", role: "user", content: "x", created_at: "2026-01-01T00:00:00" }]);
     // 全量重载 = 清空重建，旧会话分页状态不应残留
     expect(chat.hasMoreHistory).toBe(false);
-    expect(chat.loadingMoreHistory).toBe(false);
   });
 
   it("clearMessages 重置分页状态（切会话防残留）", () => {
     const chat = useChatStore();
     chat.setHasMoreHistory(true);
-    chat.setLoadingMoreHistory(true);
     chat.clearMessages();
     expect(chat.hasMoreHistory).toBe(false);
-    expect(chat.loadingMoreHistory).toBe(false);
+  });
+
+  // ── loadFullHistory（内存全量 + DOM 分页：fullHistory 存全量，messages 只渲染尾部 50 条）──
+
+  /** 构造 N 条升序历史记录（m0 最旧） */
+  function makeRecords(n: number): Array<{ id: string; role: string; content: string; created_at: string }> {
+    return Array.from({ length: n }, (_, i) => ({
+      id: `m${i}`,
+      role: "user",
+      content: `msg ${i}`,
+      created_at: `2026-01-01T00:${String(i % 60).padStart(2, "0")}:00`,
+    }));
+  }
+
+  it("loadFullHistory 存全量并只渲染尾部 50 条（DOM 分页）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(120));
+
+    // fullHistory 全量缓存 + 时间线索引源
+    expect(chat.fullHistory).toHaveLength(120);
+    // messages 只渲染尾部 50 条（首屏秒出）
+    expect(chat.messages).toHaveLength(50);
+    expect(chat.messages[0].id).toBe("m70");
+    expect(chat.messages[49].id).toBe("m119");
+    expect(chat.loadedFromFull).toBe(50);
+    // 全量 > 50 → 还有更早
+    expect(chat.hasMoreHistory).toBe(true);
+    // 内部负责退出加载态
+    expect(chat.historyLoading).toBe(false);
+  });
+
+  it("loadFullHistory 返回 ≤50 条 → 全部渲染且 hasMore=false", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(30));
+    expect(chat.fullHistory).toHaveLength(30);
+    expect(chat.messages).toHaveLength(30);
+    expect(chat.loadedFromFull).toBe(30);
+    expect(chat.hasMoreHistory).toBe(false);
+  });
+
+  it("loadFullHistory 先清空旧会话残留（messages/fullHistory 同步重置）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(120));
+    chat.loadFullHistory(makeRecords(10));
+    expect(chat.fullHistory).toHaveLength(10);
+    expect(chat.messages).toHaveLength(10);
+    expect(chat.loadedFromFull).toBe(10);
+  });
+
+  it("loadFullHistory 后 timelineIndex 覆盖全量（含 assistant 锚点）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory([
+      { id: "u1", role: "user", content: "问1", created_at: "2026-01-01T00:01:00" },
+      { id: "a1", role: "assistant", content: "答1", created_at: "2026-01-01T00:02:00" },
+      { id: "u2", role: "user", content: "问2", created_at: "2026-01-01T00:03:00" },
+      { id: "a2", role: "assistant", content: "答2", created_at: "2026-01-01T00:04:00" },
+    ]);
+    expect(chat.timelineIndex.map(m => m.id)).toEqual(["u1", "a1", "u2", "a2"]);
+    expect(chat.timelineIndex[0].role).toBe("user");
+    expect(chat.timelineIndex[1].role).toBe("assistant");
+    expect(chat.timelineIndex[0].created).toBeGreaterThan(0);
+  });
+
+  // ── prependFromFullHistory（从内存切片加载更早，同步无网络）──
+
+  it("prependFromFullHistory 从内存切片更早 50 条且保持旧→新顺序", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(120)); // 首屏 m70..m119
+
+    expect(chat.prependFromFullHistory()).toBe(true);
+    // 切片 m20..m69 → 整体 m20..m119
+    expect(chat.messages).toHaveLength(100);
+    expect(chat.messages[0].id).toBe("m20");
+    expect(chat.messages[49].id).toBe("m69");
+    expect(chat.loadedFromFull).toBe(100);
+    expect(chat.hasMoreHistory).toBe(true);
+
+    // 再次切片 m0..m19 → 全量加载完
+    expect(chat.prependFromFullHistory()).toBe(true);
+    expect(chat.messages).toHaveLength(120);
+    expect(chat.messages[0].id).toBe("m0");
+    expect(chat.loadedFromFull).toBe(120);
+    expect(chat.hasMoreHistory).toBe(false);
+
+    // 已到顶 → 返回 false 且不修改
+    expect(chat.prependFromFullHistory()).toBe(false);
+    expect(chat.messages).toHaveLength(120);
+  });
+
+  it("prependFromFullHistory 全量 ≤50 时直接到顶（返回 false）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(30));
+    expect(chat.prependFromFullHistory()).toBe(false);
+    expect(chat.messages).toHaveLength(30);
+    expect(chat.hasMoreHistory).toBe(false);
+  });
+
+  // ── clearMessages 重置内存全量状态 ──
+
+  it("clearMessages 重置 fullHistory/loadedFromFull/timelineIndex（防旧会话残留）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(120));
+    expect(chat.fullHistory).toHaveLength(120);
+    expect(chat.timelineIndex).toHaveLength(120);
+
+    chat.clearMessages();
+    expect(chat.fullHistory).toHaveLength(0);
+    expect(chat.loadedFromFull).toBe(0);
+    expect(chat.timelineIndex).toHaveLength(0);
+    expect(chat.hasMoreHistory).toBe(false);
+  });
+
+  // ── timelineIndex 合并流式新增消息 ──
+
+  it("timelineIndex 合并流式新增消息（messages push 后出现在时间线且不重复）", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory(makeRecords(5));
+    const before = chat.timelineIndex.length;
+
+    // 流式新增：id 不在 fullHistory（DB 尚未落库）
+    const newId = chat.addUserMessage("流式新消息");
+    expect(chat.timelineIndex).toHaveLength(before + 1);
+    expect(chat.timelineIndex[chat.timelineIndex.length - 1].id).toBe(newId);
+
+    // 全量锚点（fullHistory 部分）不因 messages 尾部渲染而重复
+    const ids = chat.timelineIndex.map(t => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

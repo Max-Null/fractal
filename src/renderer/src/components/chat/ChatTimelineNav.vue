@@ -7,16 +7,20 @@ const { t } = useI18n();
 
 const props = defineProps<{
   messages: Message[];
+  /** 全量时间线索引（含未渲染的历史消息），完整目录的锚点来源 */
+  timeline: Array<{ id: string; created: number; role: string }>;
   scrollContainer: HTMLElement | null;
 }>();
 
-const emit = defineEmits<{ scrollTo: [index: number] }>();
+/** jump 传全局锚点索引（timeline 过滤 user 后），由 ChatPanel 换算目标消息并滚动 */
+const emit = defineEmits<{ jump: [index: number] }>();
 
-const userMessages = computed(() =>
-  props.messages.filter(m => m.role === "user")
+// 全局 user 锚点：timeline（全量索引）过滤 user——目录完整，不受 DOM 分页（只渲染尾部 50 条）影响
+const userTimeline = computed(() =>
+  props.timeline.filter(m => m.role === "user")
 );
 
-// 当前滚动到的用户消息索引（scroll spy）
+// 当前滚动到的用户消息全局索引（scroll spy；index 为 userTimeline 内的位置，与 timelineItems 一致）
 const activeIndex = ref(-1);
 
 function updateActive() {
@@ -24,11 +28,16 @@ function updateActive() {
   if (!c) { activeIndex.value = -1; return; }
   const userEls = c.querySelectorAll<HTMLElement>('[data-role="user"]');
   if (userEls.length === 0) { activeIndex.value = -1; return; }
-  let best = 0;
+  // 局部定位：视口顶部（scrollTop+80 内最后一条）在已渲染 messages 中的 user index
+  let bestLocal = 0;
   userEls.forEach((el, i) => {
-    if (el.offsetTop <= c.scrollTop + 80) best = i;
+    if (el.offsetTop <= c.scrollTop + 80) bestLocal = i;
   });
-  activeIndex.value = best;
+  // 全局换算：视口顶部消息 id → userTimeline（全量）中的位置，保留局部→全局的对应关系
+  const localUsers = props.messages.filter(m => m.role === "user");
+  const topId = localUsers[bestLocal]?.id;
+  const globalIdx = topId ? userTimeline.value.findIndex(u => u.id === topId) : -1;
+  activeIndex.value = globalIdx;
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null;
@@ -82,7 +91,7 @@ interface EllipsisItem { type: "ellipsis"; label: string; jumpTo: number }
 type TimelineItem = DotItem | EllipsisItem;
 
 const timelineItems = computed<TimelineItem[]>(() => {
-  const total = userMessages.value.length;
+  const total = userTimeline.value.length;
   if (total === 0) return [];
 
   const active = activeIndex.value < 0
@@ -91,7 +100,7 @@ const timelineItems = computed<TimelineItem[]>(() => {
 
   // 展开模式或消息少时，全部显示
   if (showAll.value || total <= WINDOW * 2 + 3) {
-    return userMessages.value.map((_, i) => ({ type: "dot" as const, index: i }));
+    return userTimeline.value.map((_, i) => ({ type: "dot" as const, index: i }));
   }
 
   const items: TimelineItem[] = [];
@@ -119,12 +128,20 @@ const timelineItems = computed<TimelineItem[]>(() => {
   return items;
 });
 
+/** 按全局锚点索引取 tooltip 文案：内容来自已渲染 messages（timeline 只含 id/created/role） */
+function tooltipFor(index: number): string {
+  const anchor = userTimeline.value[index];
+  if (!anchor) return "";
+  const msg = props.messages.find(m => m.id === anchor.id);
+  return msg?.content?.slice(0, 80) || "";
+}
+
 const showTooltips = ref(false);
 const justClickedIndex = ref(-1);
 let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
 function onClick(index: number) {
-  emit("scrollTo", index);
+  emit("jump", index);
   // 点击脉冲动画：标记目标点 600ms 后清除（重复点击取消旧计时器）
   if (clickTimer) clearTimeout(clickTimer);
   justClickedIndex.value = index;
@@ -134,7 +151,7 @@ function onClick(index: number) {
 
 <template>
   <div
-    v-if="userMessages.length > 0"
+    v-if="userTimeline.length > 0"
     class="chat-timeline-nav"
     :class="{ 'chat-timeline-nav--expanded': showAll }"
     @mouseenter="showTooltips = true"
@@ -153,7 +170,7 @@ function onClick(index: number) {
       >
         <Transition name="tooltip-fade">
           <div v-if="showTooltips" class="chat-timeline-tooltip">
-            {{ userMessages[item.index].content?.slice(0, 80) || "" }}
+            {{ tooltipFor(item.index) }}
           </div>
         </Transition>
       </div>

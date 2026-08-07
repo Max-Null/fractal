@@ -185,6 +185,7 @@ describe("useStreamProcessor", () => {
     await flushPromises();
 
     // 离线标记清除，消息完整还原（thinking/toolUses/contentBlocks）
+    expect(listMessagesMock).toHaveBeenCalledWith("ses-recover", { limit: 500 });
     expect(chat.historyError).toBe(false);
     expect(chat.messages).toHaveLength(2);
     expect(chat.messages[1].thinking).toBe("思考中");

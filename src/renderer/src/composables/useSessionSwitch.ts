@@ -1,5 +1,5 @@
 import { useRouter } from "vue-router";
-import { useChatStore } from "@/stores/chat";
+import { useChatStore, FULL_HISTORY_LIMIT } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { listMessages } from "@/lib/electron-bridge";
 
@@ -51,22 +51,12 @@ export function useSessionSwitch() {
       }
     } else {
       try {
-        // 首屏分页：limit=50 取尾部最近 50 条（serve 返回升序——旧→新，最近的在底部秒出）
-        const msgs = await listMessages(id, { limit: 50 });
+        // 全量拉取（≤500）：只在内存建立索引与缓存（fullHistory + timelineIndex），DOM 仍分页渲染尾部 50 条
+        const msgs = await listMessages(id, { limit: FULL_HISTORY_LIMIT });
         // 竞态 guard：异步期间可能已切换到其他会话，检查后丢弃过期结果
         if (session.activeSessionId !== id) return;
-        chat.setHistoryLoading(false);
-        chat.loadMessages(
-          msgs.map((m) => ({
-            id: m.id,
-            role: m.role,
-            content: m.content,
-            created_at: m.created_at,
-          })),
-        );
-        // 响应满 50 条 → 可能还有更早（滚动到顶触发加载更早；<50 已到顶）。
-        // 必须在 loadMessages 之后设置：loadMessages 内部 clearMessages 会重置 hasMoreHistory
-        chat.setHasMoreHistory(msgs.length === 50);
+        // loadFullHistory 内部已 setHistoryLoading(false)（成功路径），此处不再重复设置
+        chat.loadFullHistory(msgs);
         // 加载成功 → 清除离线标记（serve 恢复后重载命中此分支）
         chat.setHistoryError(false);
       } catch {

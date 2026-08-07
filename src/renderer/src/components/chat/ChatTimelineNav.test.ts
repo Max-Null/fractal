@@ -19,7 +19,9 @@ function asstMsg(id: string, content: string): Message {
 }
 
 function mountNav(messages: Message[], activeIndex?: number) {
-  return mount(ChatTimelineNav, { props: { messages, scrollContainer: null } });
+  // timeline 默认用已渲染消息构造（旧测试语义：时间线 = 消息）；全量目录场景单独传 timeline
+  const timeline = messages.map(m => ({ id: m.id, created: m.timestamp, role: m.role }));
+  return mount(ChatTimelineNav, { props: { messages, timeline, scrollContainer: null } });
 }
 
 function dotCount(wrapper: ReturnType<typeof mountNav>) {
@@ -173,18 +175,25 @@ describe("ChatTimelineNav", () => {
 
   // ═══ 点击交互 ═══
 
-  it("点击 dot 发射 scrollTo 事件", async () => {
+  it("点击 dot 发射 jump（全局锚点索引）", async () => {
     const msgs = [userMsg("u0", "A"), asstMsg("a0", "R"), userMsg("u1", "B"), asstMsg("a1", "R2")];
-    const w = mountNav(msgs);
-    // ≤7 条消息不压缩，全部显示
+    // timeline 含 assistant 锚点（完整目录）→ user 过滤后锚点 2 个，index 0/1
+    const timeline = [
+      { id: "u0", created: 0, role: "user" as const },
+      { id: "a0", created: 1, role: "assistant" as const },
+      { id: "u1", created: 2, role: "user" as const },
+      { id: "a1", created: 3, role: "assistant" as const },
+    ];
+    const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: null } });
+    // ≤7 条消息不压缩，全部显示（user 锚点 2 个）
     const dots = w.findAll(".chat-timeline-dot");
     expect(dots.length).toBe(2);
 
     await dots[1].trigger("click");
-    expect(w.emitted("scrollTo")).toEqual([[1]]);
+    expect(w.emitted("jump")).toEqual([[1]]);
   });
 
-  it("点击省略号跳到隐藏区间中点", async () => {
+  it("点击省略号跳到隐藏区间中点（全局索引）", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
@@ -195,7 +204,75 @@ describe("ChatTimelineNav", () => {
 
     await ellipsis.trigger("click");
     // activeIndex=-1 → rangeStart=17 → jumpTo = floor(17/2) = 8
-    expect(w.emitted("scrollTo")).toEqual([[8]]);
+    expect(w.emitted("jump")).toEqual([[8]]);
+  });
+
+  // ═══ timeline 全量索引（完整目录，不受 DOM 分页影响）═══
+
+  it("timeline 全量索引渲染：50 条 messages + 500 条 timeline → Alt 展开后圆点按 timeline 全量", async () => {
+    const msgs: Message[] = [];
+    for (let i = 0; i < 50; i++) {
+      msgs.push(userMsg(`u${i}`, `msg ${i}`));
+    }
+    // 完整目录 500 个 user 锚点（messages 只渲染尾部 50 条，但时间线应全量展示）
+    const timeline = Array.from({ length: 500 }, (_, i) => ({ id: `u${i}`, created: i, role: "user" as const }));
+    const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: null } });
+
+    // 压缩模式（>7 条）：不全部显示，但锚点基于全量 500
+    const ellipsis = w.find(".chat-timeline-ellipsis");
+    expect(ellipsis.exists()).toBe(true);
+
+    // Alt 展开 → 500 个点（完整目录）
+    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt" }));
+    expect(dotCount(w)).toBe(500);
+    await window.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+  });
+
+  it("timeline 过滤 assistant 后作为锚点（user 目录）", () => {
+    const msgs = [userMsg("u0", "A"), asstMsg("a0", "R")];
+    const timeline = [
+      { id: "u0", created: 0, role: "user" as const },
+      { id: "a0", created: 1, role: "assistant" as const },
+      { id: "u1", created: 2, role: "user" as const }, // 全量目录有但未渲染（DOM 分页外）
+    ];
+    const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: null } });
+    // user 锚点 = timeline 过滤 user → 2 个（u0、u1），不因 messages 只有 1 条 user 而缩水
+    expect(dotCount(w)).toBe(2);
+  });
+
+  // ═══ 全局 active 换算（视口顶部消息 → timeline 全量中的位置）═══
+
+  it("activeIndex 全局换算：视口顶部消息映射到 timeline 全量索引", async () => {
+    // messages 只渲染尾部 2 条（u2/u3），timeline 全量 4 条（u0..u3）
+    const msgs = [userMsg("u2", "C"), userMsg("u3", "D")];
+    const timeline = [
+      { id: "u0", created: 0, role: "user" as const },
+      { id: "u1", created: 1, role: "user" as const },
+      { id: "u2", created: 2, role: "user" as const },
+      { id: "u3", created: 3, role: "user" as const },
+    ];
+    // mock 容器：el0 在视口顶部（offsetTop=100 ≤ scrollTop+80=230），el1 在下方
+    const el0 = document.createElement("div");
+    el0.setAttribute("data-role", "user");
+    Object.defineProperty(el0, "offsetTop", { value: 100 });
+    const el1 = document.createElement("div");
+    el1.setAttribute("data-role", "user");
+    Object.defineProperty(el1, "offsetTop", { value: 500 });
+    const container = {
+      querySelectorAll: (sel: string) => (sel === '[data-role="user"]' ? [el0, el1] : []),
+      scrollTop: 150,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    } as unknown as HTMLElement;
+
+    const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: container } });
+    // watch immediate → scheduleUpdate → 80ms 后 updateActive
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 视口顶部为 u2 → 全局 userTimeline index = 2 → 第 3 个点高亮
+    const dots = w.findAll(".chat-timeline-dot");
+    expect(dots.length).toBe(4); // total=4 ≤ 7 → 全部显示
+    expect(dots[2].classes()).toContain("chat-timeline-dot--active");
   });
 
   // ═══ tooltip ═══

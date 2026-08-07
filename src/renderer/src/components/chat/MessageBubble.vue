@@ -150,7 +150,11 @@ function summarizeResult(content: string): string {
 </script>
 
 <template>
-  <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']" :data-role="message.role">
+  <div
+    :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']"
+    :data-role="message.role"
+    :data-message-id="message.id"
+  >
     <!-- Avatar -->
     <div
       class="msg-avatar"
