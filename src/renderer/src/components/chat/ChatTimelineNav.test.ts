@@ -6,7 +6,7 @@ import type { Message } from "@/stores/chat";
 vi.mock("vue-i18n", () => ({
   useI18n: () => ({ t: (k: string, p?: Record<string, unknown>) => {
     if (k === "chat.timelineEllipsis" && p) return `${p.n} messages`;
-    if (k === "chat.timelineExpandHint") return "Hold Alt to expand all";
+    if (k === "chat.timelineExpandHint") return "Hover or click to expand all";
     return k;
   }}),
 }));
@@ -125,9 +125,9 @@ describe("ChatTimelineNav", () => {
     // 隐藏的是 1~16，共 16 条，不是 17 或 18 ✓
   });
 
-  // ═══ Alt 展开 ═══
+  // ═══ 展开交互（hover 展开 + 点击省略号切换；原 Alt 键已移除——与 Windows 菜单栏冲突）═══
 
-  it("按下 Alt 展开全部点", async () => {
+  it("鼠标悬停展开全部点", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
@@ -136,41 +136,44 @@ describe("ChatTimelineNav", () => {
     // 压缩模式下只有 4 个点
     expect(dotCount(w)).toBe(4);
 
-    // 模拟 Alt 按下
-    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt" }));
+    // 悬停导航区 → 展开全部
+    await w.find(".chat-timeline-nav").trigger("mouseenter");
     expect(dotCount(w)).toBe(20);
 
-    // 模拟 Alt 松开
-    await window.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+    // 移出 → 恢复压缩
+    await w.find(".chat-timeline-nav").trigger("mouseleave");
     expect(dotCount(w)).toBe(4);
   });
 
-  it("Alt 松开后恢复压缩", async () => {
+  it("点击省略号切换持久展开，再点收起", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
     }
     const w = mountNav(msgs);
+    expect(dotCount(w)).toBe(4);
 
-    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt" }));
+    // 点击省略号 → 展开全部（持久，移出不收起）
+    await w.find(".chat-timeline-ellipsis").trigger("click");
+    expect(dotCount(w)).toBe(20);
+    await w.find(".chat-timeline-nav").trigger("mouseleave");
     expect(dotCount(w)).toBe(20);
 
-    await window.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+    // 展开后省略号消失，出现收起按钮 → 点击收起
+    expect(w.findAll(".chat-timeline-ellipsis")).toHaveLength(0);
+    await w.find(".chat-timeline-collapse").trigger("click");
     expect(dotCount(w)).toBe(4);
-    // blur 重置逻辑由 e2e 覆盖（happy-dom 不支持 window blur 事件）
   });
 
-  it("Alt 重复事件不重复触发", async () => {
+  it("持久展开时省略号点击不触发跳转", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
     }
     const w = mountNav(msgs);
-
-    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt" }));
-    // repeat 事件不应改变状态
-    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt", repeat: true }));
-    expect(dotCount(w)).toBe(20);
+    await w.find(".chat-timeline-ellipsis").trigger("click");
+    // 展开后省略号消失（全部渲染为 dot）→ 无省略号可点，jump 不被误触发
+    expect(w.findAll(".chat-timeline-ellipsis")).toHaveLength(0);
   });
 
   // ═══ 点击交互 ═══
@@ -193,7 +196,7 @@ describe("ChatTimelineNav", () => {
     expect(w.emitted("jump")).toEqual([[1]]);
   });
 
-  it("点击省略号跳到隐藏区间中点（全局索引）", async () => {
+  it("点击省略号展开全部（不再直接跳转，跳转走展开后的 dot）", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
@@ -203,13 +206,14 @@ describe("ChatTimelineNav", () => {
     expect(ellipsis.exists()).toBe(true);
 
     await ellipsis.trigger("click");
-    // activeIndex=-1 → rangeStart=17 → jumpTo = floor(17/2) = 8
-    expect(w.emitted("jump")).toEqual([[8]]);
+    // 省略号语义改为展开：不发射 jump，全部圆点渲染
+    expect(w.emitted("jump")).toBeUndefined();
+    expect(dotCount(w)).toBe(20);
   });
 
   // ═══ timeline 全量索引（完整目录，不受 DOM 分页影响）═══
 
-  it("timeline 全量索引渲染：50 条 messages + 500 条 timeline → Alt 展开后圆点按 timeline 全量", async () => {
+  it("timeline 全量索引渲染：50 条 messages + 500 条 timeline → 悬停展开后圆点按 timeline 全量", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 50; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`));
@@ -222,10 +226,10 @@ describe("ChatTimelineNav", () => {
     const ellipsis = w.find(".chat-timeline-ellipsis");
     expect(ellipsis.exists()).toBe(true);
 
-    // Alt 展开 → 500 个点（完整目录）
-    await window.dispatchEvent(new KeyboardEvent("keydown", { key: "Alt" }));
+    // 悬停展开 → 500 个点（完整目录）
+    await w.find(".chat-timeline-nav").trigger("mouseenter");
     expect(dotCount(w)).toBe(500);
-    await window.dispatchEvent(new KeyboardEvent("keyup", { key: "Alt" }));
+    await w.find(".chat-timeline-nav").trigger("mouseleave");
   });
 
   it("timeline 过滤 assistant 后作为锚点（user 目录）", () => {

@@ -61,25 +61,19 @@ onUnmounted(() => {
 });
 
 // ── 展开/压缩状态 ──
-const showAll = ref(false);
+// 交互：鼠标悬停展开全部 + 点击省略号切换持久展开
+// （原 Alt 键展开与 Windows Alt 激活菜单栏冲突，已移除全局 Alt 监听）
+const hovered = ref(false);
+const expandedClick = ref(false);
+const showAll = computed(() => hovered.value || expandedClick.value);
 
-function onKeyDown(e: KeyboardEvent) {
-  if (e.key === "Alt" && !e.repeat) showAll.value = true;
-}
-function onKeyUp(e: KeyboardEvent) {
-  if (e.key === "Alt") showAll.value = false;
-}
-// 切窗/失焦时重置，防止 showAll 卡在 true
-function onBlur() { showAll.value = false; }
+function onMouseEnter() { hovered.value = true; }
+function onMouseLeave() { hovered.value = false; }
+function toggleExpanded() { expandedClick.value = !expandedClick.value; }
 onMounted(() => {
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("keyup", onKeyUp);
-  window.addEventListener("blur", onBlur);
+  if (clickTimer) clearTimeout(clickTimer);
 });
 onUnmounted(() => {
-  window.removeEventListener("keydown", onKeyDown);
-  window.removeEventListener("keyup", onKeyUp);
-  window.removeEventListener("blur", onBlur);
   if (clickTimer) clearTimeout(clickTimer);
 });
 
@@ -136,7 +130,6 @@ function tooltipFor(index: number): string {
   return msg?.content?.slice(0, 80) || "";
 }
 
-const showTooltips = ref(false);
 const justClickedIndex = ref(-1);
 let clickTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -154,10 +147,12 @@ function onClick(index: number) {
     v-if="userTimeline.length > 0"
     class="chat-timeline-nav"
     :class="{ 'chat-timeline-nav--expanded': showAll }"
-    @mouseenter="showTooltips = true"
-    @mouseleave="showTooltips = false"
+    @mouseenter="onMouseEnter"
+    @mouseleave="onMouseLeave"
   >
     <template v-for="item in timelineItems" :key="item.type === 'dot' ? 'd'+item.index : 'e'+item.jumpTo">
+      <!-- 展开模式下的收起按钮（置于首位，展开后省略号消失，需要独立收起入口） -->
+      <div v-if="item.type === 'dot' && item.index === 0 && showAll" class="chat-timeline-collapse" title="收起" @click="toggleExpanded">×</div>
       <!-- 消息点 -->
       <div
         v-if="item.type === 'dot'"
@@ -169,17 +164,17 @@ function onClick(index: number) {
         @click="onClick(item.index)"
       >
         <Transition name="tooltip-fade">
-          <div v-if="showTooltips" class="chat-timeline-tooltip">
+          <div v-if="hovered" class="chat-timeline-tooltip">
             {{ tooltipFor(item.index) }}
           </div>
         </Transition>
       </div>
-      <!-- 省略号 -->
+      <!-- 省略号（点击展开/收起全部） -->
       <div
         v-else
         class="chat-timeline-ellipsis"
-        :title="item.label + '（' + t('chat.timelineExpandHint') + '）'"
-        @click="onClick(item.jumpTo)"
+        :title="expandedClick ? t('chat.timelineCollapseHint') : item.label + '（' + t('chat.timelineExpandHint') + '）'"
+        @click="toggleExpanded"
       >…</div>
     </template>
   </div>
@@ -214,6 +209,28 @@ function onClick(index: number) {
   pointer-events: auto;
   flex-shrink: 0;
   transition: background 150ms, scale 150ms;
+}
+/* 展开模式收起按钮：置于首位，与 dot 同尺寸但十字标记，hover 高亮 */
+.chat-timeline-collapse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  pointer-events: auto;
+  flex-shrink: 0;
+  transition: background 150ms, color 150ms;
+}
+.chat-timeline-collapse:hover {
+  background: var(--accent);
+  color: #fff;
 }
 .chat-timeline-dot:hover {
   background: var(--accent);

@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "title": "Fractal"
   },
@@ -36,7 +36,8 @@
     "exportTitle": "Export session as Markdown",
     "scrollToBottom": "Scroll to bottom",
     "timelineEllipsis": "{n} messages",
-    "timelineExpandHint": "Hold Alt to expand all",
+    "timelineExpandHint": "Hover or click to expand all",
+    "timelineCollapseHint": "Click to collapse",
     "allow": "Allow",
     "deny": "Deny",
     "alwaysAllow": "Always allow",

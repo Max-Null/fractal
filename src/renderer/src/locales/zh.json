@@ -1,4 +1,4 @@
-{
+﻿{
   "app": {
     "title": "分形"
   },
@@ -36,7 +36,8 @@
     "exportTitle": "导出会话为 Markdown",
     "scrollToBottom": "滚动到底部",
     "timelineEllipsis": "{n} 条消息",
-    "timelineExpandHint": "按住 Alt 展开全部",
+    "timelineExpandHint": "悬停或点击展开全部",
+    "timelineCollapseHint": "点击收起",
     "allow": "允许",
     "deny": "拒绝",
     "alwaysAllow": "总是允许",
