@@ -22,6 +22,11 @@ vi.mock("@/lib/utils", () => ({
   translateError: (e: unknown) => ({ key: "error", params: { message: String(e) } }),
 }));
 
+// ── Mock settings store（工作区切换 watch 使用）──
+vi.mock("@/stores/settings", () => ({
+  useSettingsStore: () => ({ cwd: ref("C:\\project") }),
+}));
+
 // ── i18n ──
 const i18n = createI18n({
   legacy: false,

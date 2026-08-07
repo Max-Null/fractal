@@ -215,6 +215,11 @@ function onWsPickDirectory() {
 }
 function onWsPickRecent(path: string) {
   showWsMenu.value = false;
+  if (path === cwd.value) {
+    // 点击当前工作区项：无切换动作，给可见反馈避免「点了没反应」
+    alertText.value = "已在该工作区";
+    return;
+  }
   switchToWorkspace(path);
 }
 function onBodyClickForWs(e: MouseEvent) {

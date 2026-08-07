@@ -13,10 +13,12 @@ import StatusPanel from "@/components/panel/StatusPanel.vue";
 import PlansPanel from "@/components/panel/PlansPanel.vue";
 import SkillsPanel from "@/components/panel/SkillsPanel.vue";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
+import { useSettingsStore } from "@/stores/settings";
 
 const props = defineProps<{ navCounter?: number; navPath?: string; forceClose?: number }>();
 
 const { t } = useI18n();
+const settings = useSettingsStore();
 const collapsed = ref(true);
 const rootPath = ref("");
 const workspaceRoot = ref("");
@@ -110,6 +112,16 @@ watch(() => props.navPath, async (path) => {
   try { files.value = await listDir(path); } catch {}
 });
 watch(() => props.forceClose, () => { collapsed.value = true; });
+// 工作区切换 → 文件面板目录跟随（rootPath 随 cwd 更新；面板收起时展开自动刷新——L114 的 collapsed watch 兜底）
+watch(() => settings.cwd, async (path) => {
+  if (!path || path === rootPath.value) return;
+  rootPath.value = path;
+  clearPreview();
+  if (!collapsed.value) {
+    try { files.value = await listDir(path); } catch {}
+    refreshKey.value++;
+  }
+});
 // 打开面板时自动刷新目录（CC 可能已修改文件）
 watch(collapsed, async (v) => {
   if (!v && rootPath.value) { try { files.value = await listDir(rootPath.value); } catch {} }
