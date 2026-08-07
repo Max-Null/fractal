@@ -62,6 +62,8 @@ export interface PromptOptions {
   model?: { providerID: string; modelID: string }
   system?: string
   agent?: string
+  /** 思考强度 variant（模型 variant 名，如 low/high/max——spec 实测 prompt_async body 顶层字段） */
+  variant?: string
 }
 
 /** 权限审批响应（SDK 1.18.13 枚举，always 即"记住"） */
@@ -244,31 +246,38 @@ export function createOcClient(options: OcClientOptions): OcClient {
       abort: async (id) => normalizeError<boolean>(await client.session.abort({ path: { id } })),
       // prompt 同步等待模型完成（返回完整消息），promptAsync 仅提交（结果走 SSE）
       prompt: async (id, text, opts) => {
-        const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string } = {
+        const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
           parts: [{ type: 'text', text }],
         }
         if (opts?.model) body.model = opts.model
         if (opts?.system) body.system = opts.system
         if (opts?.agent) body.agent = opts.agent
+        // variant 不在 SDK types.gen 的 body 类型（spec 实测 prompt_async/prompt 顶层支持）——
+        // body 是变量非字面量，多出属性不触发 excess property check，运行时原样透传
+        if (opts?.variant) body.variant = opts.variant
         return normalizeError<SessionMessage>(await client.session.prompt({ path: { id }, body }))
       },
       promptAsync: async (id, text, opts) => {
-        const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string } = {
+        const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
           parts: [{ type: 'text', text }],
         }
         if (opts?.model) body.model = opts.model
         if (opts?.system) body.system = opts.system
         if (opts?.agent) body.agent = opts.agent
+        // variant 同 prompt：spec 实测字段，SDK 类型未生成——变量透传绕过类型检查（注释见 prompt）
+        if (opts?.variant) body.variant = opts.variant
         // promptAsync 成功返回 204 void（data 为空对象），无需 data 校验
         await client.session.promptAsync({ path: { id }, body })
       },
       promptPartsAsync: async (id, parts, opts) => {
-        const body: { parts: Array<TextPartInput | FilePartInput>; model?: PromptOptions['model']; system?: string; agent?: string } = {
+        const body: { parts: Array<TextPartInput | FilePartInput>; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
           parts,
         }
         if (opts?.model) body.model = opts.model
         if (opts?.system) body.system = opts.system
         if (opts?.agent) body.agent = opts.agent
+        // variant 同 prompt：spec 实测字段，SDK 类型未生成——变量透传绕过类型检查（注释见 prompt）
+        if (opts?.variant) body.variant = opts.variant
         await client.session.promptAsync({ path: { id }, body })
       },
       messages: async (id, options) => {

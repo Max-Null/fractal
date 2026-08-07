@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 import { nextTick } from "vue";
 import { useSettingsStore } from "./settings";
@@ -7,6 +7,16 @@ describe("settings store", () => {
   beforeEach(() => {
     localStorage.clear();
     setActivePinia(createPinia());
+    // mock electronBridge：store 的 watch(model, immediate) 会拉取模型 variants，
+    // 测试环境无 bridge 时 loadModelVariants 抛错 → modelVariants=[] → effort 被清空，破坏默认值断言。
+    // 模拟默认 pro 模型（deepseek-v4-pro）返回 ['high','max']，effort 默认 high 保留。
+    (window as unknown as { electronBridge: unknown }).electronBridge = {
+      invoke: vi.fn().mockImplementation((channel: string) => {
+        if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+        return Promise.resolve({});
+      }),
+      on: vi.fn().mockReturnValue(() => {}),
+    };
   });
 
   it("has default values", () => {
@@ -45,6 +55,17 @@ describe("settings store", () => {
     expect(parsed.theme).toBe("light");
   });
 
+  it("persists effort（variant 值）to localStorage", async () => {
+    const settings = useSettingsStore();
+    settings.effort = "max";
+    await nextTick();
+
+    const raw = localStorage.getItem("sb-ui-settings");
+    const parsed = JSON.parse(raw!);
+    // 持久化字段值即 variant 名（不再是旧 6 档枚举）
+    expect(parsed.effort).toBe("max");
+  });
+
   it("loads UI preferences from localStorage on init", () => {
     localStorage.setItem(
       "sb-ui-settings",
@@ -58,6 +79,8 @@ describe("settings store", () => {
     expect(settings.autoMode).toBe(false);
     expect(settings.permissionMode).toBe("default");
     expect(settings.theme).toBe("light");
+    // 旧 6 档 effort 读入归一为 variant（xhigh → high）
+    expect(settings.effort).toBe("high");
   });
 
   it("switches between plan and auto mode", () => {
@@ -76,14 +99,39 @@ describe("settings store", () => {
     expect(settings.permissionMode).toBe("bypassPermissions");
   });
 
-  it("switches effort levels including ultracode", () => {
+  it("switches effort (variant) levels", () => {
     const settings = useSettingsStore();
-    settings.effort = "xhigh";
-    expect(settings.effort).toBe("xhigh");
-    settings.effort = "ultracode";
-    expect(settings.effort).toBe("ultracode");
     settings.effort = "low";
     expect(settings.effort).toBe("low");
+    settings.effort = "high";
+    expect(settings.effort).toBe("high");
+    settings.effort = "max";
+    expect(settings.effort).toBe("max");
+    settings.effort = "";
+    expect(settings.effort).toBe("");
+  });
+
+  it("modelVariants setter：无 variants → effort 清空（模型无思考强度不传）", () => {
+    const settings = useSettingsStore();
+    settings.setModelVariants([]);
+    expect(settings.modelVariants).toEqual([]);
+    expect(settings.effort).toBe("");
+  });
+
+  it("modelVariants setter：variants 不含当前 effort → 归一到 high（默认档）", () => {
+    const settings = useSettingsStore();
+    settings.effort = "low";
+    settings.setModelVariants(["high", "max"]);
+    expect(settings.modelVariants).toEqual(["high", "max"]);
+    expect(settings.effort).toBe("high");
+  });
+
+  it("modelVariants setter：variants 含当前 effort → 保留", () => {
+    const settings = useSettingsStore();
+    settings.effort = "max";
+    settings.setModelVariants(["low", "high", "max"]);
+    expect(settings.modelVariants).toEqual(["low", "high", "max"]);
+    expect(settings.effort).toBe("max");
   });
 
   it("switches currentAgent and persists to localStorage", async () => {
@@ -209,10 +257,15 @@ describe("settings store", () => {
     expect(settings.permissionMode).toBe("default");
   });
 
-  it("applySettingsJson：agent.effort / agent.contextLimit 同步", () => {
+  it("applySettingsJson：agent.effort / agent.contextLimit 同步（旧档位 medium 归一到 low）", () => {
     const settings = useSettingsStore();
     settings.applySettingsJson({ "agent.effort": "medium", "agent.contextLimit": 128000 });
-    expect(settings.effort).toBe("medium");
+    expect(settings.effort).toBe("low");
     expect(settings.contextLimit).toBe(128000);
+    // variant 值原样生效
+    settings.applySettingsJson({ "agent.effort": "max" });
+    expect(settings.effort).toBe("max");
+    settings.applySettingsJson({ "agent.effort": "high" });
+    expect(settings.effort).toBe("high");
   });
 });

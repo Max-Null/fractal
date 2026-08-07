@@ -13,7 +13,7 @@
     "ui.avatar": { "type": "string", "default": "", "description": "用户头像（base64 或图片路径）" },
     "deepseek.model": { "type": "string", "enum": ["deepseek-v4-flash", "deepseek-v4-pro"], "default": "deepseek-v4-flash", "description": "DeepSeek 默认模型（同步到 opencode.json）" },
     "agent.permissionMode": { "type": "string", "enum": ["default", "acceptEdits", "plan", "auto"], "default": "default", "description": "权限模式（同步到 opencode.json permission）" },
-    "agent.effort": { "type": "string", "enum": ["low", "medium", "high"], "default": "high", "description": "思考深度" },
+    "agent.effort": { "type": "string", "enum": ["low", "high", "max", "medium", "xhigh", "ultracode"], "default": "high", "description": "思考强度 variant（低/高/最大；旧档位 medium/xhigh/ultracode 读入自动归一）" },
     "agent.contextLimit": { "type": "integer", "minimum": 0, "default": 0, "description": "上下文上限（tokens）：0=自动获取模型窗口" },
     "preset.skills.enabled": { "type": "boolean", "default": true, "description": "预置技能包开关" },
     "preset.mcp.filesystem": { "type": "boolean", "default": true, "description": "预置文件系统 MCP 开关" },

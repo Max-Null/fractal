@@ -226,7 +226,7 @@ function selectModel(value: string) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// 权限模式 / 推理强度（从原 InputBarToolbar 原样复用，字段与映射不变）
+// 权限模式 / 思考强度（variant 语义：思考强度 = OC 模型 variant，非前端假功能）
 // ══════════════════════════════════════════════════════════════
 
 // 权限模式下拉：对齐原型 4 项（询问/自动编辑/全自动/计划）——auto（serve 启动参数，非会话级）与 dontAsk（CC 遗留）移除
@@ -237,18 +237,26 @@ const modeOptions = [
   { value: "plan", label: () => t("mode.plan") },
 ];
 
-// Effort levels with progressive colors (low → calm, ultracode → intense)
-const effortOptions: Array<{ value: Effort; label: () => string; color: string }> = [
-  { value: "low", label: () => t("mode.effort.low"), color: "#22c55e" },
-  { value: "medium", label: () => t("mode.effort.medium"), color: "#14b8a6" },
-  { value: "high", label: () => t("mode.effort.high"), color: "#f59e0b" },
-  { value: "xhigh", label: () => t("mode.effort.xhigh"), color: "#f97316" },
-  { value: "max", label: () => t("mode.effort.max"), color: "#ef4444" },
-  { value: "ultracode", label: () => t("mode.effort.ultracode"), color: "#8b5cf6" },
-];
+/** 思考强度 variant 映射表（OC 模型 variant 三档：低/高/最大；medium/xhigh/ultracode 为 CC 遗留档已删） */
+const EFFORT_VARIANTS: Record<string, { label: () => string; color: string }> = {
+  low: { label: () => t("mode.effort.low"), color: "#22c55e" },
+  high: { label: () => t("mode.effort.high"), color: "#f59e0b" },
+  max: { label: () => t("mode.effort.max"), color: "#ef4444" },
+};
+
+/**
+ * 选项 = settings.modelVariants 的映射子集（顺序固定 low/high/max，过滤当前模型不可用的档）。
+ * modelVariants 空（模型无 variants，如 deepseek-chat/reasoner）→ 空数组 → 模板 v-if 隐藏选择器。
+ */
+const effortOptions = computed<Array<{ value: Effort; label: () => string; color: string }>>(() => {
+  const order = ["low", "high", "max"] as const;
+  return order
+    .filter((v) => settings.modelVariants.includes(v))
+    .map((v) => ({ value: v as Effort, ...EFFORT_VARIANTS[v] }));
+});
 
 const currentEffortColor = computed(() => {
-  return effortOptions.find(o => o.value === settings.effort)?.color || "var(--amber)";
+  return effortOptions.value.find(o => o.value === settings.effort)?.color || "var(--amber)";
 });
 
 // ── Custom dropdowns ──
@@ -263,21 +271,9 @@ function selectMode(value: string) {
   openMenu.value = null;
 }
 
-const effortWarning = ref("");
-let effortWarnTimer: ReturnType<typeof setTimeout> | null = null;
-
 function selectEffort(value: Effort) {
   settings.effort = value;
   openMenu.value = null;
-
-  // xhigh + DeepSeek 组合在引擎侧有工具兼容问题，给用户 5s 可见警告
-  if (value === "xhigh" && settings.model.toLowerCase().includes("deepseek")) {
-    effortWarning.value = t("effortWarning");
-    if (effortWarnTimer) clearTimeout(effortWarnTimer);
-    effortWarnTimer = setTimeout(() => effortWarning.value = "", 5000);
-  } else {
-    effortWarning.value = "";
-  }
 }
 
 function closeMenus() {
@@ -313,7 +309,7 @@ const currentModeLabel = computed(() => {
 });
 
 const currentEffortLabel = computed(() => {
-  const e = effortOptions.find(o => o.value === settings.effort);
+  const e = effortOptions.value.find(o => o.value === settings.effort);
   return e ? e.label() : settings.effort;
 });
 
@@ -476,8 +472,8 @@ const canSend = computed(() => input.value.trim().length > 0);
             </Transition>
           </div>
 
-          <!-- ⚡ 推理强度 -->
-          <div class="composer-select" @click.stop="toggleMenu('effort')" :title="$t('composer.effortTitle')">
+          <!-- ⚡ 推理强度（仅当前模型有 variants 时显示；无 variants 模型不渲染选择器） -->
+          <div v-if="effortOptions.length > 0" class="composer-select" @click.stop="toggleMenu('effort')" :title="$t('composer.effortTitle')">
             <span class="pill-bolt" :style="{ color: currentEffortColor }">⚡</span><span :style="{ color: currentEffortColor }">{{ currentEffortLabel }}</span><span class="pill-caret" :style="{ color: currentEffortColor }">▾</span>
             <Transition name="drop">
               <div v-if="openMenu === 'effort'" class="dropdown-menu">
@@ -538,14 +534,6 @@ const canSend = computed(() => input.value.trim().length > 0);
           <!-- 左侧扩展插槽：ChatPanel 注入 debug 按钮 -->
           <slot name="left" />
         </div>
-      </div>
-    </div>
-
-    <!-- Effort warning（xhigh + DeepSeek 兼容警告） -->
-    <div v-if="effortWarning" class="effort-warning">
-      <div class="effort-warning-banner">
-        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-        {{ effortWarning }}
       </div>
     </div>
   </div>
@@ -939,24 +927,6 @@ const canSend = computed(() => input.value.trim().length > 0);
 .slash-ac-active {
   background: var(--accent-glow);
   color: var(--accent);
-}
-
-/* ── Effort warning ── */
-.effort-warning {
-  max-width: 760px;
-  margin-inline: auto;
-  padding-bottom: 4px;
-}
-.effort-warning-banner {
-  font-size: 10px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--amber-glow);
-  color: var(--amber);
-  border: 1px solid rgba(245, 166, 35, 0.2);
 }
 
 /* ── Dropdown animation ── */

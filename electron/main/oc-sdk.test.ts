@@ -120,6 +120,7 @@ describe('normalizeError', () => {
 const sdkMocks = vi.hoisted(() => ({
   sessionCreate: vi.fn().mockResolvedValue({ data: { id: 'ses_mock' } }),
   sessionMessages: vi.fn().mockResolvedValue({ data: [] }),
+  sessionPromptAsync: vi.fn().mockResolvedValue({ data: {} }),
 }))
 vi.mock('@opencode-ai/sdk', () => ({
   createOpencodeClient: () => ({
@@ -132,7 +133,7 @@ vi.mock('@opencode-ai/sdk', () => ({
       fork: vi.fn(),
       abort: vi.fn(),
       prompt: vi.fn(),
-      promptAsync: vi.fn(),
+      promptAsync: sdkMocks.sessionPromptAsync,
       messages: sdkMocks.sessionMessages,
     },
     permission: { respond: vi.fn() },
@@ -195,5 +196,31 @@ describe('session.messages 分页', () => {
       path: { id: 'ses_1' },
       query: undefined,
     })
+  })
+})
+
+// ── promptAsync variant 透传（思考强度真实接入引擎）──
+
+describe('session.promptAsync variant', () => {
+  it('传 variant → body 含 variant（spec 实测 prompt_async body 顶层字段，SDK 类型未生成但运行时透传）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionPromptAsync.mockClear()
+    await client.session.promptAsync('ses_1', '你好', { model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' }, variant: 'high' })
+    expect(sdkMocks.sessionPromptAsync).toHaveBeenCalledWith({
+      path: { id: 'ses_1' },
+      body: {
+        parts: [{ type: 'text', text: '你好' }],
+        model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
+        variant: 'high',
+      },
+    })
+  })
+
+  it('不传 variant → body 不含 variant（缺省走 serve 默认）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionPromptAsync.mockClear()
+    await client.session.promptAsync('ses_1', 'hi')
+    const body = sdkMocks.sessionPromptAsync.mock.calls[0][0].body as Record<string, unknown>
+    expect(body).not.toHaveProperty('variant')
   })
 })

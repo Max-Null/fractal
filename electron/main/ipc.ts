@@ -499,10 +499,15 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
         model?: { providerID: string; modelID: string }
         agent?: string
         attachments?: Array<{ path: string; name: string }>
+        variant?: string
       }
     ) => {
       if (typeof args?.sessionId !== 'string' || typeof args?.message !== 'string') {
         throw new Error(`chat:sendMessage 参数非法: ${JSON.stringify(args)}`)
+      }
+      // variant 可选字符串校验：非字符串（如数字/对象）拒绝，防注入非法 body 字段
+      if (args.variant !== undefined && typeof args.variant !== 'string') {
+        throw new Error(`chat:sendMessage variant 必须是字符串: ${JSON.stringify(args.variant)}`)
       }
       // 附件参数校验：可选数组，每项必须含绝对路径 + 展示名（绝对路径由 assertValidFsPath 拦截越界）
       let attachments: Array<{ path: string; name: string }> = []
@@ -525,6 +530,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       const extra = {
         model: model ?? { providerID: 'ds', modelID: DEFAULT_MODEL.id },
         ...(typeof args?.agent === 'string' && args.agent ? { agent: args.agent } : {}),
+        // variant 思考强度透传（spec 实测 prompt_async body 顶层字段；空串/缺省不传）
+        ...(typeof args?.variant === 'string' && args.variant ? { variant: args.variant } : {}),
       }
       const client = await requireClient()
       if (attachments.length === 0) {
@@ -553,6 +560,24 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) }
     }
+  })
+
+  ipcMain.handle('provider:modelVariants', async (_e, args: { modelId?: string }) => {
+    // 思考强度选择器数据源：从 /provider 响应提取指定模型的 variants keys 数组。
+    // variants 是 spec 实测字段（如 deepseek-v4-flash={low,high,max}），SDK ProviderListResponse 类型未生成——
+    // 用宽类型提取（与 provider.ts listDeepseekModels 同模式）。modelId 兼容带/不带 provider 前缀。
+    if (typeof args?.modelId !== 'string' || !args.modelId.trim()) return []
+    const modelId = args.modelId.trim()
+    const resp = await (await requireClient()).config.providers()
+    const all = (resp as { all?: unknown }).all as Array<{ id: string; models?: Record<string, { id: string; variants?: Record<string, unknown> }> }> | undefined
+    for (const p of all ?? []) {
+      for (const [mid, m] of Object.entries(p.models ?? {})) {
+        if (mid === modelId || m.id === modelId) {
+          return Object.keys(m.variants ?? {})
+        }
+      }
+    }
+    return []
   })
 
   ipcMain.handle('engine:refresh', async () => {
@@ -687,6 +712,24 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     })
     if (!res.ok) {
       throw new Error(`question:reject 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
+    }
+    return { ok: true }
+  })
+
+  // 命令菜单「压缩上下文」：调 serve v2 compact 端点（SDK 1.18.13 无 compact 方法，spec 实测 /api/session/{id}/compact POST 204）。
+  // 与 question 通道同模式：裸 fetch + Basic 认证（先 await ready 保证连接信息就绪）。
+  ipcMain.handle('session:compact', async (_e, args: { id: string }) => {
+    if (typeof args?.id !== 'string' || !args.id) {
+      throw new Error(`session:compact id 参数非法: ${JSON.stringify(args)}`)
+    }
+    await requireClient()
+    const { baseURL, authHeader } = getServerAuth()
+    const res = await fetch(`${baseURL}/api/session/${encodeURIComponent(args.id)}/compact`, {
+      method: 'POST',
+      headers: { Authorization: authHeader },
+    })
+    if (!res.ok) {
+      throw new Error(`session:compact 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
     }
     return { ok: true }
   })

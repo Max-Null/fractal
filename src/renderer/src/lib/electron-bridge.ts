@@ -64,9 +64,8 @@ export interface SendOptions {
   planMode?: boolean;
   autoMode?: boolean;
   permissionMode?: string;
-  effort?: string;
-  /** ultracode: xhigh effort + auto Workflow orchestration (harness-level, not an API param) */
-  ultracode?: boolean;
+  /** 思考强度 variant（模型 variant 名，如 low/high/max；空串/缺省不传——模型无 variants 时留空） */
+  variant?: string;
   /** Model name (e.g. deepseek-v4-pro[1M]) */
   model?: string;
   /** 主 agent（双星/build/plan），透传给引擎 promptAsync.agent */
@@ -371,6 +370,8 @@ export async function sendMessage(sessionId: string, message: string, options?: 
     message,
     ...(ocModel ? { model: ocModel } : {}),
     ...(options?.agent ? { agent: options.agent } : {}),
+    // variant 思考强度透传（空串/缺省不传，主进程走默认）
+    ...(options?.variant ? { variant: options.variant } : {}),
     // 附件透传（无附件不传，主进程走便捷调用）
     ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
   });
@@ -461,6 +462,21 @@ export async function testConnection(apiKey: string): Promise<{ ok: boolean; mes
 /** 刷新引擎：重启 serve 进程（右上角刷新按钮；配置/预置包变更立即生效） */
 export async function refreshEngine(): Promise<{ ok: boolean }> {
   return invoke<{ ok: boolean }>("engine:refresh");
+}
+
+/**
+ * 拉取指定模型的可用思考强度 variants（如 deepseek-v4-flash → ['low','high','max']）。
+ * modelId 兼容 settings.model 存储格式（带 [1M] 标注/provider 前缀），主进程按去标注后的模型 id 匹配。
+ */
+export async function loadModelVariants(modelId: string): Promise<string[]> {
+  const clean = modelId.replace(/\[.*\]/, "").trim();
+  if (!clean) return [];
+  return invoke<string[]>("provider:modelVariants", { modelId: clean });
+}
+
+/** 压缩上下文：调 serve v2 compact 端点（命令菜单「压缩上下文」） */
+export async function compactSession(sessionId: string): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("session:compact", { id: sessionId });
 }
 
 // ── Approved Scenarios ──

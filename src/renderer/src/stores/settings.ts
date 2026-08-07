@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson } from "@/lib/electron-bridge";
+import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson, loadModelVariants } from "@/lib/electron-bridge";
 
 const STORAGE_KEY = "sb-ui-settings";
 
@@ -13,7 +13,28 @@ let configListenerRegistered = false;
  */
 export type PermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "dontAsk" | "auto";
 
-export type Effort = "low" | "medium" | "high" | "xhigh" | "max" | "ultracode";
+/**
+ * 思考强度 = OC 模型 variant（reasoningEffort）：值 = 当前模型可用 variant 名。
+ * '' = 模型无 variants（如 deepseek-chat/reasoner）或未选择——发送时不传 variant。
+ * 旧 6 档枚举（medium/xhigh/ultracode）是 CC 遗留假功能（前端只存不传引擎），改造后仅 variant 三档。
+ */
+export type Effort = "low" | "high" | "max" | "";
+
+/**
+ * 旧 effort 值归一为 variant（旧 6 档 → 最近的 variant 档）：
+ *  medium→low、xhigh→high、ultracode→max；未知/空 → ''（不传）。
+ */
+export function normalizeEffort(v: unknown): Effort {
+  switch (v) {
+    case "low": return "low";
+    case "high": return "high";
+    case "max": return "max";
+    case "medium": return "low";   // 旧档：中思考 → 低
+    case "xhigh": return "high";   // 旧档：极高思考 → 高
+    case "ultracode": return "max"; // 旧档：极高级 → 最大
+    default: return "";
+  }
+}
 
 /** 仅存 localStorage 的 UI 偏好 */
 interface UiSettings {
@@ -48,7 +69,12 @@ function getUiDefaults(): UiSettings {
 function loadUiSettings(): UiSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...getUiDefaults(), ...JSON.parse(raw) };
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // 旧 effort 档位（medium/xhigh/ultracode）归一为 variant（CC 遗留假功能改造，兼容老 localStorage）
+      if (parsed.effort !== undefined) parsed.effort = normalizeEffort(parsed.effort);
+      return { ...getUiDefaults(), ...parsed };
+    }
   } catch { /* ignore */ }
   return getUiDefaults();
 }
@@ -96,6 +122,17 @@ export const useSettingsStore = defineStore("settings", () => {
   const autoMode = ref(ui.autoMode);
   const permissionMode = ref<PermissionMode>(ui.permissionMode);
   const effort = ref<Effort>(ui.effort);
+  /** 当前模型可用的思考强度 variant 列表（如 ['low','high','max']）；空 = 模型无 variants（不显示选择器） */
+  const modelVariants = ref<string[]>([]);
+  function setModelVariants(v: string[]) {
+    modelVariants.value = Array.isArray(v) ? v : [];
+    // 当前模型无 variants → effort 清空（发送时不传 variant，防止残留旧档位）
+    if (modelVariants.value.length === 0 && effort.value !== "") effort.value = "";
+    // 当前模型有 variants 但 effort 不在其中 → 归一到 high（默认档，不存在则空）
+    else if (modelVariants.value.length > 0 && effort.value !== "" && !modelVariants.value.includes(effort.value)) {
+      effort.value = modelVariants.value.includes("high") ? "high" : "";
+    }
+  }
   const currentAgent = ref(ui.currentAgent);
   const theme = ref<"dark" | "light" | "system">(ui.theme);
   const locale = ref<"zh" | "en">(ui.locale);
@@ -210,9 +247,9 @@ export const useSettingsStore = defineStore("settings", () => {
     if (pm === "plan") { planMode.value = true; autoMode.value = false; }
     else if (pm === "auto") { autoMode.value = true; planMode.value = false; }
     else if (pm === "default" || pm === "acceptEdits") { planMode.value = false; autoMode.value = false; permissionMode.value = pm as PermissionMode; }
-    // 思考深度（settings.json 枚举 low/medium/high 是 store 枚举子集）
+    // 思考强度（settings.json 的 agent.effort 值 = variant 名；旧档位读入归一）
     const ef = config["agent.effort"];
-    if (typeof ef === "string" && ["low", "medium", "high", "xhigh", "max", "ultracode"].includes(ef)) effort.value = ef as Effort;
+    if (typeof ef === "string") effort.value = normalizeEffort(ef);
     if (typeof config["agent.contextLimit"] === "number") contextLimit.value = config["agent.contextLimit"];
   }
 
@@ -236,6 +273,17 @@ export const useSettingsStore = defineStore("settings", () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveCurrentConfig(), 500);
   });
+
+  // 模型变更（InputBar 选择 / SettingsPanel / settings.json 同步）→ 拉取该模型可用 variants。
+  // 数据源：主进程 provider:modelVariants（/provider 响应 all[].models[id].variants，spec 实测）。
+  // 引擎未就绪/测试环境（electronBridge 缺失）→ 置空并静默（选择器隐藏，不阻断主流程）。
+  watch(model, async (m) => {
+    try {
+      setModelVariants(await loadModelVariants(m));
+    } catch {
+      setModelVariants([]);
+    }
+  }, { immediate: true });
 
   // LLM API 地址：未手填时跟随 baseUrl，手填后存 localStorage
   watch(baseUrl, (v) => {
@@ -316,5 +364,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
 });

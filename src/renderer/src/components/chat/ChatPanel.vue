@@ -17,6 +17,7 @@ import {
   loadSessionLogs,
   openDialog,
   saveDialog,
+  compactSession,
 } from "@/lib/electron-bridge";
 import { useFilePreview } from "@/composables/useFilePreview";
 import { useSettingsStore } from "@/stores/settings";
@@ -403,13 +404,7 @@ watch(() => chatCommand.value.ts, async (ts) => {
         prepareExport();
       }
       break;
-    case "slash-compact":   handleSend("/compact"); break;
-    case "slash-context":   showContextModal.value = true; break;
-    case "slash-cost":      handleSend("/cost"); break;
-    case "slash-review":    handleSend("/review"); break;
-    case "slash-simplify":  handleSend("/simplify"); break;
-    case "slash-security":  handleSend("/security-review"); break;
-    case "slash-doctor":    handleSend("/doctor"); break;
+    case "slash-compact":   await compactNow(); break;
     case "slash-init":      handleSend("/init"); break;
     case "manage-plugins":    manageTab.value = "plugins"; showManage.value = true; break;
     case "manage-memory":     manageTab.value = "memory"; showManage.value = true; break;
@@ -601,8 +596,8 @@ async function handleSend(text: string) {
       planMode: settings.planMode,
       autoMode: settings.autoMode,
       permissionMode: settings.permissionMode,
-      effort: settings.effort,
-      ultracode: settings.effort === "ultracode",
+      // variant 思考强度：仅当前模型 variants 列表包含时才传（防残留旧档/模型无 variants 时误传）
+      variant: settings.modelVariants.includes(settings.effort) ? settings.effort : undefined,
       model: settings.model,
       // 主 agent（双星/build/plan）→ 引擎 promptAsync.agent；权限选「计划」时强制 plan agent（无写权限，方案 3.5）
       agent: settings.planMode ? "plan" : settings.currentAgent,
@@ -790,6 +785,31 @@ async function handleStop() {
   chat.finishAssistantMessage();
 }
 
+/**
+ * 压缩上下文：调 serve v2 compact 端点（替代发 /compact 文本——OC 模型不认该斜杠）+ 重载消息。
+ * 命令菜单「压缩上下文」与 ContextUsageModal 的压缩按钮共用。
+ */
+async function compactNow() {
+  const sid = session.activeSessionId;
+  if (!sid) { showStatus(t('status.compactEmpty')); return; }
+  try {
+    await compactSession(sid);
+    showStatus(t('status.compactDone'));
+    // compact 后消息历史变化 → 重载当前会话消息（与 useSessionSwitch 一致：全量拉取 + DOM 分页）
+    listMessages(sid, { limit: FULL_HISTORY_LIMIT }).then(msgs => {
+      chat.setHistoryError(false);
+      chat.loadFullHistory(msgs);
+    }).catch(() => {
+      // 重载失败（serve 未就绪）→ 置离线标记，消息区灰显占位（G3）
+      chat.setHistoryError(true);
+      showStatus(t('session.loadFailed'));
+    });
+  } catch (e) {
+    console.error("compact 失败:", e);
+    showStatus(t('status.compactFailed'));
+  }
+}
+
 // ── Session Export ──
 
 // ── Attach file ──
@@ -863,7 +883,7 @@ watch(
         <div class="flex flex-wrap gap-1.5 mt-2 ml-2">
           <button @click="runTest(testQuestion)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">AskUserQuestion</button>
           <button @click="runTest(testApprove)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ApprovalBar</button>
-          <button @click="runTest(() => emitChatCommand('slash-context'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ContextUsage</button>
+          <button @click="runTest(() => { showContextModal = true; })" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ContextUsage</button>
           <button @click="runTest(() => emitChatCommand('export-session'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ExportPreview</button>
           <button @click="runTest(() => emitChatCommand('rename-session'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">RenameSession</button>
           <button @click="runTest(() => emitChatCommand('about'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">About</button>
@@ -1068,7 +1088,7 @@ watch(
 
     <!-- File preview modal -->
     <!-- 文件预览统一由 AppShell 第四列处理 -->
-    <ContextUsageModal :open="showContextModal" @close="showContextModal = false" @compact="showContextModal = false; handleSend('/compact')" />
+    <ContextUsageModal :open="showContextModal" @close="showContextModal = false" @compact="showContextModal = false; compactNow()" />
     <ManagePanel :open="showManage" :initialTab="manageTab" @close="showManage = false" @send-slash="(t) => handleSend(t)" />
 
     <!-- AskUserQuestion 问答弹窗（serve question.asked → subtype='question'） -->

@@ -29,39 +29,22 @@ interface CommandAction {
   visible?: () => boolean;
 }
 
-// ── 命令定义（对标 Claude Code 功能域，6 大分组）──
+// ── 命令定义（OC 适配：permission 4 模式、无 effort 组、斜杠仅 OC 原生）──
 const actions: CommandAction[] = [
   // ── 💬 会话（大部分由 ChatPanel 动态注册）──
   { id: "new-session",     group: "session",    labelKey: "command.newSession",     keys: "Ctrl+N", icon: "🆕" },
 
-  // ── 🛡 权限与模式 ──
+  // ── 🛡 权限与模式（分形 4 模式，与操作行一致；bypass 语义并入 auto——OC 无 bypassPermissions/dontAsk）──
   { id: "perm-default",    group: "permission", labelKey: "command.permDefault",    descKey: "command.permDefaultDesc",    cliKey: "default", icon: "🔒" },
   { id: "perm-plan",       group: "permission", labelKey: "command.permPlan",       descKey: "command.permPlanDesc",       cliKey: "plan",    icon: "📋" },
   { id: "perm-edit-auto",  group: "permission", labelKey: "command.permEditAuto",   descKey: "command.permEditAutoDesc",   cliKey: "acceptEdits", icon: "✏️" },
-  { id: "perm-auto",       group: "permission", labelKey: "command.permAuto",       descKey: "command.permAutoDesc",       cliKey: "auto",    icon: "🤖" },
-  { id: "perm-bypass",     group: "permission", labelKey: "command.permBypass",     descKey: "command.permBypassDesc",     cliKey: "bypassPermissions", icon: "⚡" },
-  { id: "perm-dontask",    group: "permission", labelKey: "command.permDontAsk",    descKey: "command.permDontAskDesc",    cliKey: "dontAsk", icon: "✅" },
+  { id: "perm-auto",       group: "permission", labelKey: "command.permAuto",       descKey: "command.permAutoDesc",       cliKey: "--auto", icon: "🤖" },
 
-  // ── 🧠 思考深度 ──
-  { id: "effort-low",      group: "effort",     labelKey: "command.effortLow",       cliKey: "low",     icon: "🐢" },
-  { id: "effort-medium",   group: "effort",     labelKey: "command.effortMedium",    cliKey: "medium",  icon: "🐇" },
-  { id: "effort-high",     group: "effort",     labelKey: "command.effortHigh",      cliKey: "high",    icon: "🧠" },
-  { id: "effort-xhigh",    group: "effort",     labelKey: "command.effortXhigh",     cliKey: "xhigh",   icon: "🔬" },
-  { id: "effort-max",      group: "effort",     labelKey: "command.effortMax",       cliKey: "max",     icon: "🚀" },
-  { id: "effort-ultracode",group: "effort",     labelKey: "command.effortUltracode", descKey: "command.effortUltracodeDesc", cliKey: "ultracode", icon: "⚡" },
-
-
-  // ── 📊 上下文 ──
+  // ── 📊 上下文（slash-compact 走 serve compact API；/context /cost 为 CC 独有已删）──
   { id: "slash-compact",   group: "context",    labelKey: "command.compactContext",  descKey: "command.compactContextDesc",  cliKey: "/compact",          icon: "🗜️" },
-  { id: "slash-context",   group: "context",    labelKey: "command.viewUsage",       descKey: "command.viewUsageDesc",      cliKey: "/context",          icon: "📊" },
-  { id: "slash-cost",      group: "context",    labelKey: "command.viewCost",        cliKey: "/cost",                       icon: "💰" },
 
-  // ── 🔌 工具 ──
+  // ── 🔌 工具（/review /simplify /security-review /doctor 为 CC 独有已删；/init 是 OC 原生保留）──
   { id: "open-explorer",   group: "tools",      labelKey: "command.openExplorer",    descKey: "command.openExplorerDesc",   icon: "📁" },
-  { id: "slash-review",    group: "tools",      labelKey: "command.codeReview",      descKey: "command.codeReviewDesc",     cliKey: "/review",           icon: "🔍" },
-  { id: "slash-simplify",  group: "tools",      labelKey: "command.codeSimplify",    descKey: "command.codeSimplifyDesc",   cliKey: "/simplify",         icon: "✨" },
-  { id: "slash-security",  group: "tools",      labelKey: "command.securityAudit",   descKey: "command.securityAuditDesc",  cliKey: "/security-review",  icon: "🛡️" },
-  { id: "slash-doctor",    group: "tools",      labelKey: "command.runDoctor",       descKey: "command.runDoctorDesc",      cliKey: "/doctor",           icon: "🩺" },
   { id: "slash-init",      group: "tools",      labelKey: "command.initClaudeMd",    descKey: "command.initClaudeMdDesc",   cliKey: "/init",             icon: "📝" },
 
   // ── 🛠 管理 ──
@@ -98,8 +81,8 @@ const allActions = computed<CommandAction[]>(() => {
   return [...actions, ...dynamic];
 });
 
-// ── 分组顺序 ──
-const groupOrder = ["session", "permission", "effort", "context", "tools", "manage", "settings"];
+// ── 分组顺序（effort 组已删——思考强度改由 InputBar 选择器按模型 variants 动态展示）──
+const groupOrder = ["session", "permission", "context", "tools", "manage", "settings"];
 
 // ── 状态 ──
 const open = ref(false);
@@ -131,7 +114,7 @@ function matchesQuery(a: CommandAction, q: string): boolean {
   return false;
 }
 
-// ── 当前选中状态（权限模式 / 思考深度 / 主题）──
+// ── 当前选中状态（权限模式 / 主题）──
 function isActive(action: CommandAction): boolean {
   const g = action.group;
   if (g === "permission") {
@@ -140,12 +123,9 @@ function isActive(action: CommandAction): boolean {
     const modeMap: Record<string, string> = {
       default: "perm-default",
       acceptEdits: "perm-edit-auto",
-      bypassPermissions: "perm-bypass",
-      dontAsk: "perm-dontask",
     };
     return action.id === (modeMap[settings.permissionMode] || "");
   }
-  if (g === "effort") return action.id === `effort-${settings.effort}`;
   if (g === "settings") {
     if (action.id === "theme-dark") return settings.theme === "dark";
     if (action.id === "theme-light") return settings.theme === "light";

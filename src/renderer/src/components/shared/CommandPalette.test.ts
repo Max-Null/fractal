@@ -6,14 +6,15 @@ import { toPinyinInitials } from "@/lib/pinyin";
  * 不依赖 Vue 组件环境，直接测试搜索匹配策略。
  */
 
-// 测试用命令数据
+// 测试用命令数据（对齐 OC 适配后的真实 actions：无 effort 组、无 CC 独有斜杠、permission 仅 4 模式）
 const mockCommands = [
   { id: "new-session",    group: "session",  label: "新建会话",      desc: "创建新的会话" },
   { id: "toggle-sidebar", group: "view",     label: "切换侧边栏",    desc: "" },
   { id: "open-settings",  group: "settings", label: "打开设置",      desc: "打开设置面板" },
   { id: "compact",        group: "context",  label: "压缩上下文",    desc: "释放上下文窗口" },
-  { id: "show-usage",     group: "context",  label: "查看用量",      desc: "查看 token 使用量" },
+  { id: "perm-default",   group: "permission", label: "默认模式",    desc: "仅自动批准读取操作" },
   { id: "perm-plan",      group: "permission", label: "计划模式",    desc: "先探索再编辑" },
+  { id: "perm-auto",      group: "permission", label: "全自动",      desc: "全自动 · 自动批准所有操作" },
 ];
 
 function matchesQuery(label: string, id: string, desc: string, q: string): boolean {
@@ -73,8 +74,34 @@ describe("CommandPalette 分组", () => {
 
   it("同一分组下的命令", () => {
     const contextCmds = mockCommands.filter((c) => c.group === "context");
-    expect(contextCmds).toHaveLength(2);
-    expect(contextCmds.map((c) => c.id)).toEqual(["compact", "show-usage"]);
+    expect(contextCmds).toHaveLength(1);
+    expect(contextCmds.map((c) => c.id)).toEqual(["compact"]);
+  });
+});
+
+describe("CommandPalette OC 适配", () => {
+  it("CC 独有斜杠命令（/review /simplify /security-review /doctor /context /cost）已删除", () => {
+    const ids = mockCommands.map((c) => c.id);
+    for (const removed of ["slash-review", "slash-simplify", "slash-security", "slash-doctor", "slash-context", "slash-cost"]) {
+      expect(ids).not.toContain(removed);
+    }
+  });
+
+  it("effort 组命令（OC 无 medium/xhigh/ultracode，思考强度改由 InputBar 选择器动态展示）已删除", () => {
+    const ids = mockCommands.map((c) => c.id);
+    for (const removed of ["effort-low", "effort-medium", "effort-high", "effort-xhigh", "effort-max", "effort-ultracode"]) {
+      expect(ids).not.toContain(removed);
+    }
+  });
+
+  it("permission 组仅 4 模式（bypass/dontask 是 CC 模式名已删，auto 语义并入全自动）", () => {
+    const permCmds = mockCommands.filter((c) => c.group === "permission");
+    expect(permCmds.map((c) => c.id)).toEqual(["perm-default", "perm-plan", "perm-auto"]);
+    expect(permCmds.some((c) => c.id === "perm-bypass" || c.id === "perm-dontask")).toBe(false);
+  });
+
+  it("slash-compact 保留（走 serve compact API）", () => {
+    expect(mockCommands.some((c) => c.id === "compact")).toBe(true);
   });
 });
 

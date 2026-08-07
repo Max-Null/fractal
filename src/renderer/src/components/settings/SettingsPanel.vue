@@ -83,8 +83,7 @@ async function startLookupUrl() {
     planMode: false,
     autoMode: false,
     permissionMode: "bypassPermissions",  // 静默查询不能卡权限弹窗
-    effort: "low",
-    ultracode: false,
+    variant: settings.modelVariants.includes("low") ? "low" : undefined,
     model: settings.model,
   }).catch((e) => {
     isLookingUpUrl.value = false;
@@ -159,17 +158,22 @@ const permOptions: PermOption[] = [
 ];
 const currentPerm = computed(() => permOptions.find(o => o.value === activeMode.value)!);
 
-// ── 思考深度选项 ──
+// ── 思考深度选项（variant 语义：选项 = 当前模型可用 variants 的映射子集，映射表仅 low/high/max 三档）──
 interface EffortOption { value: import("@/stores/settings").Effort; icon: string; cliKey: string; labelKey: string; color: string }
-const effortOptions: EffortOption[] = [
-  { value: "low",       icon: "🐢", cliKey: "low",    color: "#22c55e", labelKey: "mode.effort.low" },
-  { value: "medium",    icon: "🐇", cliKey: "medium", color: "#14b8a6", labelKey: "mode.effort.medium" },
-  { value: "high",      icon: "🧠", cliKey: "high",   color: "#f59e0b", labelKey: "mode.effort.high" },
-  { value: "xhigh",     icon: "🔬", cliKey: "xhigh",  color: "#f97316", labelKey: "mode.effort.xhigh" },
-  { value: "max",       icon: "🚀", cliKey: "max",    color: "#ef4444", labelKey: "mode.effort.max" },
-  { value: "ultracode", icon: "⚡", cliKey: "xhigh",  color: "#8b5cf6", labelKey: "mode.effort.ultracode" },
-];
-const currentEffort = computed(() => effortOptions.find(o => o.value === settings.effort)!);
+const EFFORT_VARIANTS: Record<string, Omit<EffortOption, "value">> = {
+  low:  { icon: "🐢", cliKey: "low",    color: "#22c55e", labelKey: "mode.effort.low" },
+  high: { icon: "🧠", cliKey: "high",   color: "#f59e0b", labelKey: "mode.effort.high" },
+  max:  { icon: "🚀", cliKey: "max",    color: "#ef4444", labelKey: "mode.effort.max" },
+};
+/** 按 settings.modelVariants 动态过滤（顺序固定 low/high/max）；无 variants 时为空数组（模板 v-if 隐藏下拉） */
+const effortOptions = computed<EffortOption[]>(() => {
+  const order = ["low", "high", "max"] as const;
+  return order
+    .filter((v) => settings.modelVariants.includes(v))
+    .map((v) => ({ value: v, ...EFFORT_VARIANTS[v] }));
+});
+/** effort 空（模型无 variants）时回退第一个可用档，避免 find 非空断言崩溃 */
+const currentEffort = computed(() => effortOptions.value.find(o => o.value === settings.effort) ?? effortOptions.value[0]);
 
 // ── 语言 / 主题选项 ──
 interface SimpleOption<V extends string> { value: V; labelKey: string }
@@ -504,8 +508,8 @@ const showAdvanced = ref(false);
             </div>
           </div>
 
-          <!-- 思考深度 -->
-          <div>
+          <!-- 思考深度（仅当前模型有 variants 时显示；无 variants 模型不渲染下拉） -->
+          <div v-if="effortOptions.length > 0">
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.defaultEffort') }}</label>
             <div
               class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"

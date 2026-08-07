@@ -11,9 +11,10 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages } from "@/lib/electron-bridge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
+import { useChatStore, FULL_HISTORY_LIMIT } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
 import { usePanelLayout, PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 
@@ -22,6 +23,7 @@ const router = useRouter();
 const route = useRoute();
 const settings = useSettingsStore();
 const sessionStore = useSessionStore();
+const chat = useChatStore();
 const { handleNew } = useNewSession();
 const { switchTo } = useSessionSwitch();
 
@@ -45,18 +47,33 @@ const showManagePanel = ref(false);
 const fileNavCounter = ref(0);
 const filePanelForceClose = ref(0);
 
-// 刷新引擎：重启 serve + 重载会话列表（右上角刷新按钮；转圈防连点）
+// 刷新引擎：重启 serve + 重载会话列表 + 当前会话消息（右上角刷新按钮；转圈防连点）
 const isRefreshing = ref(false);
 async function handleRefresh() {
   if (isRefreshing.value) return;
   isRefreshing.value = true;
+  // 刷新状态提示：复用目录选择提示条（ws-alert）——开始显示「正在重启引擎…」，结束后清除
+  alertText.value = t("header.refreshHint");
   try {
     await refreshEngine();
     await sessionStore.loadSessions(settings.cwd || undefined);
+    // 当前活跃会话消息重载（引擎重启后历史从 serve 重拉；无活跃会话跳过）
+    const sid = sessionStore.activeSessionId;
+    if (sid) {
+      try {
+        const msgs = await listMessages(sid, { limit: FULL_HISTORY_LIMIT });
+        chat.setHistoryError(false);
+        chat.loadFullHistory(msgs);
+      } catch {
+        // 重载失败（serve 未就绪）→ 置离线标记，消息区灰显占位（G3）
+        chat.setHistoryError(true);
+      }
+    }
   } catch {
     // 刷新失败静默：serve 状态由 engine:status 事件自行上报，UI 不额外弹错
   } finally {
     isRefreshing.value = false;
+    alertText.value = "";
   }
 }
 
@@ -179,35 +196,11 @@ async function handleCommand(action: string) {
       settings.autoMode = true;
       settings.planMode = false;
       break;
-    case "perm-bypass":
-      settings.permissionMode = "bypassPermissions";
-      settings.planMode = false;
-      settings.autoMode = false;
-      break;
-    case "perm-dontask":
-      settings.permissionMode = "dontAsk";
-      settings.planMode = false;
-      settings.autoMode = false;
-      break;
-
-    // ── 🧠 思考深度 ──
-    case "effort-low": settings.effort = "low"; break;
-    case "effort-medium": settings.effort = "medium"; break;
-    case "effort-high": settings.effort = "high"; break;
-    case "effort-xhigh": settings.effort = "xhigh"; break;
-    case "effort-max": settings.effort = "max"; break;
-    case "effort-ultracode": settings.effort = "ultracode"; break;
 
     // ── 🔌 工具 ──
     case "open-explorer": openFilePanelTo(cwd.value || "."); break;
     case "slash-compact":
-    case "slash-context":
-    case "slash-cost":
     case "slash-clear":
-    case "slash-review":
-    case "slash-simplify":
-    case "slash-security":
-    case "slash-doctor":
     case "slash-init":
     case "manage-plugins":
     case "manage-mcp":

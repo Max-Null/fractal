@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import { setActivePinia, createPinia } from "pinia";
+import { nextTick } from "vue";
 import InputBar from "./InputBar.vue";
 import { useSettingsStore } from "@/stores/settings";
 
@@ -33,9 +34,8 @@ const i18n = createI18n({
         auto: "Auto mode",
         bypass: "Bypass",
         dontAsk: "Don't Ask",
-        effort: { low: "Low", medium: "Medium", high: "High", xhigh: "Extra High", max: "Max", ultracode: "UltraCode" },
+        effort: { low: "Low", high: "High", max: "Max" },
       },
-      effortWarning: "xhigh + DeepSeek may cause API errors",
     },
   },
 });
@@ -245,4 +245,77 @@ describe("InputBar", () => {
     await wrapper.find("button[title='Attach file']").trigger("click");
     expect(wrapper.emitted("attach")).toBeTruthy();
   });
+
+// ── 思考强度选择器（variant 动态过滤：选项 = settings.modelVariants 的映射子集）──
+// store 的 watch(model, immediate) 通过 electronBridge 拉取 variants：
+// 每个测试 mock invoke 返回对应模型 variants，await flush 后选择器按 modelVariants 渲染。
+
+/** mock electronBridge：provider:modelVariants 返回指定 variants（其余通道空对象） */
+function mockVariants(variants: string[]) {
+  (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+    invoke: (channel: string) => (channel === "provider:modelVariants" ? Promise.resolve(variants) : Promise.resolve({})),
+    on: () => () => {},
+  };
+}
+
+/** flush 所有微任务（让 store watch 的 async continuation 跑完） */
+function flushPromises() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+it("effort 选择器：flash 模型（low/high/max）显示 3 档", async () => {
+  mockVariants(["low", "high", "max"]);
+  const settings = useSettingsStore();
+  await flushPromises();
+  expect(settings.modelVariants).toEqual(["low", "high", "max"]);
+  const wrapper = mountInputBar();
+  await nextTick();
+  const pill = wrapper.find('.composer-select[title="Reasoning effort"]');
+  expect(pill.exists()).toBe(true);
+  await pill.trigger("click");
+  const items = wrapper.findAll(".dropdown-menu .dropdown-item");
+  expect(items.length).toBe(3);
+  // 选项顺序固定 low/high/max
+  expect(items[0].text()).toBe("Low");
+  expect(items[1].text()).toBe("High");
+  expect(items[2].text()).toBe("Max");
+});
+
+it("effort 选择器：pro 模型（high/max）只显示 2 档", async () => {
+  mockVariants(["high", "max"]);
+  const settings = useSettingsStore();
+  await flushPromises();
+  expect(settings.modelVariants).toEqual(["high", "max"]);
+  const wrapper = mountInputBar();
+  await nextTick();
+  const pill = wrapper.find('.composer-select[title="Reasoning effort"]');
+  expect(pill.exists()).toBe(true);
+  await pill.trigger("click");
+  const items = wrapper.findAll(".dropdown-menu .dropdown-item");
+  expect(items.length).toBe(2);
+  expect(items[0].text()).toBe("High");
+  expect(items[1].text()).toBe("Max");
+});
+
+it("effort 选择器：模型无 variants（如 deepseek-chat）→ 隐藏", async () => {
+  mockVariants([]);
+  const settings = useSettingsStore();
+  await flushPromises();
+  expect(settings.modelVariants).toEqual([]);
+  const wrapper = mountInputBar();
+  await nextTick();
+  expect(wrapper.find('.composer-select[title="Reasoning effort"]').exists()).toBe(false);
+});
+
+it("effort 选择器：选择档位同步 settings.effort（variant 值）", async () => {
+  mockVariants(["low", "high", "max"]);
+  const settings = useSettingsStore();
+  await flushPromises();
+  const wrapper = mountInputBar();
+  await nextTick();
+  await wrapper.find('.composer-select[title="Reasoning effort"]').trigger("click");
+  const items = wrapper.findAll(".dropdown-menu .dropdown-item");
+  await items[2].trigger("click");
+  expect(settings.effort).toBe("max");
+});
 });

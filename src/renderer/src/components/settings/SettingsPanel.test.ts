@@ -43,7 +43,7 @@ const i18n = createI18n({
         askBefore: "Ask before edits", editAuto: "Edit auto",
         plan: "Plan mode", auto: "Auto mode",
         bypass: "Bypass", dontAsk: "Don't Ask",
-        effort: { low: "Low", medium: "Med", high: "High", xhigh: "XHigh", max: "Max", ultracode: "Ultra" },
+        effort: { low: "Low", high: "High", max: "Max" },
       },
       app: { title: "Fractal" },
     },
@@ -64,10 +64,19 @@ function mountPanel() {
 }
 
 describe("SettingsPanel", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    // mock electronBridge：默认模型（flash）variants 返回 3 档——
+    // store 的 watch(model, immediate) 经此拉取，effort 下拉显示、触发器计数保持 6
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      invoke: (channel: string) => (channel === "provider:modelVariants" ? Promise.resolve(["low", "high", "max"]) : Promise.resolve({})),
+      on: () => () => {},
+    };
     pinia = createPinia();
     setActivePinia(pinia);
+    useSettingsStore(); // 触发 watch immediate 拉取
+    // flush 微任务：让 watch 的 async continuation 完成（modelVariants = ['low','high','max']）
+    await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
   // ── activeMode computed (bridges planMode / autoMode / permissionMode) ──

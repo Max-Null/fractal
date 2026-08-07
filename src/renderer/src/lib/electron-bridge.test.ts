@@ -8,6 +8,8 @@ import {
   forkSession,
   testConnection,
   listMessages,
+  loadModelVariants,
+  compactSession,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -77,6 +79,23 @@ describe("sendMessage（model 参数转换）", () => {
     await sendMessage("ses-1", "hi");
     expect(invokeMock).toHaveBeenCalledWith("chat:sendMessage", { sessionId: "ses-1", message: "hi" });
     expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("attachments");
+  });
+
+  it("variant 参数 → 透传 chat:sendMessage（思考强度真实接入引擎）", async () => {
+    invokeMock.mockResolvedValue({ accepted: true });
+    await sendMessage("ses-1", "hi", { variant: "high" } as SendOptions);
+    expect(invokeMock).toHaveBeenCalledWith("chat:sendMessage", {
+      sessionId: "ses-1",
+      message: "hi",
+      variant: "high",
+    });
+  });
+
+  it("variant 为空串 → 不传 variant（模型无 variants / 未选择）", async () => {
+    invokeMock.mockResolvedValue({ accepted: true });
+    await sendMessage("ses-1", "hi", { variant: "" } as SendOptions);
+    expect(invokeMock).toHaveBeenCalledWith("chat:sendMessage", { sessionId: "ses-1", message: "hi" });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("variant");
   });
 });
 
@@ -162,6 +181,28 @@ describe("forkSession / testConnection / listMessages（IPC 直连）", () => {
     invokeMock.mockResolvedValue([]);
     await listMessages("ses-1", { limit: 50 });
     expect(invokeMock).toHaveBeenCalledWith("message:list", { sessionId: "ses-1", limit: 50 });
+  });
+});
+
+describe("loadModelVariants / compactSession（思考强度与压缩 API）", () => {
+  it("loadModelVariants → provider:modelVariants（模型 id 去 [1M] 标注）", async () => {
+    invokeMock.mockResolvedValue(["low", "high", "max"]);
+    const v = await loadModelVariants("deepseek-v4-flash[1M]");
+    expect(invokeMock).toHaveBeenCalledWith("provider:modelVariants", { modelId: "deepseek-v4-flash" });
+    expect(v).toEqual(["low", "high", "max"]);
+  });
+
+  it("loadModelVariants 空模型名 → 空数组（不 invoke）", async () => {
+    const v = await loadModelVariants("  ");
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(v).toEqual([]);
+  });
+
+  it("compactSession → session:compact（带会话 id）", async () => {
+    invokeMock.mockResolvedValue({ ok: true });
+    const r = await compactSession("ses-1");
+    expect(invokeMock).toHaveBeenCalledWith("session:compact", { id: "ses-1" });
+    expect(r.ok).toBe(true);
   });
 });
 
