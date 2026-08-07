@@ -791,6 +791,8 @@ const canSend = computed(() => input.value.trim().length > 0);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  /* 父级 .composer-select 的 nowrap 会被继承，导致 inline-block 的 item 横向重叠——必须重置 */
+  white-space: normal;
 }
 .d-label {
   font-size: 10px;

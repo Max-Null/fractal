@@ -4,7 +4,7 @@ import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
-import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, loadModelVariants, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
@@ -386,6 +386,20 @@ export function useStreamProcessor() {
           break;
       }
     });
+
+    // 挂载即查引擎状态：engine:status 广播可能早于本组件监听挂载（启动竞态，2026-08-08 实测
+    // 思考强度选择器启动后永远隐藏）——主动拉一次，统一走 running 分支补拉 variants
+    getEngineStatus()
+      .then((info) => {
+        session.setServing(!!info?.running);
+        if (info?.running) {
+          const settings = useSettingsStore();
+          loadModelVariants(settings.model)
+            .then((v) => settings.setModelVariants(v))
+            .catch(() => settings.setModelVariants([]));
+        }
+      })
+      .catch(() => {});
 
     // serve 运行状态（主进程 server-manager onStatusChange → engine:status），前端连接指示
     unlistenStatus = window.electronBridge.on("engine:status", (payload) => {

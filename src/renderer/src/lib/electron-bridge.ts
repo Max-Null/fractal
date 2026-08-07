@@ -474,6 +474,11 @@ export async function loadModelVariants(modelId: string): Promise<string[]> {
   return invoke<string[]>("provider:modelVariants", { modelId: clean });
 }
 
+/** 引擎状态（engine:status 广播可能早于组件监听挂载——启动竞态，挂载时主动拉一次兜底） */
+export async function getEngineStatus(): Promise<{ running: boolean; baseURL?: string; port?: number }> {
+  return invoke("engine:getStatus");
+}
+
 /** 压缩上下文：调 serve v2 compact 端点（命令菜单「压缩上下文」） */
 export async function compactSession(sessionId: string): Promise<{ ok: boolean }> {
   return invoke<{ ok: boolean }>("session:compact", { id: sessionId });

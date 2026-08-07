@@ -355,6 +355,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   )
 
+  ipcMain.handle('engine:getStatus', () => serverManager?.getServerInfo() ?? { running: false })
+
   ipcMain.handle('settings:loadProviderConfigs', async () => {
     const cfg = await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})
     return cfg as Record<string, { apiKey: string; baseUrl: string; model: string }>

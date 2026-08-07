@@ -431,7 +431,8 @@ function goUp() {
   background: var(--accent-dim);
 }
 
-/* ── 抽屉标签 ── */
+/* ── 抽屉标签（折叠态=竖排文字把手；浅色主题下 bg-elevated=#ffffff 与页面同色、border-dim 0.08 近不可见，
+   必须用 bg-hover + border-default 才能在亮/暗两主题都呈现「可点控件」质感——制图师视觉验收 2026-08-08）── */
 .file-panel-tab {
   width: 1.75rem;
   flex-shrink: 0;
@@ -442,13 +443,17 @@ function goUp() {
   cursor: pointer;
   user-select: none;
   transition: background 200ms, border 200ms;
-  background: var(--bg-surface);
+  background: var(--bg-hover);
   color: var(--text-secondary);
-  border: 1px solid var(--border-dim);
+  border: 1px solid var(--border-default);
   border-right: none;
 }
+.file-panel-tab:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+}
 .file-panel-tab--open {
-  background: var(--bg-elevated);
+  background: var(--bg-surface);
   border: none;
 }
 

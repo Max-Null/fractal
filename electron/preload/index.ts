@@ -27,6 +27,7 @@ const ALLOWED_INVOKE = [
   'message:list', 'permission:respond',
   'question:reply', 'question:reject',
   'provider:modelVariants',
+  'engine:getStatus',
   'engine:testConnection',
   'engine:refresh',
   'memory:list', 'memory:confirm', 'memory:remove',
