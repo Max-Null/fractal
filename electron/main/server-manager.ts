@@ -1,4 +1,4 @@
-// serve 进程管理：spawn `opencode serve` 并隔离 XDG_CONFIG_HOME（阶段 4 实现）
+﻿// serve 进程管理：spawn `opencode serve` 并隔离 XDG_CONFIG_HOME（阶段 4 实现）
 // 关键实测结论（阶段 0，勿重新发明）：
 // - serve v1.15+ 默认要求 Basic 认证：凭据由 env OPENCODE_SERVER_USERNAME/PASSWORD 注入，SDK 带 Basic 头
 // - 配置隔离：env XDG_CONFIG_HOME=<分形数据目录>/config → 全局配置路径变为 <XDG>/opencode/opencode.json
@@ -213,6 +213,31 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
         port: state.port!,
       }
     }
+    // 秒退容错（2026-08-07 实测）：首次 spawn 偶发秒退 exit 1（原因未定，可能与端口/环境竞争有关），
+    // 第二次尝试几乎必然成功——若等待 30s 健康检查失败才抛错，启动链（ready → startEngineEvents）会卡死，
+    // 渲染层 splash 永不消失。改为循环重试，健康检查失败立即进入下一次尝试。
+    let lastErr: unknown = null
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      if (attempt > 1) {
+        console.log(`[server-manager] serve 第 ${attempt} 次启动尝试`)
+        await new Promise((r) => setTimeout(r, 800))
+      }
+      try {
+        return await spawnOnce()
+      } catch (err) {
+        lastErr = err
+        // 清理失败状态，允许下一次尝试（exit 回调可能已置 failed/child=null）
+        state.failed = false
+        state.child = null
+        state.client = null
+      }
+    }
+    state.failed = true
+    throw lastErr instanceof Error ? lastErr : new Error('serve 连续 3 次启动失败')
+  }
+
+  /** 单次 spawn + 健康检查（startServer 重试循环的单元；失败抛错由调用方处理） */
+  async function spawnOnce(): Promise<StartServerResult> {
     // 上次 spawn 失败残留 → 先清理（failed=true 且 child 已退出）
     state.child = null
     state.failed = false
@@ -243,11 +268,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
       }
     )
 
-
     // 启动日志转发（serve 输出可能是 UTF-16，console 直接打会乱码——仅记录不展示）
-    child.stdout?.on('data', (d: Buffer) => {
-      void d // 预留：阶段 5 接入日志面板
-    })
+    child.stdout?.on('data', () => {})
     // serve stderr 转发 console（serve 启动失败/运行错误排查关键信息；输出编码可能 UTF-16 或 UTF-8，双解码尝试）
     child.stderr?.on('data', (d: Buffer) => {
       try {
@@ -291,9 +313,14 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     // 健康检查失败 → 清理进程并抛错（调用方可捕获提示用户）
     const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64')
     try {
-
-      await waitHealthy(baseURL, authHeader)
-
+      // 健康检查与进程提前退出竞速：serve 秒退（code=1）时立即失败进入重试循环，
+      // 否则等 30s 健康检查超时才失败，启动链（ready → startEngineEvents）卡死、渲染层 splash 永不消失（2026-08-07 实测）
+      await Promise.race([
+        waitHealthy(baseURL, authHeader),
+        new Promise<never>((_, reject) => {
+          child.once('exit', (code) => reject(new Error(`serve 进程提前退出（code=${code}）`)))
+        }),
+      ])
     } catch (err) {
 
       state.failed = true
