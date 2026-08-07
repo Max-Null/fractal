@@ -571,8 +571,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return { stopped: true }
   })
 
-  ipcMain.handle('session:create', async (_e, args: { title?: string }) => {
-    const s = await (await requireClient()).session.create({ title: typeof args?.title === 'string' ? args.title : undefined })
+  ipcMain.handle('session:create', async (_e, args: { title?: string; cwd?: string }) => {
+    // cwd 透传 serve query.directory：新会话绑定当前工作区，切换工作区后列表刷新才可见（会话跟随工作区）
+    const s = await (await requireClient()).session.create({
+      title: typeof args?.title === 'string' ? args.title : undefined,
+      cwd: typeof args?.cwd === 'string' && args.cwd ? args.cwd : undefined,
+    })
     return toSessionData(s)
   })
 

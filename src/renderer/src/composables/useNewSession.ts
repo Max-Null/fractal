@@ -31,8 +31,8 @@ export function useNewSession() {
       return latest.id;
     }
 
-    // 没有可复用的空会话 → 新建
-    await sessionStore.createSession(settings.model, undefined, undefined, settings.locale);
+    // 没有可复用的空会话 → 新建（cwd 绑当前工作区：会话跟随工作区，否则列表刷新后消失）
+    await sessionStore.createSession(settings.model, settings.cwd, undefined, settings.locale);
     chatStore.clearMessages();
     debugLog.clear();
     router.push("/chat");

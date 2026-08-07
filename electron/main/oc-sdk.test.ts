@@ -113,3 +113,52 @@ describe('normalizeError', () => {
     }
   })
 })
+
+// ── session.create 工作区绑定（query.directory 透传）──
+
+// mock SDK 客户端：vi.hoisted 暴露底层 spy（createOcClient 会包一层包装函数，不能直接断言返回值）
+const sdkMocks = vi.hoisted(() => ({
+  sessionCreate: vi.fn().mockResolvedValue({ data: { id: 'ses_mock' } }),
+}))
+vi.mock('@opencode-ai/sdk', () => ({
+  createOpencodeClient: () => ({
+    session: {
+      create: sdkMocks.sessionCreate,
+      list: vi.fn(),
+      get: vi.fn(),
+      delete: vi.fn(),
+      rename: vi.fn(),
+      fork: vi.fn(),
+      abort: vi.fn(),
+      prompt: vi.fn(),
+      promptAsync: vi.fn(),
+      messages: vi.fn(),
+    },
+    permission: { respond: vi.fn() },
+    file: { list: vi.fn(), read: vi.fn(), status: vi.fn() },
+    config: { get: vi.fn(), update: vi.fn() },
+    provider: { list: vi.fn() },
+  }),
+}))
+
+import { vi } from 'vitest'
+import { createOcClient } from './oc-sdk'
+
+describe('session.create 工作区绑定', () => {
+  it('传入 cwd 时透传 query.directory（会话跟随工作区）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionCreate.mockClear()
+    await client.session.create({ title: 'T', cwd: 'H:\\work\\proj' })
+    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith({
+      query: { directory: 'H:\\work\\proj' },
+      body: { title: 'T', parentID: undefined },
+    })
+  })
+
+  it('不传 cwd 时不带 query（serve 默认目录）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    sdkMocks.sessionCreate.mockClear()
+    await client.session.create({ title: 'T' })
+    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith({ query: undefined, body: { title: 'T', parentID: undefined } })
+  })
+})

@@ -408,9 +408,9 @@ export async function questionReject(
 }
 
 export async function createSession(model?: string, cwd?: string, mode?: string, title?: string): Promise<SessionData> {
-  void model; void cwd; void mode;
-  // OC serve 会话由 serve 建（title 可选），model/cwd/mode 会话级参数由 serve 默认/事件流处理
-  return invoke<SessionData>("session:create", { title: title ?? undefined });
+  void model; void mode;
+  // cwd 透传 serve query.directory：会话绑定工作区（会话跟随工作区的关键——不传则绑 serve 启动目录）
+  return invoke<SessionData>("session:create", { title: title ?? undefined, cwd: cwd ?? undefined });
 }
 
 export async function listSessions(directory?: string): Promise<SessionData[]> {

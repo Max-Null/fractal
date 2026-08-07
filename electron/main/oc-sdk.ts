@@ -50,10 +50,11 @@ export interface HeyApiResult<TData = unknown, TError = unknown> {
   response?: Response
 }
 
-/** 会话创建参数（title 可选，其余由 serve 自动填充） */
+/** 会话创建参数（title 可选；cwd 传入时绑定工作区目录，serve query.directory） */
 export interface CreateSessionOptions {
   title?: string
   parentID?: string
+  cwd?: string
 }
 
 /** prompt 发送参数（model 可选，缺省用会话当前模型） */
@@ -229,7 +230,10 @@ export function createOcClient(options: OcClientOptions): OcClient {
 
   return {
     session: {
-      create: async (opts) => normalizeError<Session>(await client.session.create({ body: opts ?? {} })),
+      create: async (opts) => normalizeError<Session>(
+        // 目录走 query.directory（SDK 实测结构：body 只有 parentID/title）——绑定工作区后会话在 ?directory= 过滤下可见
+        await client.session.create({ query: opts?.cwd ? { directory: opts.cwd } : undefined, body: { title: opts?.title, parentID: opts?.parentID } }),
+      ),
       list: async (directory?: string) =>
     // serve 原生支持 GET /session?directory= 按工作区过滤（spec 实测）；未传目录返回全部
     normalizeError<Session[]>(await client.session.list({ query: directory ? { directory } : undefined })),
