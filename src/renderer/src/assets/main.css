@@ -352,16 +352,6 @@ body {
   color: var(--text-bright);
 }
 
-/* ── 输入栏容器（原型 composer-wrap：顶部分隔 + 半透明底 + 毛玻璃）── */
-.sb-input-bar {
-  position: relative;
-  flex-shrink: 0;
-  padding: 14px 24px 18px;
-  background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
-  border-top: 1px solid var(--border-dim);
-  backdrop-filter: blur(12px);
-}
-
 /* ── 聊天面板 ── */
 .sb-chat-panel {
   display: flex;

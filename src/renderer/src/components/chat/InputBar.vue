@@ -549,11 +549,12 @@ const canSend = computed(() => input.value.trim().length > 0);
 </template>
 
 <style scoped>
-/* ── composer 卡片容器（对齐原型 .composer：760px 居中 + bg-card + radius-lg + focus-within 光环）── */
+/* ── composer 容器：760px 居中（与消息区/待办列表对齐）+ 仅垂直 padding（水平 0——无背景无边框，避免双层卡片视觉）── */
 .sb-input-bar {
   position: relative;
   max-width: 760px;
   margin-inline: auto;
+  padding: 14px 0 18px;
   user-select: none;
 }
 .composer {
