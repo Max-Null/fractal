@@ -32,6 +32,13 @@ const { switchTo } = useSessionSwitch();
 const railSessions = computed(() => sessionStore.sessions);
 const railActiveId = computed(() => sessionStore.activeSessionId);
 
+// 折叠 rail 的悬停 tip：fixed 视口定位（top=圆点当前视口 y），逃出 rail-dots 裁剪
+const hoveredRailTip = ref<{ title: string; top: number } | null>(null);
+function showRailTip(title: string, e: MouseEvent) {
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+  hoveredRailTip.value = { title, top: Math.round(rect.top) };
+}
+
 async function onRailNewSession() {
   handleCommand("new-session");
 }
@@ -480,10 +487,10 @@ async function openFilePanelTo(_path: string) {
               class="rail-dot"
               :class="{ active: s.id === railActiveId }"
               @click="switchTo(s.id)"
+              @mouseenter="showRailTip(s.title, $event)"
+              @mouseleave="hoveredRailTip = null"
             >
               {{ sessionChar(s.title) }}
-              <!-- 悬停 tip：显示完整标题 -->
-              <span class="tip">{{ s.title }}</span>
               <!-- 活动状态角标（处理中/未读/阻塞） -->
               <span
                 v-if="sessionStore.sessionActivity[s.id]"
@@ -494,6 +501,9 @@ async function openFilePanelTo(_path: string) {
           </div>
         </nav>
       </aside>
+
+      <!-- 悬停 tip（fixed 视口定位，逃出 rail-dots 的 overflow 裁剪——绝对定位子元素会撑出 x 滚动条，2026-08-08 实测 77 会话 rail 出现 xy 双滚动条） -->
+      <div v-if="hoveredRailTip" class="rail-tip" :style="{ top: hoveredRailTip.top + 'px' }">{{ hoveredRailTip.title }}</div>
 
       <!-- Main -->
       <main class="sb-main">
@@ -825,6 +835,8 @@ async function openFilePanelTo(_path: string) {
   align-items: center;
   gap: 6px;
   overflow-y: auto;
+  /* x 滚动条消除：overflow-y:auto 会让 overflow-x 计算为 auto（tip 等绝对定位子元素撑出 scrollWidth 时出现横条） */
+  overflow-x: hidden;
   width: 100%;
   padding: 4px 0;
 }
@@ -854,10 +866,10 @@ async function openFilePanelTo(_path: string) {
   color: var(--accent);
   border-color: var(--accent-line);
 }
-/* tip：左外侧气泡，hover 显示完整标题（原型 .rail-dot .tip） */
-.rail-dot .tip {
-  position: absolute;
-  left: 46px;
+/* 悬停 tip（AppShell 根层 fixed 渲染：rail 56px + 16px 间距；超长标题截断） */
+.rail-tip {
+  position: fixed;
+  left: 72px;
   padding: 4px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border-strong);
@@ -865,20 +877,11 @@ async function openFilePanelTo(_path: string) {
   font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(-4px);
-  transition: all 0.18s;
-  z-index: 50;
-  font-weight: 400;
-  /* 兜底：标题超长时截断，避免撑出屏幕 */
   max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.rail-dot:hover .tip {
-  opacity: 1;
-  transform: none;
+  pointer-events: none;
+  z-index: 60;
 }
 
 /* ── Activity dot（rail 圆点角标：处理中/未读/阻塞）── */
