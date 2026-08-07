@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, provide } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch, provide, nextTick } from "vue";
 import { useRouter, useRoute } from "vue-router";
 import SessionSidebar from "@/components/session/SessionSidebar.vue";
 import FilePanel from "@/components/files/FilePanel.vue";
@@ -38,6 +38,40 @@ function showRailTip(title: string, e: MouseEvent) {
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
   hoveredRailTip.value = { title, top: Math.round(rect.top) };
 }
+
+// rail 滚动渐变：父子高度对比（scrollHeight vs clientHeight）判断是否显示不全，
+// 滚动位置（scrollTop）决定上下哪个方向有遮挡内容——用户建议的方案（2026-08-08）
+// 注：直接 querySelector 而非 Vue ref——实测 ref 绑定在折叠/挂载时序下偶发未就绪
+const railAtTop = ref(true);
+const railAtBottom = ref(true);
+const railScrollable = ref(false);
+function updateRailScroll() {
+  const dots = document.querySelector(".rail-dots") as HTMLElement | null;
+  if (!dots) {
+    railScrollable.value = false;
+    return;
+  }
+  // 可滚动判定：内容总高 > 容器可视高 + 4px 容差（临界不显示，避免闪烁）
+  railScrollable.value = dots.scrollHeight > dots.clientHeight + 4;
+  railAtTop.value = dots.scrollTop <= 4;
+  railAtBottom.value = dots.scrollTop + dots.clientHeight >= dots.scrollHeight - 4;
+}
+// 触发路径：挂载/延迟重查（布局时序兜底）/resize/侧栏 DOM 变化（折叠切换与会话增删）/滚动
+let railObserver: MutationObserver | null = null;
+onMounted(() => {
+  updateRailScroll();
+  for (const ms of [300, 1000, 3000]) setTimeout(updateRailScroll, ms);
+  window.addEventListener("resize", updateRailScroll);
+  const aside = document.querySelector(".sb-sidebar");
+  if (aside && typeof MutationObserver !== "undefined") {
+    railObserver = new MutationObserver(() => requestAnimationFrame(updateRailScroll));
+    railObserver.observe(aside, { childList: true, subtree: true, attributes: true });
+  }
+});
+onUnmounted(() => {
+  window.removeEventListener("resize", updateRailScroll);
+  railObserver?.disconnect();
+});
 
 async function onRailNewSession() {
   handleCommand("new-session");
@@ -480,7 +514,11 @@ async function openFilePanelTo(_path: string) {
 
           <div class="rail-sep" />
 
-          <div class="rail-dots">
+          <div class="rail-dots" @scroll.passive="updateRailScroll">
+            <!-- 顶部渐变：滚动后上方还有未显示会话（下淡上浓，accent 色半透明，不挡点击） -->
+            <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
+            <!-- 底部渐变：滚动前下方还有未显示会话（上淡下浓） -->
+            <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
             <button
               v-for="s in railSessions"
               :key="s.id"
@@ -849,6 +887,27 @@ async function openFilePanelTo(_path: string) {
 }
 .rail-dots::-webkit-scrollbar {
   display: none;
+}
+/* 滚动渐变提示：rail-dots 可滚动时显示（absolute 贴边，accent 半透明渐变，上/下双向；
+   滚动条已隐藏，此渐变替代「还有更多」的可发现性信号；pointer-events:none 不挡滚轮/点击） */
+.rail-dots {
+  position: relative;
+}
+.rail-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: none;
+  z-index: 2;
+}
+.rail-fade--bottom {
+  bottom: 0;
+  background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--accent) 30%, transparent));
+}
+.rail-fade--top {
+  top: 0;
+  background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
 }
 /* 会话圆点：首字符按钮，active 高亮（原型 rail-dot） */
 .rail-dot {
