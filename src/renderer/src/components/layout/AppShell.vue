@@ -840,7 +840,11 @@ async function openFilePanelTo(_path: string) {
   /* 滚动条视觉全隐藏（XY 均不显示），保留 overflow-y:auto 的滚轮/键盘滚动能力——56px 窄条不该有滚动条占位（2026-08-08 用户要求） */
   scrollbar-width: none;
   -ms-overflow-style: none;
-  width: 100%;
+  /* 不强制 width:100%：flex 列 + align-items:center 下自动按内容收缩（34px 圆点），
+     避免滚动条占位参与宽度计算导致窄条挤压/横向溢出（用户复现 X 滚动条，2026-08-08） */
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
   padding: 4px 0;
 }
 .rail-dots::-webkit-scrollbar {
