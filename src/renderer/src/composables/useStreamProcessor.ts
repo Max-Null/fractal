@@ -396,10 +396,12 @@ export function useStreamProcessor() {
       // （离线灰显占位只应短暂存在，引擎就绪后应立即恢复历史消息）
       if (info?.running && chat.historyError && session.activeSessionId) {
         const sid = session.activeSessionId;
+        chat.setHistoryLoading(true);
         listMessages(sid)
           .then((msgs) => {
             // 竞态 guard：重试期间可能已切换会话，丢弃过期结果
             if (session.activeSessionId !== sid) return;
+            chat.setHistoryLoading(false);
             chat.loadMessages(
               msgs.map((m) => ({
                 id: m.id,
@@ -413,6 +415,7 @@ export function useStreamProcessor() {
           })
           .catch(() => {
             // 重试仍失败（serve 刚启动但消息端点未就绪）→ 保持离线标记，等待下次 status 事件
+            chat.setHistoryLoading(false);
             debugLog.add(`🔌 历史消息重载失败，等待下次恢复`, sid);
           });
       }

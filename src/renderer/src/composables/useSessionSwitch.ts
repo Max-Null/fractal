@@ -28,6 +28,9 @@ export function useSessionSwitch() {
     // 第三步：设置新活跃会话
     session.setActiveSession(id);
 
+    // 缓存未命中时走 DB 拉取——先置加载态（消息区显示加载占位，避免白屏等待误判）
+    chat.setHistoryLoading(true);
+
     // 只清除已完成的会话指示器，处理中的保留绿点
     if (session.sessionActivity[id] !== 'processing') {
       session.setSessionActivity(id, null);
@@ -37,6 +40,7 @@ export function useSessionSwitch() {
     const cached = chat.loadFromCache(id);
     if (cached) {
       // 缓存命中 = 会话消息已就绪，清除离线标记（恢复场景：serve 已回连但缓存存在）
+      chat.setHistoryLoading(false);
       chat.setHistoryError(false);
       chat.messages.push(...cached);
       // 恢复流式状态：若最后一条消息在流式中，保持引用以继续接收事件
@@ -50,6 +54,7 @@ export function useSessionSwitch() {
         const msgs = await listMessages(id);
         // 竞态 guard：异步期间可能已切换到其他会话，检查后丢弃过期结果
         if (session.activeSessionId !== id) return;
+        chat.setHistoryLoading(false);
         chat.loadMessages(
           msgs.map((m) => ({
             id: m.id,
@@ -63,6 +68,7 @@ export function useSessionSwitch() {
       } catch {
         if (session.activeSessionId !== id) return;
         // 加载失败（serve 未启动/未注入）→ 置离线标记，消息区灰显占位（G3）
+        chat.setHistoryLoading(false);
         chat.setHistoryError(true);
         // messages 已在第二步清空，无需额外清理
       }

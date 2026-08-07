@@ -73,6 +73,8 @@
     "welcomeNewline": "newline",
     "historyOfflineTitle": "Engine not ready",
     "historyOfflineSubtitle": "History unavailable until the engine starts — it will load automatically",
+    "historyLoadingTitle": "Loading history",
+    "historyLoadingSubtitle": "Large sessions may take a few seconds — please wait",
     "debugLabel": "Debug",
     "llmRequestLabel": "LLM Request",
     "aboutTitle": "About Fractal",

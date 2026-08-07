@@ -73,6 +73,8 @@
     "welcomeNewline": "换行",
     "historyOfflineTitle": "引擎未就绪",
     "historyOfflineSubtitle": "历史消息暂不可用，引擎启动后将自动加载",
+    "historyLoadingTitle": "正在加载历史消息",
+    "historyLoadingSubtitle": "会话消息较多时可能需要几秒，请稍候",
     "debugLabel": "调试",
     "llmRequestLabel": "LLM 请求",
     "aboutTitle": "关于分形",

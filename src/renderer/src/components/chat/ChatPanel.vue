@@ -821,8 +821,18 @@ watch(
       </details>
       <!-- Welcome -->
       <div v-if="chat.messages.length === 0" class="welcome-container">
+        <!-- 历史加载中（切会话全量拉取）→ 转圈占位，避免白屏等待误判 -->
+        <div v-if="chat.historyLoading" class="welcome-page">
+          <div class="welcome-logo" style="background:var(--accent-glow); animation: pulse 1.2s ease-in-out infinite">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" class="animate-spin" style="animation-duration:1.1s">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          </div>
+          <h2 class="welcome-title">{{ $t('chat.historyLoadingTitle') }}</h2>
+          <p class="text-sm leading-relaxed mb-6" style="color:var(--text-muted)">{{ $t('chat.historyLoadingSubtitle') }}</p>
+        </div>
         <!-- 离线占位（G3）：serve 未就绪时历史消息不可用，灰显提示 + 当前会话标题正常展示 -->
-        <div v-if="chat.historyError" class="welcome-page offline-placeholder">
+        <div v-else-if="chat.historyError" class="welcome-page offline-placeholder">
           <div class="welcome-logo offline-logo" style="background:var(--bg-elevated)">
             <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />

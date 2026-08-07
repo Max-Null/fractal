@@ -41,6 +41,8 @@ const i18n = createI18n({
         welcomeNewline: "Shift+Enter newline",
         historyOfflineTitle: "Engine not ready",
         historyOfflineSubtitle: "History unavailable until the engine starts",
+        historyLoadingTitle: "Loading history",
+        historyLoadingSubtitle: "Large sessions may take a few seconds",
         allow: "Allow",
         deny: "Deny",
         alwaysAllow: "Always allow",
@@ -286,6 +288,30 @@ describe("ChatPanel 弹窗", () => {
     expect(wrapper.text()).toContain("测试会话");
     // 不显示正常欢迎页（welcome-keywords 是正常欢迎页独有元素）
     expect(wrapper.find(".welcome-keywords").exists()).toBe(false);
+  });
+
+  it("历史加载中 → 显示加载占位而非欢迎页/离线占位", async () => {
+    const chat = useChatStore();
+    chat.setHistoryError(false);
+    chat.setHistoryLoading(true);  // 切会话全量拉取期间
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.text()).toContain("Loading history");
+    expect(wrapper.find(".offline-placeholder").exists()).toBe(false);
+    expect(wrapper.find(".welcome-keywords").exists()).toBe(false);
+  });
+
+  it("加载完成 → 加载占位消失，回到正常欢迎页", async () => {
+    const chat = useChatStore();
+    chat.setHistoryLoading(true);
+    const wrapper = mountChatPanel();
+    await flush();
+    chat.setHistoryLoading(false);
+    await flush();
+    expect(wrapper.text()).not.toContain("Loading history");
+    expect(wrapper.find(".welcome-keywords").exists()).toBe(true);
   });
 
   it("G3: 无 historyError 且无消息 → 正常欢迎页（非离线占位）", async () => {
