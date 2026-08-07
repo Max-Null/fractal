@@ -109,7 +109,8 @@ describe("GitPanel", () => {
     vm.selectedFile = { path: "test.ts", status: "modified" };
     await wrapper.vm.$nextTick();
 
-    await wrapper.setProps({ repoPath: "C:\\other" });
+    // repoPath 是透传 prop（组件不声明——通过 attrs 观察变更后行为），as any 绕开 vue-test-utils 泛型
+    await wrapper.setProps({ repoPath: "C:\\other" } as any);
     await new Promise(r => setTimeout(r, 10));
 
     expect(mockCloseGitDiff).toHaveBeenCalled();

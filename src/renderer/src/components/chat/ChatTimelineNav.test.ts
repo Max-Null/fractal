@@ -125,27 +125,28 @@ describe("ChatTimelineNav", () => {
     // 隐藏的是 1~16，共 16 条，不是 17 或 18 ✓
   });
 
-  // ═══ 展开交互（hover 展开 + 点击省略号切换；原 Alt 键已移除——与 Windows 菜单栏冲突）═══
+  // ═══ 展开交互（点击省略号展开/× 收起；hover 只显示 tooltip 不展开——hover 展开会吞掉省略号点击入口）═══
 
-  it("鼠标悬停展开全部点", async () => {
+  it("hover 不展开（只显示 tooltip），点省略号才展开", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
     }
     const w = mountNav(msgs);
-    // 压缩模式下只有 4 个点
     expect(dotCount(w)).toBe(4);
 
-    // 悬停导航区 → 展开全部
+    // 悬停：不展开（省略号保留可点击——这是关键：hover 展开会让「…」消失而点不到）
     await w.find(".chat-timeline-nav").trigger("mouseenter");
-    expect(dotCount(w)).toBe(20);
-
-    // 移出 → 恢复压缩
-    await w.find(".chat-timeline-nav").trigger("mouseleave");
     expect(dotCount(w)).toBe(4);
+    expect(w.find(".chat-timeline-ellipsis").exists()).toBe(true);
+    await w.find(".chat-timeline-nav").trigger("mouseleave");
+
+    // 点击省略号 → 展开全部
+    await w.find(".chat-timeline-ellipsis").trigger("click");
+    expect(dotCount(w)).toBe(20);
   });
 
-  it("点击省略号切换持久展开，再点收起", async () => {
+  it("点击省略号展开全部，再点 × 收起", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
@@ -159,36 +160,25 @@ describe("ChatTimelineNav", () => {
     await w.find(".chat-timeline-nav").trigger("mouseleave");
     expect(dotCount(w)).toBe(20);
 
-    // 展开后省略号消失，末尾按钮为锁定态 × → 点击收起
+    // 展开后省略号消失，末尾 × 收起按钮 → 点击收起
     expect(w.findAll(".chat-timeline-ellipsis")).toHaveLength(0);
     expect(w.find(".chat-timeline-collapse").text()).toBe("×");
     await w.find(".chat-timeline-collapse").trigger("click");
     expect(dotCount(w)).toBe(4);
   });
 
-  it("悬停展开时末尾按钮为 ⏸，点击锁定（移出不收起）", async () => {
+  it("展开态容器可滚动（圆点超出可视区时每个点都可点）", async () => {
     const msgs: Message[] = [];
     for (let i = 0; i < 20; i++) {
       msgs.push(userMsg(`u${i}`, `msg ${i}`), asstMsg(`a${i}`, `reply ${i}`));
     }
     const w = mountNav(msgs);
-    expect(dotCount(w)).toBe(4);
-
-    // 悬停 → 临时展开 + ⏸ 锁定按钮
-    await w.find(".chat-timeline-nav").trigger("mouseenter");
+    await w.find(".chat-timeline-ellipsis").trigger("click");
+    // 展开态导航容器有滚动能力（CSS 类断言；实际滚动行为由浏览器渲染）
+    const nav = w.find(".chat-timeline-nav");
+    expect(nav.classes()).toContain("chat-timeline-nav--expanded");
+    // 全部 20 个点渲染在容器中
     expect(dotCount(w)).toBe(20);
-    expect(w.find(".chat-timeline-collapse").text()).toBe("⏸");
-
-    // 点击 ⏸ → 锁定：移出不收起
-    await w.find(".chat-timeline-collapse").trigger("click");
-    await w.find(".chat-timeline-nav").trigger("mouseleave");
-    expect(dotCount(w)).toBe(20);
-    // 锁定态按钮变为 ×
-    expect(w.find(".chat-timeline-collapse").text()).toBe("×");
-
-    // 再点 × → 收起
-    await w.find(".chat-timeline-collapse").trigger("click");
-    expect(dotCount(w)).toBe(4);
   });
 
   it("50 条外锚点 tooltip 用 timeline preview 兜底（messages 只渲染尾部）", async () => {
@@ -199,7 +189,8 @@ describe("ChatTimelineNav", () => {
     }));
     const w = mount(ChatTimelineNav, { props: { messages: msgs, timeline, scrollContainer: null } });
 
-    // 悬停展开 → 50 个点；第 1 个点（u0，未渲染）tooltip 显示 preview 而非空
+    // 点击省略号展开 → 50 个点；悬停导航区（hover 只显示 tooltip 不展开）；第 1 个点（u0，未渲染）tooltip 显示 preview 而非空
+    await w.find(".chat-timeline-ellipsis").trigger("click");
     await w.find(".chat-timeline-nav").trigger("mouseenter");
     const dots = w.findAll(".chat-timeline-dot");
     expect(dots).toHaveLength(50);
@@ -271,10 +262,9 @@ describe("ChatTimelineNav", () => {
     const ellipsis = w.find(".chat-timeline-ellipsis");
     expect(ellipsis.exists()).toBe(true);
 
-    // 悬停展开 → 500 个点（完整目录）
-    await w.find(".chat-timeline-nav").trigger("mouseenter");
+    // 点击省略号展开 → 500 个点（完整目录）
+    await w.find(".chat-timeline-ellipsis").trigger("click");
     expect(dotCount(w)).toBe(500);
-    await w.find(".chat-timeline-nav").trigger("mouseleave");
   });
 
   it("timeline 过滤 assistant 后作为锚点（user 目录）", () => {

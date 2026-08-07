@@ -61,11 +61,11 @@ onUnmounted(() => {
 });
 
 // ── 展开/压缩状态 ──
-// 交互：鼠标悬停展开全部 + 点击省略号切换持久展开
-// （原 Alt 键展开与 Windows Alt 激活菜单栏冲突，已移除全局 Alt 监听）
+// 交互：点击省略号「…」展开全部 / 点击 × 收起；hover 只显示 tooltip 不展开
+// （曾用 Alt 键与 hover 展开——Alt 与 Windows 菜单栏冲突、hover 会吞掉省略号点击入口，均已移除）
 const hovered = ref(false);
 const expandedClick = ref(false);
-const showAll = computed(() => hovered.value || expandedClick.value);
+const showAll = computed(() => expandedClick.value);
 
 function onMouseEnter() { hovered.value = true; }
 function onMouseLeave() { hovered.value = false; }
@@ -141,16 +141,7 @@ function onClick(index: number) {
   clickTimer = setTimeout(() => { justClickedIndex.value = -1; clickTimer = null; }, 600);
 }
 
-// 展开态末尾状态按钮：
-// - 已持久锁定（expandedClick）→ × 收起
-// - 仅悬停展开（hovered）→ ⏸ 锁定（保持展开，移出不收起）
-function onExpandAction() {
-  if (expandedClick.value) {
-    expandedClick.value = false;
-  } else {
-    expandedClick.value = true;
-  }
-}
+// 展开态末尾收起按钮（点击省略号展开后，× 收起）
 </script>
 
 <template>
@@ -186,14 +177,13 @@ function onExpandAction() {
         @click="toggleExpanded"
       >…</div>
     </template>
-    <!-- 展开态末尾状态按钮：悬停临时展开 → ⏸ 锁定；已锁定 → × 收起 -->
+    <!-- 展开态末尾收起按钮 -->
     <div
       v-if="showAll"
       class="chat-timeline-collapse"
-      :class="{ 'chat-timeline-collapse--locked': expandedClick }"
-      :title="expandedClick ? t('chat.timelineCollapseHint') : t('chat.timelineLockHint')"
-      @click="onExpandAction"
-    >{{ expandedClick ? "×" : "⏸" }}</div>
+      :title="t('chat.timelineCollapseHint')"
+      @click="toggleExpanded"
+    >×</div>
   </div>
 </template>
 
@@ -212,8 +202,13 @@ function onExpandAction() {
   gap: 18px;
 }
 .chat-timeline-nav--expanded {
-  /* 展开时加微弱背景提示 */
+  /* 展开时加微弱背景提示 + 圆点溢出滚动（消息多时全部点超出可视区，需能滚动到每个点） */
   background: linear-gradient(to left, var(--bg-hover), transparent);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
+  justify-content: flex-start;
+  padding: 6px 0;
 }
 
 .chat-timeline-dot {
