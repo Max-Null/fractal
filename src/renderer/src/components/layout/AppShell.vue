@@ -101,16 +101,25 @@ function switchToWorkspace(path: string) {
 
 // ── ws-pill 工作区管理下拉（最近工作区 + 选择目录）──
 const showWsMenu = ref(false);
+// 目录选择提示条（对话框不置前/失败时的可见反馈，3s 自动消失）
+const alertText = ref("");
+watch(alertText, (v) => {
+  if (v) setTimeout(() => { alertText.value = ""; }, 3000);
+});
 async function onWsPillClick() {
   // 点击胶囊切换下拉，不再直接弹选择框——最近工作区列表是主入口
   showWsMenu.value = !showWsMenu.value;
 }
 function onWsPickDirectory() {
   showWsMenu.value = false;
+  // 对话框弹出后由用户操作（模态等待）——pending 期间无提示；3s 未返回且非 pending 异常给提示
   openDialog({ directory: true }).then((picked) => {
     if (!picked) return;
     const path = Array.isArray(picked) ? picked[0] : picked;
     if (path) switchToWorkspace(path);
+  }).catch(() => {
+    // invoke reject：提示用户（异常不应无声）
+    alertText.value = "打开目录选择器失败，请重试";
   });
 }
 function onWsPickRecent(path: string) {
@@ -118,8 +127,8 @@ function onWsPickRecent(path: string) {
   switchToWorkspace(path);
 }
 function onBodyClickForWs(e: MouseEvent) {
-  // 点击菜单外部区域时收起工作区下拉
-  if (!(e.target as HTMLElement).closest(".ws-pill, .ws-menu")) showWsMenu.value = false;
+  // 点击菜单外部区域时收起工作区下拉（ws-pill-wrap 内点击不收起）
+  if (!(e.target as HTMLElement).closest(".ws-pill-wrap, .ws-menu")) showWsMenu.value = false;
 }
 onMounted(() => document.addEventListener("click", onBodyClickForWs));
 onUnmounted(() => document.removeEventListener("click", onBodyClickForWs));
@@ -315,14 +324,19 @@ async function openFilePanelTo(_path: string) {
 
         <!-- 工作区胶囊：点击展开管理下拉（最近工作区 + 选择目录） -->
         <div class="ws-wrap" style="position:relative">
-          <button class="ws-pill" :title="$t('header.cwdTitle')" @click="onWsPillClick">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ws-pill-folder">
-              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-            </svg>
-            <span class="ws-pill-path">{{ cwd || $t('header.selectWorkspace') }}</span>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:.6"><polyline points="6 9 12 15 18 9"/></svg>
-          </button>
-          <!-- 工作区管理下拉：最近工作区 + 选择目录 -->
+          <!-- ws-pill：本体点击 = 直接弹目录选择（原型行为，对话框链路已实测可用）；小箭头 = 打开最近工作区菜单 -->
+          <div class="ws-pill-wrap">
+            <button class="ws-pill" :title="$t('header.cwdTitle')" @click="onWsPickDirectory">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="ws-pill-folder">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+              </svg>
+              <span class="ws-pill-path">{{ cwd || $t('header.selectWorkspace') }}</span>
+            </button>
+            <button class="ws-pill-arrow" :title="$t('header.recentWorkspaces')" @click="onWsPillClick">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+            </button>
+          </div>
+          <!-- 工作区管理下拉：仅最近工作区（选择目录走胶囊本体点击） -->
           <div v-if="showWsMenu" class="ws-menu">
             <div class="ws-menu-head">{{ $t('header.recentWorkspaces') }}</div>
             <template v-if="settings.recentWorkspaces.length">
@@ -331,11 +345,6 @@ async function openFilePanelTo(_path: string) {
               </button>
             </template>
             <div v-else class="ws-menu-empty">{{ $t('header.noRecentWorkspaces') }}</div>
-            <div class="ws-menu-sep"></div>
-            <button class="ws-menu-item" @click="onWsPickDirectory">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="flex-shrink:0"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              <span>{{ $t('header.browseFolder') }}</span>
-            </button>
           </div>
         </div>
       </div>
@@ -419,6 +428,9 @@ async function openFilePanelTo(_path: string) {
         </button>
       </div>
     </header>
+
+    <!-- 目录选择提示条（对话框未置前/失败时可见反馈） -->
+    <div v-if="alertText" class="ws-alert">{{ alertText }}</div>
 
     <!-- Body -->
     <div ref="sbBodyRef" class="sb-body">
@@ -592,23 +604,56 @@ async function openFilePanelTo(_path: string) {
   color: var(--text-hi);
 }
 
+/* ws-pill-wrap：本体（选目录）+ 小箭头（最近工作区菜单）组合 */
+.ws-pill-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  border-radius: 999px;
+  padding: 3px 4px 3px 3px;
+  max-width: 340px;
+  min-width: 0;
+  transition: border-color 0.2s, background 0.2s;
+}
+.ws-pill-wrap:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
 /* ws-pill：工作区胶囊（点击选择目录），路径 mono 截断 */
 .ws-pill {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
+  padding: 4px 8px 4px 10px;
   border-radius: 999px;
-  border: 1px solid var(--border-dim);
-  background: var(--bg-card);
+  border: none;
+  background: transparent;
   font-size: 12px;
   color: var(--text-secondary);
   max-width: 300px;
   min-width: 0;
-  transition: border-color 0.2s, background 0.2s;
+  transition: color 0.2s;
 }
 .ws-pill:hover {
-  border-color: var(--border-strong);
+  color: var(--text-bright);
+}
+/* 小箭头按钮：打开最近工作区菜单 */
+.ws-pill-arrow {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: none;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: background 0.18s, color 0.18s;
+}
+.ws-pill-arrow:hover {
   background: var(--bg-hover);
   color: var(--text-bright);
 }
@@ -652,6 +697,21 @@ async function openFilePanelTo(_path: string) {
 @keyframes icon-btn-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* 目录选择提示条：吸顶显示，accent 底白字，3s 自动消失 */
+.ws-alert {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12.5px;
+  padding: 7px 16px;
+  border-radius: 9px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
 .sb-main {

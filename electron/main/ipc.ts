@@ -416,6 +416,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       const opts = args.options ?? {}
       // 父窗口保底：焦点不在 app 时 getFocusedWindow 为 null，无父对话框不置前（用户感觉「没效果」）——用主窗口兜底
       const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+      // 模态对话框前置保障：窗口若被遮挡/最小化则先恢复聚焦，否则对话框可能弹到不可见位置
+      if (win) {
+        if (win.isMinimized()) win.restore()
+        win.show()
+        win.focus()
+      }
+      // 调用日志（诊断用，后续可移除）：记录对话框请求与结果
+      try {
+        const { appendFileSync } = require('node:fs') as typeof import('node:fs')
+        appendFileSync(join(app.getPath('userData'), 'dialog.log'), `${new Date().toISOString()} openDialog directory=${!!opts.directory}\n`)
+      } catch { /* 日志失败忽略 */ }
       const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = []
       // 目录模式与文件模式互斥，directory 优先
       if (opts.directory) {
