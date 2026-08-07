@@ -108,18 +108,27 @@ let lastResolvedFromSidecar = false
  * 2. 系统安装（where opencode）：原生 exe 或 .cmd/.bat shim（Node CreateProcess 不解析 .cmd → 读 shim 提取真实 exe，阶段 0 踩坑 #2）
  */
 async function resolveOpencodeBin(): Promise<string> {
-  // ① 内置 sidecar（优先）：打包 = process.resourcesPath/bin/；开发 = <项目根>/resources/bin/
-  // 单测环境无 electron app（undefined）——按开发模式解析（process.cwd() 为项目根，vitest 由项目根运行）
+  // ① 内置 sidecar（优先）：打包 = process.resourcesPath/bin/；dev = 项目根 resources/bin（多候选）
+  // 注意：dev 下 getAppPath() 返回入口目录（out/main 或 out）——用「向上两级/一级找项目根」+ cwd 双候选兜底
+  // 单测环境无 electron app（undefined）——process.cwd() 为项目根，vitest 由项目根运行
   const isPackaged = app?.isPackaged === true
-  const appRoot = isPackaged ? process.resourcesPath : join(app?.getAppPath?.() ?? process.cwd(), 'resources')
-  const bundled = join(appRoot, 'bin', process.platform === 'win32' ? 'opencode.exe' : 'opencode')
+  const binName = process.platform === 'win32' ? 'opencode.exe' : 'opencode'
+  const sidecarCandidates = isPackaged
+    ? [join(process.resourcesPath, 'bin', binName)]
+    : [
+        join(process.cwd(), 'resources', 'bin', binName), // dev 启动（WorkingDirectory=项目根，最常用）
+        join(app?.getAppPath?.() ?? '', '..', '..', 'resources', 'bin', binName), // 入口在 out/main → 项目根
+        join(app?.getAppPath?.() ?? '', '..', 'resources', 'bin', binName), // 入口在 out → 项目根
+      ]
   if (!sidecarBroken) {
-    try {
-      await fsp.access(bundled)
-      lastResolvedFromSidecar = true
-      return bundled
-    } catch {
-      // 内置不存在或已标记损坏 → 系统兜底
+    for (const bundled of sidecarCandidates) {
+      try {
+        await fsp.access(bundled)
+        lastResolvedFromSidecar = true
+        return bundled
+      } catch {
+        // 该候选不存在 → 尝试下一个
+      }
     }
   }
   lastResolvedFromSidecar = false

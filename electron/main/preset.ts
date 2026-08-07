@@ -3,6 +3,7 @@
 // 依赖约定：ensureConfig（写 provider/model/permission 受管字段）在 ensurePresetConfig 之后调用——
 // 两者都按「读现有 → 写自身字段」merge，顺序无关但均须在 startServer 前完成（serve 启动时加载配置，阶段 0 实测）
 import { promises as fsp } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { getConfigPath, getJsoncPath } from './oc-config'
@@ -16,12 +17,16 @@ export interface PresetManifest {
 
 /**
  * 预置包根目录（双路径解析）：
- * - 打包后：electron-builder extraResources 把 preset 拷到 process.resourcesPath/preset/（仅 Electron 主进程存在该属性）
- * - dev/vitest：源码目录 electron/resources/preset（out/main → 仓库根 → electron/resources/preset）
+ * - 打包后：electron-builder extraResources → process.resourcesPath/preset/（Electron 主进程存在该属性）
+ * - dev/vitest：源码目录 electron/resources/preset
+ * 注意：process.resourcesPath 在 dev 下也永远存在（指向 electron dist 的 resources）——用 preset.json 存在性判断，
+ * 不能只看 resourcesPath 属性（否则 dev 模式会拿到不存在的 <dist>/resources/preset 导致初始化失败）
  */
 export function getDefaultPresetRoot(): string {
   const resourcesPath = (process as unknown as { resourcesPath?: string }).resourcesPath
-  if (resourcesPath) return join(resourcesPath, 'preset')
+  if (resourcesPath && existsSync(join(resourcesPath, 'preset', 'preset.json'))) {
+    return join(resourcesPath, 'preset')
+  }
   return join(__dirname, '..', '..', 'electron', 'resources', 'preset')
 }
 
