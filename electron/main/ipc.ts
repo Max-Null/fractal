@@ -4,10 +4,13 @@
 import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
 import { type ServerManager } from './server-manager'
 import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
+import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
 import type { Session } from '@opencode-ai/sdk'
+import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig } from './oc-config'
@@ -68,6 +71,50 @@ export async function readJsonFile(filePath: string, fallback: unknown): Promise
   }
 }
 
+/** 附件文件名 → MIME（FilePart 小表）；未知扩展回退 application/octet-stream */
+export function mimeFromExt(name: string): string {
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  const table: Record<string, string> = {
+    md: 'text/markdown',
+    json: 'application/json',
+    txt: 'text/plain',
+    js: 'text/javascript',
+    ts: 'text/typescript',
+    tsx: 'text/typescript',
+    vue: 'text/x-vue',
+    py: 'text/x-python',
+    java: 'text/x-java',
+    go: 'text/x-go',
+    rs: 'text/x-rust',
+    c: 'text/x-c',
+    h: 'text/x-c',
+    cpp: 'text/x-c++',
+    hpp: 'text/x-c++',
+    html: 'text/html',
+    css: 'text/css',
+    scss: 'text/x-scss',
+    pdf: 'application/pdf',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    webp: 'image/webp',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+zip: 'application/zip',
+yml: 'text/yaml',
+yaml: 'text/yaml',
+xml: 'application/xml',
+sh: 'text/x-sh',
+sql: 'text/x-sql',
+toml: 'application/toml',
+env: 'text/plain',
+  }
+  return table[ext] ?? 'application/octet-stream'
+}
+
 export async function writeJsonFile(filePath: string, data: unknown): Promise<void> {
   await fsp.mkdir(dirname(filePath), { recursive: true })
   await fsp.writeFile(filePath, JSON.stringify(data), 'utf-8')
@@ -113,6 +160,24 @@ export function parseGitStatus(stdout: string): {
     }
   }
   return { branch, staged, modified, untracked }
+}
+
+/**
+ * 构建 promptAsync 的 parts：text part 在前 + file part（mime 按扩展名推断、url 用 file:// URL——serve 约定，实测返回格式 file:///C:/…）
+ */
+export function buildSendParts(
+  message: string,
+  attachments: Array<{ path: string; name: string }>,
+): Array<{ type: 'text'; text: string } | FilePartInput> {
+  return [
+    { type: 'text', text: message },
+    ...attachments.map((a) => ({
+      type: 'file' as const,
+      mime: mimeFromExt(a.name),
+      url: pathToFileURL(a.path).href,
+      filename: a.name,
+    })),
+  ]
 }
 
 /**
@@ -410,20 +475,55 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return serverManager.getClient()
   }
 
-  ipcMain.handle('chat:sendMessage', async (_e, args: { sessionId: string; message: string; model?: { providerID: string; modelID: string }; agent?: string }) => {
-    if (typeof args?.sessionId !== 'string' || typeof args?.message !== 'string') {
-      throw new Error(`chat:sendMessage 参数非法: ${JSON.stringify(args)}`)
+  ipcMain.handle(
+    'chat:sendMessage',
+    async (
+      _e,
+      args: {
+        sessionId: string
+        message: string
+        model?: { providerID: string; modelID: string }
+        agent?: string
+        attachments?: Array<{ path: string; name: string }>
+      }
+    ) => {
+      if (typeof args?.sessionId !== 'string' || typeof args?.message !== 'string') {
+        throw new Error(`chat:sendMessage 参数非法: ${JSON.stringify(args)}`)
+      }
+      // 附件参数校验：可选数组，每项必须含绝对路径 + 展示名（绝对路径由 assertValidFsPath 拦截越界）
+      let attachments: Array<{ path: string; name: string }> = []
+      if (args.attachments !== undefined) {
+        if (!Array.isArray(args.attachments)) {
+          throw new Error(`chat:sendMessage attachments 必须是数组: ${JSON.stringify(args.attachments)}`)
+        }
+        for (const a of args.attachments) {
+          if (!a || typeof a.name !== 'string' || !a.name.trim() || typeof a.path !== 'string') {
+            throw new Error(`chat:sendMessage attachment 非法: ${JSON.stringify(a)}`)
+          }
+          assertValidFsPath(a.path)
+        }
+        attachments = args.attachments
+      }
+      // promptAsync 立即返回（204），结果通过 SSE 事件流回前端；model 由前端传入（settings.model），
+      // 缺省时用 provider.ts 默认 pro（serve 全局默认在 oc-config.ts 写 config.model）；
+      // agent 由前端传入（settings.currentAgent：双星/build/plan，缺省走 serve 默认 Build）
+      const model = args.model && args.model.providerID && args.model.modelID ? args.model : undefined
+      const extra = {
+        model: model ?? { providerID: 'ds', modelID: DEFAULT_MODEL.id },
+        ...(typeof args?.agent === 'string' && args.agent ? { agent: args.agent } : {}),
+      }
+      const client = await requireClient()
+      if (attachments.length === 0) {
+        // 无附件：保持便捷调用（text 单 part）
+        await client.session.promptAsync(args.sessionId, args.message, extra)
+      } else {
+        // 有附件：text part 在前 + file part（mime 按扩展名推断、url 用 file:// URL——serve 约定）
+        const parts = buildSendParts(args.message, attachments)
+        await client.session.promptPartsAsync(args.sessionId, parts, extra)
+      }
+      return { accepted: true }
     }
-    // promptAsync 立即返回（204），结果通过 SSE 事件流回前端；model 由前端传入（settings.model），
-    // 缺省时用 provider.ts 默认 pro（serve 全局默认在 oc-config.ts 写 config.model）；
-    // agent 由前端传入（settings.currentAgent：双星/build/plan，缺省走 serve 默认 Build）
-    const model = args.model && args.model.providerID && args.model.modelID ? args.model : undefined
-    await (await requireClient()).session.promptAsync(args.sessionId, args.message, {
-      model: model ?? { providerID: 'ds', modelID: DEFAULT_MODEL.id },
-      ...(typeof args?.agent === 'string' && args.agent ? { agent: args.agent } : {}),
-    })
-    return { accepted: true }
-  })
+  )
 
   ipcMain.handle('engine:testConnection', async (_e, args: { apiKey: string }) => {
     // 设置面板「测试连接」：写 key 到 serve 隔离配置 + 验证 serve 可达
@@ -557,6 +657,36 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       throw new Error(`question:reject 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
     }
     return { ok: true }
+  })
+
+  // ── 右侧面板数据源（阶段 6 遗留 P1-P3：记忆/计划/状态，文件监听实时刷新）──
+
+  ipcMain.handle('memory:list', async () => {
+    const userDataDir = app.getPath('userData')
+    // 项目记忆目录跟随渲染进程工作区（ui-settings.json 持久化）；工作区切换时重建项目 watcher
+    const cwd = await readProjectCwd(userDataDir)
+    getPanelWatchers()?.refreshProject(cwd)
+    return listMemories(userDataDir, cwd)
+  })
+
+  ipcMain.handle('memory:confirm', async (_e, args: { file: string }) => {
+    // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界改写）
+    const userDataDir = app.getPath('userData')
+    return confirmMemory(userDataDir, await readProjectCwd(userDataDir), args?.file)
+  })
+
+  ipcMain.handle('memory:remove', async (_e, args: { file: string }) => {
+    // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界删除）
+    const userDataDir = app.getPath('userData')
+    return removeMemory(userDataDir, await readProjectCwd(userDataDir), args?.file)
+  })
+
+  ipcMain.handle('plans:list', async () => {
+    return listPlans(app.getPath('userData'))
+  })
+
+  ipcMain.handle('status:get', async () => {
+    return getStatusState(app.getPath('userData'))
   })
 
   // 保留的 ping 通道（无业务用途，供调试探活）

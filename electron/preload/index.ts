@@ -27,11 +27,14 @@ const ALLOWED_INVOKE = [
   'message:list', 'permission:respond',
   'question:reply', 'question:reject',
   'engine:testConnection',
-  'engine:refresh'
+  'engine:refresh',
+  'memory:list', 'memory:confirm', 'memory:remove',
+  'plans:list',
+  'status:get'
 ] as const
 
-/** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播） */
-const ALLOWED_ON = ['engine:event', 'engine:status', 'config-changed'] as const
+/** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */
+const ALLOWED_ON = ['engine:event', 'engine:status', 'config-changed', 'engine:panel-update'] as const
 
 const electronBridge = {
   invoke: (channel: string, ...args: unknown[]) => {

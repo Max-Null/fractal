@@ -57,6 +57,27 @@ describe("sendMessage（model 参数转换）", () => {
       agent: "双星",
     });
   });
+
+  it("attachments（P6 附件链路）→ 原样透传给主进程", async () => {
+    invokeMock.mockResolvedValue({ accepted: true });
+    const attachments = [
+      { path: "C:\\tmp\\report.pdf", name: "report.pdf" },
+      { path: "C:\\tmp\\notes.md", name: "notes.md" },
+    ];
+    await sendMessage("ses-1", "看下附件", { attachments } as SendOptions);
+    expect(invokeMock).toHaveBeenCalledWith("chat:sendMessage", {
+      sessionId: "ses-1",
+      message: "看下附件",
+      attachments,
+    });
+  });
+
+  it("无 attachments → 不传 attachments 字段（主进程走便捷调用）", async () => {
+    invokeMock.mockResolvedValue({ accepted: true });
+    await sendMessage("ses-1", "hi");
+    expect(invokeMock).toHaveBeenCalledWith("chat:sendMessage", { sessionId: "ses-1", message: "hi" });
+    expect(invokeMock.mock.calls[0][1]).not.toHaveProperty("attachments");
+  });
 });
 
 describe("respondPermission（审批响应）", () => {

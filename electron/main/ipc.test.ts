@@ -247,3 +247,30 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(parsed.contentBlocks).toEqual([{ type: 'text', content: '只有文本' }])
   })
 })
+
+// ── 附件 parts 构建（军师审查补测）──
+import { buildSendParts, mimeFromExt } from './ipc'
+
+describe('buildSendParts 附件 parts 构建', () => {
+  it('text part 在前 + file part（mime/url file:///filename）', () => {
+    const parts = buildSendParts('看这个文件', [
+      { path: 'C:\\work\\a.md', name: 'a.md' },
+      { path: 'C:\\work\\b.png', name: 'b.png' },
+    ])
+    expect(parts).toHaveLength(3)
+    expect(parts[0]).toEqual({ type: 'text', text: '看这个文件' })
+    expect(parts[1]).toMatchObject({ type: 'file', mime: 'text/markdown', filename: 'a.md' })
+    expect((parts[1] as { url: string }).url).toContain('file:///')
+    expect((parts[1] as { url: string }).url).toContain('a.md')
+    expect(parts[2]).toMatchObject({ type: 'file', mime: 'image/png', filename: 'b.png' })
+  })
+  it('无附件仅 text part', () => {
+    const parts = buildSendParts('hello', [])
+    expect(parts).toEqual([{ type: 'text', text: 'hello' }])
+  })
+  it('mimeFromExt 兜底与补项', () => {
+    expect(mimeFromExt('x.yaml')).toBe('text/yaml')
+    expect(mimeFromExt('x.sh')).toBe('text/x-sh')
+    expect(mimeFromExt('unknown.zzz')).toBe('application/octet-stream')
+  })
+})

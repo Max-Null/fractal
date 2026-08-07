@@ -73,6 +73,8 @@ export interface SendOptions {
   agent?: string;
   /** File paths to attach (parent dirs are added via --add-dir) */
   filePaths?: string[];
+  /** 附件（FilePart 链路 P6）：path 绝对路径 + name 展示名，随消息一起发送给引擎 */
+  attachments?: Array<{ path: string; name: string }>;
   /** Working directory (overrides session cwd, used when workspace changes) */
   cwd?: string;
 }
@@ -360,6 +362,8 @@ export async function sendMessage(sessionId: string, message: string, options?: 
     message,
     ...(ocModel ? { model: ocModel } : {}),
     ...(options?.agent ? { agent: options.agent } : {}),
+    // 附件透传（无附件不传，主进程走便捷调用）
+    ...(options?.attachments?.length ? { attachments: options.attachments } : {}),
   });
   return r.accepted ? "" : "";
 }
@@ -557,4 +561,61 @@ export async function checkCcSessionExists(sessionId: string): Promise<boolean> 
   } catch {
     return false;
   }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 右侧面板数据源（阶段 6 遗留 P1-P3：记忆/计划/状态，文件监听实时刷新）
+// ══════════════════════════════════════════════════════════════════
+
+export interface MemoryEntry {
+  file: string;
+  title: string;
+  status: "pending" | "auto" | "suggest";
+  desc: string;
+  preview: string;
+}
+
+export interface PlanEntry {
+  file: string;
+  title: string;
+  currentStep: number;
+  totalSteps: number;
+  status: "执行中" | "已完成" | "未知";
+  lastCompletedStep: string;
+}
+
+export interface PanelActivePlan {
+  title: string;
+  progress: string;
+  lastCompletedStep: string;
+}
+
+/** 记忆列表：global=隔离全局记忆 / project=当前工作区记忆（无工作区则空） */
+export async function listMemories(): Promise<{ global: MemoryEntry[]; project: MemoryEntry[] }> {
+  return invoke<{ global: MemoryEntry[]; project: MemoryEntry[] }>("memory:list", {});
+}
+
+/** 确认记忆：pending → auto（主进程写回文件），返回 ok */
+export async function confirmMemory(file: string): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("memory:confirm", { file });
+}
+
+/** 删除记忆文件，返回 ok */
+export async function removeMemory(file: string): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("memory:remove", { file });
+}
+
+/** 计划列表（隔离 + 系统两目录合并）+ 当前活跃计划 */
+export async function listPlans(): Promise<{ plans: PlanEntry[]; active: PanelActivePlan | null }> {
+  return invoke<{ plans: PlanEntry[]; active: PanelActivePlan | null }>("plans:list", {});
+}
+
+/** Guardian 状态读取（.fractal-state.json）：文件不存在返回 { exists: false, state: null } */
+export async function getStatusState(): Promise<{ exists: boolean; state: unknown }> {
+  return invoke<{ exists: boolean; state: unknown }>("status:get", {});
+}
+
+/** 订阅面板数据源变更广播（主进程 fs.watch → engine:panel-update），返回取消订阅函数 */
+export function onPanelUpdate(cb: (payload: { kind: "memory" | "plans" | "status" }) => void): () => void {
+  return window.electronBridge.on("engine:panel-update", (data) => cb(data as { kind: "memory" | "plans" | "status" }));
 }

@@ -12,8 +12,9 @@ import ChatPanel from "./ChatPanel.vue";
 const questionReplyMock = vi.fn();
 const questionRejectMock = vi.fn();
 const respondPermissionMock = vi.fn();
+const sendMessageMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
-  sendMessage: vi.fn().mockResolvedValue({ accepted: true }),
+  sendMessage: (...args: unknown[]) => sendMessageMock(...args),
   respondPermission: (...args: unknown[]) => respondPermissionMock(...args),
   questionReply: (...args: unknown[]) => questionReplyMock(...args),
   questionReject: (...args: unknown[]) => questionRejectMock(...args),
@@ -73,6 +74,13 @@ const ModalShellStub = {
 const mockRouter = { push: vi.fn(), currentRoute: { value: { path: "/chat" } } };
 let pinia: Pinia;
 
+// InputBar stub：声明 send 事件，供 handleSend 附件传递用例触发
+const InputBarStub = {
+  name: "InputBarStub",
+  emits: ["send"],
+  template: '<div class="input-bar-stub" />',
+};
+
 function mountChatPanel(): VueWrapper {
   return mount(ChatPanel, {
     global: {
@@ -80,7 +88,7 @@ function mountChatPanel(): VueWrapper {
       provide: { router: mockRouter },
       stubs: {
         ErrorBoundary: { template: "<div><slot /></div>" },
-        InputBar: { template: '<div class="input-bar-stub" />' },
+        InputBar: InputBarStub,
         MessageBubble: { template: '<div class="msg-stub" />' },
         ThinkingIndicator: { template: "<div />" },
         ContextUsageModal: { props: ["open"], template: "<div />" },
@@ -102,9 +110,11 @@ describe("ChatPanel 弹窗", () => {
     questionReplyMock.mockReset();
     questionRejectMock.mockReset();
     respondPermissionMock.mockReset();
+    sendMessageMock.mockReset();
     questionReplyMock.mockResolvedValue({ ok: true });
     questionRejectMock.mockResolvedValue({ ok: true });
     respondPermissionMock.mockResolvedValue({ responded: true });
+    sendMessageMock.mockResolvedValue({ accepted: true });
   });
 
   it("question 弹窗提交 → questionReply 收集 answers（单选 → 单元素数组）并关闭", async () => {
@@ -288,6 +298,30 @@ describe("ChatPanel 弹窗", () => {
     expect(wrapper.find(".offline-placeholder").exists()).toBe(false);
     expect(wrapper.find(".welcome-page").exists()).toBe(true);
     expect(wrapper.text()).toContain("Welcome");
+  });
+
+  it("P6: 附件发送 → sendMessage 收到 attachments（path/name 数组）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    sendMessageMock.mockResolvedValue({ accepted: true });
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    // 触发 attach-files 事件（右键菜单「添加到会话」同路径）→ 附件进入 attachedFiles
+    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "a.txt", path: "C:\\tmp\\a.txt" }] }));
+    await flush();
+
+    // InputBar emit send → handleSend
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "看下附件");
+    await flush();
+
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+    const [sid, msg, opts] = sendMessageMock.mock.calls[0] as [string, string, Record<string, unknown>];
+    expect(sid).toBe("ses-1");
+    expect(msg).toBe("看下附件");
+    expect(opts.attachments).toEqual([{ name: "a.txt", path: "C:\\tmp\\a.txt" }]);
   });
 });
 

@@ -552,6 +552,8 @@ async function handleSend(text: string) {
       // 主 agent（双星/build/plan）→ 引擎 promptAsync.agent；权限选「计划」时强制 plan agent（无写权限，方案 3.5）
       agent: settings.planMode ? "plan" : settings.currentAgent,
       filePaths: filePaths.length > 0 ? filePaths : undefined,
+      // 附件（P6 FilePart 链路）：与 addUserMessage 展示用的 attachments 同构，IPC 转 file part 发给引擎
+      attachments,
       cwd: settings.cwd || undefined,
     });
     // 侧栏统计在 useStreamProcessor result 事件后刷新（token 已入库）

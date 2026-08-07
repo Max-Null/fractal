@@ -13,6 +13,7 @@ import type {
   File as FileStatus,
   Config,
   TextPartInput,
+  FilePartInput,
   ProviderListResponse,
 } from '@opencode-ai/sdk'
 
@@ -174,6 +175,8 @@ export interface OcSessionClient {
   prompt(id: string, text: string, options?: PromptOptions): Promise<SessionMessage>
   /** 异步发送消息：立即返回（204），结果通过 SSE 事件流接收 */
   promptAsync(id: string, text: string, options?: PromptOptions): Promise<void>
+  /** 异步发送带附件消息：parts 数组（text + file 混排），立即返回（204），结果通过 SSE 事件流接收（P6 附件链路） */
+  promptPartsAsync(id: string, parts: Array<TextPartInput | FilePartInput>, options?: PromptOptions): Promise<void>
   /** 拉取会话消息列表（limit 可选） */
   messages(id: string, limit?: number): Promise<SessionMessage[]>
 }
@@ -253,6 +256,15 @@ export function createOcClient(options: OcClientOptions): OcClient {
         if (opts?.system) body.system = opts.system
         if (opts?.agent) body.agent = opts.agent
         // promptAsync 成功返回 204 void（data 为空对象），无需 data 校验
+        await client.session.promptAsync({ path: { id }, body })
+      },
+      promptPartsAsync: async (id, parts, opts) => {
+        const body: { parts: Array<TextPartInput | FilePartInput>; model?: PromptOptions['model']; system?: string; agent?: string } = {
+          parts,
+        }
+        if (opts?.model) body.model = opts.model
+        if (opts?.system) body.system = opts.system
+        if (opts?.agent) body.agent = opts.agent
         await client.session.promptAsync({ path: { id }, body })
       },
       messages: async (id, limit) =>

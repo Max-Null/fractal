@@ -1,54 +1,94 @@
 <script setup lang="ts">
-// plans/ 目录计划列表骨架：阶段 6 接入 GUI 读取 ~/.config/opencode/plans/，
-// 此处为占位数据展示 UI 结构（标题/状态/进度条/步骤），数据源替换后由真实计划驱动
-const placeholderPlans = [
-  {
-    title: "示例计划（占位）",
-    status: { label: "执行中", cls: "active" },
-    pct: 0,
-    done: 0,
-    total: 4,
-    desc: "阶段 6 将读取 plans/ 目录中的真实计划",
-    steps: ["步骤一（占位）", "步骤二（占位）", "步骤三（占位）", "步骤四（占位）"],
-    curStep: 0,
-  },
-];
+// 计划面板：plans/ 目录计划列表（隔离 + 系统两目录合并，文件监听实时刷新）
+// 数据源：plans:list（IPC）→ { plans, active }；active 为 .active.json 第一项（当前计划高亮）
+import { ref, computed, onMounted, onUnmounted } from "vue";
+import { listPlans, onPanelUpdate, type PlanEntry, type PanelActivePlan } from "@/lib/electron-bridge";
 
-const empty = placeholderPlans.length === 0;
+const plans = ref<PlanEntry[]>([]);
+const active = ref<PanelActivePlan | null>(null);
+let stopPanel: (() => void) | null = null;
+
+async function load() {
+  try {
+    const r = await listPlans();
+    plans.value = r.plans;
+    active.value = r.active;
+  } catch (err) {
+    console.error("[PlansPanel] 加载计划失败：", err);
+  }
+}
+
+// 状态标签映射：执行中 accent / 已完成 success / 未知 faint
+const statusMeta: Record<PlanEntry["status"], { label: string; cls: string }> = {
+  执行中: { label: "执行中", cls: "plan-status--active" },
+  已完成: { label: "已完成", cls: "plan-status--done" },
+  未知: { label: "未知", cls: "plan-status--unknown" },
+};
+
+// 进度条宽度与数值文案（0/0 → 0%，避免 NaN）
+function pctOf(p: PlanEntry): number {
+  if (p.totalSteps <= 0) return 0;
+  return Math.min(100, Math.round((p.currentStep / p.totalSteps) * 100));
+}
+function stepText(p: PlanEntry): string {
+  return p.totalSteps > 0 ? `${p.currentStep}/${p.totalSteps}` : "0/0";
+}
+
+// 当前计划进度（.active.json progress 形如 "5/5" 或 "?/?"；解析失败显示原文）
+const activePct = computed(() => {
+  if (!active.value) return 0;
+  const m = /(\d+)\s*\/\s*(\d+)/.exec(active.value.progress);
+  if (!m) return 0;
+  const total = Number(m[2]);
+  if (!total) return 0;
+  return Math.min(100, Math.round((Number(m[1]) / total) * 100));
+});
+
+onMounted(async () => {
+  await load();
+  stopPanel = onPanelUpdate((p) => {
+    if (p.kind === "plans") void load();
+  });
+});
+
+onUnmounted(() => {
+  stopPanel?.();
+});
 </script>
 
 <template>
   <div class="plans-panel">
-    <div class="panel-tip">计划列表将在阶段 6 接入（GUI 本地读取 ~/.config/opencode/plans/）</div>
+    <!-- 当前计划（.active.json 第一项，顶部高亮） -->
+    <div v-if="active" class="plan plan--active">
+      <div class="plan-title">
+        <span class="plan-live-dot"></span>{{ active.title }}
+        <span class="plan-status plan-status--active">当前计划</span>
+      </div>
+      <div class="plan-bar">
+        <div class="bar-track"><div class="bar-fill" :style="{ width: activePct + '%' }"></div></div>
+        <span class="plan-pct">{{ active.progress }}</span>
+      </div>
+      <div v-if="active.lastCompletedStep" class="plan-desc">上一步完成：{{ active.lastCompletedStep }}</div>
+    </div>
 
     <!-- 空态：数据源无计划时展示 -->
-    <div v-if="empty" class="plan-empty">
+    <div v-if="plans.length === 0" class="plan-empty">
       <div class="plan-empty-big">📋</div>
       <div>暂无计划</div>
       <div class="plan-empty-sub">让双星规划复杂任务后，计划会显示在这里</div>
     </div>
 
     <!-- 计划卡片 -->
-    <div v-for="p in placeholderPlans" :key="p.title" class="plan">
+    <div v-for="p in plans" :key="p.file" class="plan">
       <div class="plan-title">
         {{ p.title }}
-        <span class="plan-status" :class="`plan-status--${p.status.cls}`">{{ p.status.label }}</span>
+        <span class="plan-status" :class="statusMeta[p.status].cls">{{ statusMeta[p.status].label }}</span>
       </div>
       <div class="plan-bar">
-        <div class="bar-track"><div class="bar-fill" :style="{ width: p.pct + '%' }"></div></div>
-        <span class="plan-pct">{{ p.done }}/{{ p.total }}</span>
+        <div class="bar-track"><div class="bar-fill" :style="{ width: pctOf(p) + '%' }"></div></div>
+        <span class="plan-pct">{{ stepText(p) }}</span>
       </div>
-      <div v-if="p.desc" class="plan-desc">{{ p.desc }}</div>
-      <div class="plan-steps">
-        <div
-          v-for="(s, i) in p.steps"
-          :key="s"
-          class="pstep"
-          :class="{ 'pstep--done': i < p.done, 'pstep--cur': i === p.curStep && i >= p.done }"
-        >
-          <span class="cb">{{ i < p.done ? '✓' : i === p.curStep && i >= p.done ? '·' : '○' }}</span>{{ s }}
-        </div>
-      </div>
+      <div v-if="p.lastCompletedStep" class="plan-desc">上一步完成：{{ p.lastCompletedStep }}</div>
     </div>
   </div>
 </template>
@@ -63,16 +103,6 @@ const empty = placeholderPlans.length === 0;
   gap: 12px;
   padding: 16px 14px;
   min-height: 0;
-}
-
-/* 阶段提示条 */
-.panel-tip {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  background: var(--amber-glow);
-  color: var(--amber);
-  font-size: 11px;
-  line-height: 1.5;
 }
 
 /* 空态 */
@@ -102,6 +132,25 @@ const empty = placeholderPlans.length === 0;
   flex-direction: column;
   gap: 10px;
 }
+/* 当前计划高亮（accent 边框 + 呼吸圆点） */
+.plan--active {
+  border-color: var(--accent-line);
+  background: var(--accent-glow);
+}
+.plan-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent);
+  animation: plan-pulse 2s infinite;
+  flex-shrink: 0;
+}
+@keyframes plan-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 60%, transparent); }
+  70% { box-shadow: 0 0 0 5px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
 .plan-title {
   display: flex;
   align-items: center;
@@ -115,9 +164,11 @@ const empty = placeholderPlans.length === 0;
   padding: 2px 8px;
   border-radius: 999px;
   font-weight: 500;
+  flex-shrink: 0;
 }
 .plan-status--active { background: var(--accent-glow); color: var(--accent); }
-.plan-status--paused { background: var(--bg-active); color: var(--text-secondary); }
+.plan-status--done { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.plan-status--unknown { background: var(--bg-active); color: var(--text-secondary); }
 .plan-bar { display: flex; align-items: center; gap: 10px; }
 .bar-track {
   flex: 1;
@@ -142,28 +193,4 @@ const empty = placeholderPlans.length === 0;
   color: var(--text-secondary);
   line-height: 1.6;
 }
-.plan-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
-}
-.pstep {
-  display: flex;
-  gap: 8px;
-  align-items: baseline;
-  color: var(--text-secondary);
-}
-.pstep .cb {
-  font-size: 11px;
-  width: 14px;
-  font-family: var(--font-mono);
-}
-.pstep--done {
-  color: var(--text-muted);
-  text-decoration: line-through;
-  text-decoration-color: var(--border-bright);
-}
-.pstep--done .cb { color: var(--accent); text-decoration: none; }
-.pstep--cur { color: var(--text-bright); }
 </style>
