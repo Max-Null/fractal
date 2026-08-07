@@ -154,13 +154,23 @@ describe("settings store", () => {
 
   // ── settings.json 合并（阶段 6 config-changed 事件 / 启动拉取共用 applySettingsJson）──
 
-  it("applySettingsJson：ui.theme / ui.language 即时生效", () => {
+  it("applySettingsJson：ui.theme / ui.language 即时生效（settings.json 文件真实存在时）", () => {
     const settings = useSettingsStore();
     expect(settings.theme).toBe("dark");
     expect(settings.locale).toBe("zh");
+    settings.settingsFileExists = true;  // 模拟 settings.json 已存在（用户/GUI/agent 保存过）
     settings.applySettingsJson({ "ui.theme": "light", "ui.language": "en" });
     expect(settings.theme).toBe("light");
     expect(settings.locale).toBe("en");
+  });
+
+  it("applySettingsJson：默认态（settings.json 不存在）不覆盖表单主题——主题持久化修复", () => {
+    const settings = useSettingsStore();
+    settings.theme = "light";  // 用户表单选择了亮色（已持久化）
+    // 启动时 settings.json 不存在 → 广播默认值（ui.theme=dark）——不应覆盖用户选择
+    settings.applySettingsJson({ "ui.theme": "dark" });
+    expect(settings.theme).toBe("light");
+    expect(settings.locale).toBe("zh");
   });
 
   it("applySettingsJson：settings.json 无 system 主题，不覆盖表单的跟随系统", () => {

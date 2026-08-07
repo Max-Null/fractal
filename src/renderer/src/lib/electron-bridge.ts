@@ -277,6 +277,8 @@ export interface SettingsJsonConfig {
   config: Record<string, unknown>;
   warnings: string[];
   jsoncText: string;
+  /** settings.json 是否真实存在于磁盘——默认态（不存在）时前端不把默认值当显式配置（主题持久化依赖） */
+  exists?: boolean;
 }
 
 export interface SaveSettingsResult {
@@ -299,9 +301,16 @@ export async function getSettingsSchema(): Promise<Record<string, unknown>> {
   return invoke<Record<string, unknown>>("settings:getSchema", {});
 }
 
+/** config-changed 广播载荷：config = settings.json 显式字段；exists = 文件是否真实存在于磁盘（默认态区分） */
+export interface ConfigChangedPayload {
+  config: Record<string, unknown>;
+  warnings: string[];
+  exists?: boolean;
+}
+
 /** 订阅 settings.json 变更广播（主进程 fs.watch → config-changed），返回取消订阅函数 */
-export function onConfigChanged(cb: (payload: { config: Record<string, unknown>; warnings: string[] }) => void): () => void {
-  return window.electronBridge.on("config-changed", (data) => cb(data as { config: Record<string, unknown>; warnings: string[] }));
+export function onConfigChanged(cb: (payload: ConfigChangedPayload) => void): () => void {
+  return window.electronBridge.on("config-changed", (data) => cb(data as ConfigChangedPayload));
 }
 
 // ── 会话日志持久化 ──

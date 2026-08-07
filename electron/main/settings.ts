@@ -36,6 +36,8 @@ let currentConfig: Record<string, unknown> = { ...DEFAULT_SETTINGS }
 let currentWarnings: string[] = []
 /** 是否已从磁盘加载过（watchSettingsFile 启动加载或 loadSettings 显式调用）——settings:getConfig 首次调用判断 */
 let configLoaded = false
+/** 磁盘上的 settings.json 是否真实存在（首次启动不存在 → 默认值兜底；前端据此区分「默认态」与「显式配置」） */
+let diskFileExists = false
 
 /** 引擎字段快照：判断引擎相关项是否真的变化（避免 ui.theme 变更也写 opencode.json）
  * 传入 config 可能只含文件显式字段——缺失引擎字段按 DEFAULT 计（用户未写 = 默认值 = 无变化） */
@@ -46,13 +48,13 @@ function engineSnapshot(config: Record<string, unknown>): string {
 let lastEngineSnapshot = engineSnapshot(currentConfig)
 
 /** 变更监听器（watchSettings 注册；saveSettings 主动广播，fs.watch 回调也广播） */
-type ConfigChangedPayload = { config: Record<string, unknown>; warnings: string[] }
+type ConfigChangedPayload = { config: Record<string, unknown>; warnings: string[]; exists: boolean }
 const configListeners: Array<(payload: ConfigChangedPayload) => void> = []
 
 function emitConfigChanged(config: Record<string, unknown>, warnings: string[]): void {
   for (const fn of configListeners) {
     try {
-      fn({ config, warnings })
+      fn({ config, warnings, exists: diskFileExists })
     } catch (err) {
       // 单个监听器异常不阻断其余监听（防止前端回调炸掉主进程事件链）
       console.error('[settings] config-changed 监听器执行失败：', err)
@@ -143,6 +145,7 @@ export async function loadSettings(userDataDir: string): Promise<{ config: Recor
     currentConfig = config
     currentWarnings = warnings
     configLoaded = true
+    diskFileExists = true
     // 同步引擎快照：加载后引擎字段即「当前生效值」，后续 saveSettings 以此为准判断是否触发联动
     lastEngineSnapshot = engineSnapshot(config)
     return { config, warnings, jsoncText: raw }
@@ -154,6 +157,8 @@ export async function loadSettings(userDataDir: string): Promise<{ config: Recor
     currentJsoncText = JSON.stringify(DEFAULT_SETTINGS, null, 2)
     currentConfig = { ...DEFAULT_SETTINGS }
     currentWarnings = []
+    // 文件不存在（首次启动）→ 默认态：前端不应把默认值当显式配置（主题持久化依赖此区分）
+    diskFileExists = false
     // 重置引擎快照：默认配置即「当前生效值」（防止上一个文件残留的快照导致误触发联动）
     lastEngineSnapshot = engineSnapshot(currentConfig)
     return { config: currentConfig, warnings: [], jsoncText: currentJsoncText }
@@ -168,6 +173,11 @@ export function getConfig(): { config: Record<string, unknown>; warnings: string
 /** 是否已从磁盘加载过配置（getConfig 首次调用前用于决定是否先 loadSettings） */
 export function isSettingsLoaded(): boolean {
   return configLoaded
+}
+
+/** settings.json 文件是否真实存在于磁盘（前端区分默认态与显式配置，主题持久化的前提） */
+export function getSettingsFileExists(): boolean {
+  return diskFileExists
 }
 
 /** settings.schema.json 内容——settings:getSchema 通道（编辑器提示用） */
@@ -187,6 +197,7 @@ export async function saveSettings(userDataDir: string, jsoncText: string): Prom
   currentJsoncText = jsoncText
   currentConfig = config
   currentWarnings = warnings
+  diskFileExists = true
   emitConfigChanged(config, warnings)
   await syncEngineConfig(userDataDir, config)
   return { ok: true, warnings }

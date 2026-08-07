@@ -11,6 +11,7 @@ import {
   saveSettings,
   getConfig,
   getSchema,
+  getSettingsFileExists,
   watchSettingsFile,
 } from './settings'
 import { getConfigPath } from './oc-config'
@@ -138,6 +139,16 @@ describe('loadSettings / saveSettings / getConfig（文件读写）', () => {
     expect(r.config).toEqual(DEFAULT_SETTINGS)
     expect(r.warnings).toEqual([])
     expect(getSettingsPath(dir)).toBe(join(dir, 'settings.json'))
+  })
+
+  it('getSettingsFileExists：无文件 false → saveSettings 后 true → 删除文件后 loadSettings 回 false（默认态区分）', async () => {
+    await loadSettings(dir)
+    expect(getSettingsFileExists()).toBe(false)  // 首次启动：默认态（前端不覆盖表单主题的前提）
+    await saveSettings(dir, '{ "ui.theme": "light" }')
+    expect(getSettingsFileExists()).toBe(true)   // 写盘后：显式配置态
+    await fsp.rm(getSettingsPath(dir))
+    await loadSettings(dir)
+    expect(getSettingsFileExists()).toBe(false)  // 文件被删 → 回默认态
   })
 
   it('saveSettings：写盘 + 更新内存态 + getConfig 读回', async () => {

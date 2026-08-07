@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig } from "@/lib/electron-bridge";
+import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson } from "@/lib/electron-bridge";
 
 const STORAGE_KEY = "sb-ui-settings";
 
@@ -101,6 +101,9 @@ export const useSettingsStore = defineStore("settings", () => {
   const locale = ref<"zh" | "en">(ui.locale);
   const fontSize = ref<"small" | "medium" | "large">(ui.fontSize);
 
+  // settings.json 是否真实存在于磁盘（默认态标记）：不存在时 applySettingsJson 的 ui.theme/ui.language 不覆盖表单（主题持久化）
+  const settingsFileExists = ref(false);
+
   // LLM API 地址：跟随 baseUrl，用户手动编辑过才存 localStorage 覆盖
   const LLM_API_URL_KEY = "sb-llm-api-url-override";
   const optimizeApiUrl = ref(localStorage.getItem(LLM_API_URL_KEY) || baseUrl.value);
@@ -177,6 +180,8 @@ export const useSettingsStore = defineStore("settings", () => {
     // 启动拉取 settings.json（阶段 6）：settings.json 是高级源，优先级高于表单——await 保证渲染前配置已就绪（避免 UI 先渲染默认值再被覆盖的闪烁）
     try {
       const r = await getSettingsConfig();
+      // 同步默认态标记：文件真实存在（exists=true）→ ui.theme 以文件为准；不存在 → 表单持久化优先
+      if (typeof r.exists === "boolean") settingsFileExists.value = r.exists;
       applySettingsJson(r.config);
     } catch {
       // 拉取失败保持表单值（首次启动/引擎不可用）
@@ -191,8 +196,11 @@ export const useSettingsStore = defineStore("settings", () => {
    */
   function applySettingsJson(config: Record<string, unknown>) {
     // ui 偏好即时生效（settings.json 枚举无 system，只在 dark/light 时覆盖，保留表单的跟随系统）
-    if (config["ui.theme"] === "dark" || config["ui.theme"] === "light") theme.value = config["ui.theme"] as "dark" | "light";
-    if (config["ui.language"] === "zh" || config["ui.language"] === "en") locale.value = config["ui.language"] as "zh" | "en";
+    // 仅文件真实存在时覆盖——首次启动 settings.json 不存在 = 默认态，不应覆盖表单持久化的主题/语言
+    if (settingsFileExists.value) {
+      if (config["ui.theme"] === "dark" || config["ui.theme"] === "light") theme.value = config["ui.theme"] as "dark" | "light";
+      if (config["ui.language"] === "zh" || config["ui.language"] === "en") locale.value = config["ui.language"] as "zh" | "en";
+    }
     // 引擎相关：模型选择同步（settings.json 的 deepseek-v4-pro → store 显示名带 [1M] 标注，与 DEEPSEEK_MODELS 一致）
     const m = config["deepseek.model"];
     if (m === "deepseek-v4-pro") model.value = "deepseek-v4-pro[1M]";
@@ -214,7 +222,11 @@ export const useSettingsStore = defineStore("settings", () => {
     // 运行时 electronBridge 由 preload 注入；测试（happy-dom）无此对象，跳过注册（事件用例直接调 applySettingsJson）
     const bridge = (window as unknown as { electronBridge?: { on: (c: string, cb: (d: unknown) => void) => () => void } }).electronBridge;
     if (bridge?.on) {
-      onConfigChanged((payload) => { applySettingsJson(payload.config); });
+      onConfigChanged((payload) => {
+        // exists 同步：agent 首次创建 settings.json 后，默认态标记解除（此后 ui.theme 以文件为准）
+        if (typeof payload.exists === "boolean") settingsFileExists.value = payload.exists;
+        applySettingsJson(payload.config);
+      });
     }
   }
 
@@ -281,5 +293,28 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem("sb-current-workspace");
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
+  // ── 主题/语言同步写 settings.json（高级源）──
+  // 根因：settings.json 不存在时 loadSettings 返回默认值（ui.theme=dark），applySettingsJson 把它当显式配置覆盖表单
+  // 修复：①默认态（exists=false）不覆盖表单 ②用户显式切换主题/语言 → 写 settings.json（之后启动以文件为准）
+  // 循环防护：写盘 → config-changed 广播 → applySettingsJson 同值 → watch 不触发（值未变），无死循环
+  let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
+  watch([theme, locale], ([t, l]) => {
+    if (themeSyncTimer) clearTimeout(themeSyncTimer);
+    // 防抖：主题/语言连续切换只写一次（saveSettings 会触发引擎联动判断，但纯 UI 项不改 opencode.json）
+    themeSyncTimer = setTimeout(() => {
+      if (t !== "dark" && t !== "light") return; // system 不在 settings.json 枚举（schema 只有 dark/light），跳过
+      getSettingsConfig()
+        .then((r) => {
+          const next: Record<string, unknown> = { ...r.config, "ui.theme": t };
+          if (l === "zh" || l === "en") next["ui.language"] = l;
+          saveSettingsJson(JSON.stringify(next, null, 2)).catch(() => {
+            // 写失败不阻断（settings.json 写入失败仍可运行，仅主题重启不恢复）
+            console.error("[settings] 主题同步写 settings.json 失败");
+          });
+        })
+        .catch(() => {});
+    }, 800);
+  });
+
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding };
 });

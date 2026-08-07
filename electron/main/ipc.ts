@@ -14,7 +14,7 @@ import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig } from './oc-config'
-import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded } from './settings'
+import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
 
 // ── 工具函数 ──
 
@@ -365,10 +365,13 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle('settings:getConfig', async () => {
     // 首次调用（内存态尚未从磁盘加载）→ 主动读盘；之后直接返回内存态（watch/save 持续更新）
+    // exists：settings.json 是否真实存在于磁盘（默认态与显式配置的区分，前端主题持久化依赖）
     if (!isSettingsLoaded()) {
-      return loadSettings(app.getPath('userData'))
+      const r = await loadSettings(app.getPath('userData'))
+      return { ...r, exists: getSettingsFileExists() }
     }
-    return getSettingsConfig()
+    const r = getSettingsConfig()
+    return { ...r, exists: getSettingsFileExists() }
   })
 
   ipcMain.handle('settings:saveSettings', async (_e, args: { jsoncText: string }) => {
