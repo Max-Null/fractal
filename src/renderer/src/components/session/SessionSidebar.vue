@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 
 import { useSessionStore } from "@/stores/session";
 import { useChatStore } from "@/stores/chat";
+import { useSettingsStore } from "@/stores/settings";
 
 import { stopSession } from "@/lib/electron-bridge";
 import { useNewSession } from "@/composables/useNewSession";
@@ -19,6 +20,7 @@ const router = useRouter();
 
 const sessionStore = useSessionStore();
 const chatStore = useChatStore();
+const settings = useSettingsStore();
 
 const { handleNew } = useNewSession();
 const { switchTo } = useSessionSwitch();
@@ -42,7 +44,8 @@ const filteredSessions = computed(() => {
   return all.filter(s => s.title.toLowerCase().includes(q));
 });
 
-onMounted(async () => { await sessionStore.loadSessions(); });
+// 挂载时按当前工作区加载会话（无参=全部，会覆盖工作区过滤结果——断节根源）
+onMounted(async () => { await sessionStore.loadSessions(settings.cwd || undefined); });
 
 async function handleSelect(id: string) {
   await switchByMode(id);

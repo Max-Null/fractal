@@ -1,6 +1,7 @@
 import { useI18n } from "vue-i18n";
 import { useChatStore, type ToolUse, type ContentBlock, type ToolResult } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
+import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useStderrLog } from "@/composables/useStderrLog";
 import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
@@ -123,6 +124,7 @@ export function buildContentBlocks(
 export function useStreamProcessor() {
   const chat = useChatStore();
   const session = useSessionStore();
+  const settings = useSettingsStore();
   const debugLog = useDebugLog();
   const stderrLog = useStderrLog();
   const { t } = useI18n();
@@ -357,7 +359,7 @@ export function useStreamProcessor() {
           if (sid) {
             saveSessionDebugLog(sid, JSON.stringify(debugLog.exportLines(sid))).catch(() => {});
             saveSessionStderrLog(sid, JSON.stringify(stderrLog.exportLines(sid))).catch(() => {});
-            session.loadSessions().catch(() => {});  // 更新侧栏 token/cost/message_count
+            session.loadSessions(settings.cwd || undefined).catch(() => {});  // 刷新侧栏统计（带工作区过滤，否则覆盖为全部）
           }
 
           // Desktop notification
