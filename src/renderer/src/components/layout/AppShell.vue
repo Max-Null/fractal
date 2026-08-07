@@ -515,27 +515,30 @@ async function openFilePanelTo(_path: string) {
           <div class="rail-sep" />
 
           <div class="rail-dots" @scroll.passive="updateRailScroll">
-            <button
-              v-for="s in railSessions"
-              :key="s.id"
-              class="rail-dot"
-              :class="{ active: s.id === railActiveId }"
-              @click="switchTo(s.id)"
-              @mouseenter="showRailTip(s.title, $event)"
-              @mouseleave="hoveredRailTip = null"
-            >
-              {{ sessionChar(s.title) }}
-              <!-- 活动状态角标（处理中/未读/阻塞） -->
-              <span
-                v-if="sessionStore.sessionActivity[s.id]"
-                class="rail-activity"
-                :class="'dot-' + sessionStore.sessionActivity[s.id]"
-              />
-            </button>
+            <div class="rail-inner">
+              <!-- 顶部渐变（内容流最前，sticky top 粘住可视区顶部） -->
+              <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
+              <button
+                v-for="s in railSessions"
+                :key="s.id"
+                class="rail-dot"
+                :class="{ active: s.id === railActiveId }"
+                @click="switchTo(s.id)"
+                @mouseenter="showRailTip(s.title, $event)"
+                @mouseleave="hoveredRailTip = null"
+              >
+                {{ sessionChar(s.title) }}
+                <!-- 活动状态角标（处理中/未读/阻塞） -->
+                <span
+                  v-if="sessionStore.sessionActivity[s.id]"
+                  class="rail-activity"
+                  :class="'dot-' + sessionStore.sessionActivity[s.id]"
+                />
+              </button>
+              <!-- 底部渐变（内容流末尾，sticky bottom 粘住可视区底部） -->
+              <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
+            </div>
           </div>
-          <!-- 滚动渐变（rail 层，滚动容器外——absolute 定位在滚动容器内会随内容滚动，2026-08-08 实测） -->
-          <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
-          <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
         </nav>
       </aside>
 
@@ -867,10 +870,6 @@ async function openFilePanelTo(_path: string) {
 }
 .rail-dots {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
   overflow-y: auto;
   /* x 滚动条消除：overflow-y:auto 会让 overflow-x 计算为 auto（绝对定位子元素撑出 scrollWidth 时出现横条） */
   overflow-x: hidden;
@@ -882,31 +881,37 @@ async function openFilePanelTo(_path: string) {
   width: auto;
   max-width: 100%;
   min-width: 0;
-  padding: 4px 0;
 }
 .rail-dots::-webkit-scrollbar {
   display: none;
 }
-/* 滚动渐变提示（rail 层 absolute，非 rail-dots 内——滚动容器内的 absolute 包含块=内容，会随滚动，
-   放 rail-dots 外相对 sidebar-rail 定位才能固定在可视区边缘；pointer-events:none 不挡滚轮/点击） */
-.sidebar-rail {
+/* 滚动渐变提示：position:sticky 在滚动容器内粘住可视区边缘（absolute 的包含块=滚动内容会随滚动，
+   套 box/height:100% 均无效——sticky 是标准解法，2026-08-08 三方案实测）；
+   pointer-events:none 不挡滚轮/点击 */
+.rail-inner {
   position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
 }
 .rail-fade {
-  position: absolute;
+  position: sticky;
   left: 0;
   right: 0;
+  width: 100%;
   height: 30px;
+  flex-shrink: 0;
   pointer-events: none;
   z-index: 2;
 }
-/* 对齐 rail-dots 可视区边缘（rail 上下 padding 12px/14px） */
 .rail-fade--bottom {
-  bottom: 14px;
+  bottom: 0;
   background: linear-gradient(to bottom, transparent, color-mix(in srgb, var(--accent) 30%, transparent));
 }
 .rail-fade--top {
-  top: 12px;
+  top: 0;
   background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
 }
 /* 会话圆点：首字符按钮，active 高亮（原型 rail-dot） */
