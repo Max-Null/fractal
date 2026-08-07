@@ -38,3 +38,5 @@ tsconfig.tsbuildinfo
 e2e-shot.cjs
 e2e-diag.cjs
 shot-*.png
+.playwright-mcp/
+
