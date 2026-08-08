@@ -656,6 +656,23 @@ export const useChatStore = defineStore("chat", () => {
     }));
   }
 
+  /**
+   * 会话收尾补偿（用户 2026-08-09 拍板方案）：todo 只剩最后一项未完成且回合已结束 → 视为完成。
+   * 依据：模型收尾步习惯性漏勾 TodoWrite（社区 #28961/#27560 确认的 DeepSeek 系行为——任务实际
+   * 做完但最后一步不勾）；中间步骤未完成不处理——可能是真没做完，保留 serve 真实状态。
+   * cancelled/deleted 不参与判定；唯一未完成项必须是数组最后一项（前面全部完成）才补勾。
+   */
+  function settleIncompleteFinalTodo() {
+    const list = todos.value.filter(t => t.status !== "cancelled" && t.status !== "deleted");
+    const last = list[list.length - 1];
+    if (!last) return;
+    const uncompleted = list.filter(t => t.status !== "completed");
+    // 引用比较成立：filter 不复制对象，uncompleted[0] 与 last 是同一元素
+    if (uncompleted.length === 1 && uncompleted[0] === last) {
+      last.status = "completed";
+    }
+  }
+
   /** 追加工具执行结果，同时更新 toolUses 数组和 contentBlocks 时间线 */
   function appendToolResult(toolUseId: string, content: string, isError?: boolean) {
     const msg = currentAssistantMsg.value;
@@ -1012,6 +1029,7 @@ export const useChatStore = defineStore("chat", () => {
     addControlRequest,
     resolveControlRequest,
     setTodos,
+    settleIncompleteFinalTodo,
     markStopped,
     finishAssistantMessage,
     updateTodosFromTool,

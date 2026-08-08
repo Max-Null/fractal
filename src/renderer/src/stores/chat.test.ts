@@ -524,6 +524,68 @@ describe("chat store", () => {
     expect(chat.todos).toHaveLength(0);
   });
 
+  // ── settleIncompleteFinalTodo（回合收尾补偿：最后一项未完成 → 视为完成）──
+
+  it("settleIncompleteFinalTodo：唯一未完成项是最后一项 → 补勾", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "①", status: "completed" },
+      { content: "②", status: "completed" },
+      { content: "③", status: "completed" },
+      { content: "总结", status: "in_progress" },
+    ]);
+    chat.settleIncompleteFinalTodo();
+    expect(chat.todos[3].status).toBe("completed");
+  });
+
+  it("settleIncompleteFinalTodo：未完成项在中间 → 不补（可能真没做完）", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "①", status: "completed" },
+      { content: "②", status: "in_progress" },
+      { content: "③", status: "completed" },
+    ]);
+    chat.settleIncompleteFinalTodo();
+    expect(chat.todos[1].status).toBe("in_progress");
+  });
+
+  it("settleIncompleteFinalTodo：多项未完成 → 不补", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "①", status: "pending" },
+      { content: "②", status: "in_progress" },
+    ]);
+    chat.settleIncompleteFinalTodo();
+    expect(chat.todos[0].status).toBe("pending");
+    expect(chat.todos[1].status).toBe("in_progress");
+  });
+
+  it("settleIncompleteFinalTodo：单一项未完成 → 补勾", () => {
+    const chat = useChatStore();
+    chat.setTodos([{ content: "唯一任务", status: "in_progress" }]);
+    chat.settleIncompleteFinalTodo();
+    expect(chat.todos[0].status).toBe("completed");
+  });
+
+  it("settleIncompleteFinalTodo：cancelled 不参与判定，最后一项是 cancelled 不补", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "①", status: "completed" },
+      { content: "已取消", status: "cancelled" },
+    ]);
+    chat.settleIncompleteFinalTodo();
+    // cancelled 被过滤后 list 只剩 [①] 全完成——无未完成项，不补
+    expect(chat.todos[1].status).toBe("cancelled");
+  });
+
+  it("settleIncompleteFinalTodo：空列表/全完成安全", () => {
+    const chat = useChatStore();
+    chat.settleIncompleteFinalTodo(); // 空列表不崩
+    chat.setTodos([{ content: "①", status: "completed" }]);
+    chat.settleIncompleteFinalTodo();
+    expect(chat.todos[0].status).toBe("completed");
+  });
+
   // ── historyError（G3：serve 未就绪离线灰显标记）──
 
   it("historyError 默认 false，setHistoryError 可置位/清除", () => {

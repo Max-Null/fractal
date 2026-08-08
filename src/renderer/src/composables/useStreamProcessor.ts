@@ -347,6 +347,11 @@ export function useStreamProcessor() {
             `✅ 回合完成：${data.duration_ms != null ? `${data.duration_ms}ms` : '—'} / in=${data.input_tokens ?? msg?.inputTokens ?? '—'} out=${data.output_tokens ?? msg?.outputTokens ?? '—'}`,
             data.session_id || session.activeSessionId,
           );
+          // 回合收尾补偿：活跃会话结束时 todo 只剩最后一项未完成 → 补勾（模型收尾漏勾 TodoWrite 的
+          // 社区已知行为 #28961/#27560；后台会话 result 罕见且 todos 属于活跃会话——跳过）
+          if (!data.session_id || data.session_id === session.activeSessionId) {
+            chat.settleIncompleteFinalTodo();
+          }
           // 结算最后的思考和执行计时
           const finalThinking = popThinkingDuration(); // 最后一段思考（无后续 tool_use 触发 pop）
           if (toolExecStart && lastToolUse) {
