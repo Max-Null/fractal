@@ -304,17 +304,17 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
 
     // 首查 running=false → 转圈等待中（门禁未解除，主界面未渲染）
     expect(wrapper.find(".ws-pill-arrow").exists()).toBe(false);
-    expect(wrapper.find(".engine-not-ready").exists()).toBe(false);
+    expect(wrapper.find(".boot-timeout").exists()).toBe(false);
 
     // 15s 超时 → waitEngineReady 返回 false → 跳过 loadSessions，展示「引擎未就绪」提示
     await vi.advanceTimersByTimeAsync(15_000);
-    expect(wrapper.find(".engine-not-ready").exists()).toBe(true);
+    expect(wrapper.find(".boot-timeout").exists()).toBe(true);
     // 引擎未就绪期间绝不发 session:list（问题根因：serve 未就绪时并发请求会打崩 serve）
     expect(listSessionsMock).not.toHaveBeenCalled();
 
     // 提示停留 1s 后进主界面（离线态：列表空 + 引擎离线占位）
     await vi.advanceTimersByTimeAsync(1_000);
     expect(wrapper.find(".ws-pill-arrow").exists()).toBe(true);
-    expect(wrapper.find(".engine-not-ready").exists()).toBe(false);
+    expect(wrapper.find(".boot-timeout").exists()).toBe(false);
   });
 });
