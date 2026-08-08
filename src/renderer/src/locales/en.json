@@ -482,5 +482,14 @@
     "messages": "Messages",
     "note": "System / Tools / Agents / Memory / Skills are static estimates. Message tokens from actual API response. For exact values run /context",
     "compact": "Compact Context"
+  },
+  "boot": {
+    "local": "Loading local config…",
+    "localOk": "Config ready",
+    "engine": "Starting engine serve…",
+    "engineOk": "Engine ready · event stream connected",
+    "timeout": "Engine not ready, entering offline mode",
+    "sessions": "Loading sessions…",
+    "done": "Fractal core ready"
   }
 }

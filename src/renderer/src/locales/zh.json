@@ -481,5 +481,14 @@
     "messages": "消息",
     "note": "System / Tools / Agents / Memory / Skills 为静态估算值。消息 tokens 来自实际 API 返回。精确值请运行 /context",
     "compact": "压缩上下文"
+  },
+  "boot": {
+    "local": "载入本地配置…",
+    "localOk": "配置就绪",
+    "engine": "启动引擎 serve…",
+    "engineOk": "引擎就绪 · 事件流已连接",
+    "timeout": "引擎未就绪，进入离线模式",
+    "sessions": "加载会话列表…",
+    "done": "分形核心已就绪"
   }
 }

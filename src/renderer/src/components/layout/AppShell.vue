@@ -385,6 +385,15 @@ const ENGINE_READY_TIMEOUT_MS = 15_000;
 const ENGINE_POLL_INTERVAL_MS = 500;
 /** 引擎等待超时标记：转圈界面显示「引擎未就绪」提示（超时降级路径），并短暂停留让用户看到 */
 const engineReadyTimedOut = ref(false);
+// 启动画面数据（LoadingScreen 赛博载入页）：阶段/进度/日志行由下方串行链逐步推进
+const bootStage = ref<'local' | 'engine' | 'sessions' | 'done' | 'timeout'>('local');
+const bootPercent = ref(0);
+const bootLogs = ref<Array<{ text: string; decor?: boolean }>>([]);
+function pushBootLog(text: string, decor = false) {
+  // 终端区固定高度（150px ≈ 7 行）：超出丢弃最早行，保持滚动错觉
+  if (bootLogs.value.length >= 7) bootLogs.value.shift();
+  bootLogs.value.push({ text, decor });
+}
 
 function waitEngineReady(): Promise<boolean> {
   return new Promise((resolve) => {
@@ -463,19 +472,25 @@ onMounted(async () => {
   // 严禁在引擎就绪前发引擎请求：实测 serve 启动 1s 内并发请求 → ECONNRESET → serve 崩溃（win:2）。
   try {
     // ① 本地初始化（SQLite/配置，快，不碰 serve）
+    bootStage.value = 'local'; bootPercent.value = 12; pushBootLog($t('boot.local'));
     await settings.initFromDb();
     // ② 无 cwd 时兜底取工作区根（本地磁盘，不碰 serve）
     if (!settings.cwd) {
       try { settings.cwd = await getWorkspaceRoot(); } catch {}
     }
+    bootPercent.value = 30; pushBootLog($t('boot.localOk'));
     // ③ 引擎就绪门禁：getEngineStatus 首查 + 轮询 + engine:status 事件，任一先到 running 即放行
+    bootStage.value = 'engine'; bootPercent.value = 45; pushBootLog($t('boot.engine'));
     const engineReady = await waitEngineReady();
     // ④ 引擎就绪才加载会话列表（串行 await）——serve 未就绪期间绝不下发 session:list
     if (engineReady) {
+      bootStage.value = 'sessions'; bootPercent.value = 70; pushBootLog($t('boot.engineOk'));
       await sessionStore.loadSessions(settings.cwd || undefined);
+      bootPercent.value = 92;
     } else {
       // 超时降级：引擎 15s 未就绪（崩溃/未启动），展示「引擎未就绪」提示片刻再进主界面，
       // 避免用户无感知进入离线态（转圈最久 15s + 1s 提示 + 0 列表 ≈ 16s，仍在 20s 上限内）
+      bootStage.value = 'timeout'; pushBootLog($t('boot.timeout'));
       await new Promise((r) => setTimeout(r, 1_000));
     }
     // ⑤ modelVariants 补拉由 useStreamProcessor 的挂载即查 / engine:status running 分支负责，
@@ -483,6 +498,7 @@ onMounted(async () => {
   } catch {
     // 各子步骤已有独立 catch，此处仅兜底——不会到达，但确保 initializing 必然复位
   } finally {
+    bootStage.value = 'done'; bootPercent.value = 100; pushBootLog($t('boot.done'));
     initializing.value = false;
     document.addEventListener("keydown", onGlobalKeydown);
     panelLayout.setupObserver(); // ResizeObserver 监听容器宽度变化，自动 clamp 右侧面板
@@ -506,13 +522,14 @@ async function openFilePanelTo(_path: string) {
 </script>
 
 <template>
-  <!-- 启动画面：数据加载完成前显示 -->
-  <div v-if="initializing" class="h-screen flex flex-col items-center justify-center gap-4" style="background:var(--bg-root)">
-    <img src="/logo.svg" alt="分形" class="w-24 h-24" />
-    <span class="text-xs animate-pulse" style="color:var(--text-muted)">{{ $t('chat.loading') }}</span>
-    <!-- 引擎就绪超时降级提示：serve 15s 未就绪（崩溃/未启动）时显示，提示用户可稍后重试 -->
-    <span v-if="engineReadyTimedOut" class="text-xs engine-not-ready" style="color:var(--el-color-danger)">{{ $t('chat.engineNotReady') }}</span>
-  </div>
+  <!-- 启动画面：赛博载入页（数据串行加载中）——stage/percent/logs 由 onMounted 串行链驱动 -->
+  <LoadingScreen
+    v-if="initializing"
+    :stage="bootStage"
+    :percent="bootPercent"
+    :timed-out="engineReadyTimedOut"
+    :logs="bootLogs"
+  />
 
   <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面 -->
   <Onboarding v-else-if="showOnboarding" @finish="dismissOnboarding" @skip="dismissOnboarding" />

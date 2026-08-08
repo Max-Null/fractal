@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>分形 · 载入页 Demo（Si 原子 + 眼睛环顾）</title>
+<style>
+  :root {
+    --bg-root: #0e1116;
+    --bg-elevated: #1a1f28;
+    --border-dim: rgba(148, 163, 184, 0.12);
+    --accent: #0ea5e9;
+    --accent-glow: rgba(14, 165, 233, 0.35);
+    --text-muted: #94a3b8;
+    --font-mono: "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0d12; font-family: var(--font-mono); color: var(--text-muted); }
+
+  /* ─────── 载入页本体（与 LoadingScreen.vue 一致）─────── */
+  .boot {
+    position: relative;
+    height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
+    background: var(--bg-root); overflow: hidden;
+  }
+  .boot-grid {
+    position: absolute; inset: -50%;
+    background-image:
+      linear-gradient(rgba(94, 234, 212, 0.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(94, 234, 212, 0.06) 1px, transparent 1px);
+    background-size: 34px 34px;
+    animation: boot-grid-scroll 2.6s linear infinite;
+  }
+  @keyframes boot-grid-scroll { from { transform: translateY(0); } to { transform: translateY(34px); } }
+  .boot-scan {
+    position: absolute; top: 0; left: 0; right: 0; height: 72px;
+    background: linear-gradient(to bottom, rgba(94, 234, 212, 0.09), transparent);
+    animation: boot-scan-float 3.8s ease-in-out infinite alternate;
+  }
+  @keyframes boot-scan-float { from { transform: translateY(-72px); opacity: 0.5; } to { transform: translateY(0); opacity: 1; } }
+  .boot-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 1; }
+
+  /* ─────── Si 原子（核=瞳孔 + 2-8-4 电子轨道）─────── */
+  .si-atom { position: relative; width: 220px; height: 220px; perspective: 700px; }
+  .si-label {
+    position: absolute; top: 0; right: 2px; font-size: 12px; font-weight: 600;
+    color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); z-index: 3;
+  }
+  .si-orbit { position: absolute; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 50%; transform: rotateX(63deg); }
+  .si-orbit--outer { inset: 0; }
+  .si-orbit--mid { inset: 11%; }
+  .si-orbit--inner { inset: 24%; }
+  .si-spin { position: absolute; inset: 0; animation: si-spin linear infinite; }
+  .si-spin--outer { animation-duration: 11s; animation-delay: -2.6s; }
+  .si-spin--mid { animation-duration: 6.5s; animation-delay: -1.2s; }
+  .si-spin--inner { animation-duration: 3.2s; }
+  @keyframes si-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+  .si-e-pos { position: absolute; inset: 0; transform: rotate(var(--d, 0deg)); }
+  .si-e {
+    position: absolute; left: 50%; top: -4px; width: 8px; height: 8px; margin-left: -4px;
+    border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
+  }
+  .si-orbit--outer .si-e { width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
+  .si-orbit--mid .si-e { opacity: 0.9; }
+  /* 原子核 = 眼睛 */
+  .si-nucleus {
+    position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px;
+    border-radius: 50%; overflow: hidden; z-index: 2;
+    background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
+    animation: si-nucleus-breathe 2.6s ease-in-out infinite;
+  }
+  @keyframes si-nucleus-breathe {
+    0%, 100% { box-shadow: 0 0 14px rgba(14,165,233,.5), inset 0 0 8px rgba(0,0,0,.5); }
+    50% { box-shadow: 0 0 32px rgba(14,165,233,.9), inset 0 0 8px rgba(0,0,0,.5); }
+  }
+  .si-pupil {
+    position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 40% 35%, #38bdf8, #0ea5e9 60%, #0284c7);
+    animation: eye-look 6.5s ease-in-out infinite;
+  }
+  .si-glint {
+    position: absolute; left: 6px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
+    background: rgba(255,255,255,.95); box-shadow: 0 0 6px rgba(255,255,255,.8);
+    animation: eye-look 6.5s ease-in-out infinite;
+  }
+  @keyframes eye-look {
+    0%   { transform: translate(0, 0); }
+    10%  { transform: translate(-8px, -5px); }
+    22%  { transform: translate(2px, -9px); }
+    34%  { transform: translate(9px, -3px); }
+    46%  { transform: translate(9px, 6px); }
+    58%  { transform: translate(0, 9px); }
+    70%  { transform: translate(-9px, 4px); }
+    82%  { transform: translate(-7px, -6px); }
+    92%, 100% { transform: translate(0, 0); }
+  }
+
+  /* ─────── 进度条 ─────── */
+  .boot-progress { position: relative; width: 300px; height: 5px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border-dim); }
+  .boot-progress-fill {
+    height: 100%; border-radius: 3px; position: relative;
+    background: linear-gradient(90deg, var(--accent-glow), var(--accent));
+    box-shadow: 0 0 10px var(--accent-glow);
+    transition: width 0.45s ease;
+  }
+  .boot-progress-fill::after {
+    content: ''; position: absolute; right: 0; top: 50%; width: 7px; height: 7px;
+    transform: translate(50%, -50%); border-radius: 50%; background: #fff; box-shadow: 0 0 8px var(--accent);
+  }
+  .boot-progress-pct { position: absolute; right: -38px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--text-muted); }
+
+  /* ─────── 假终端日志 ─────── */
+  .boot-terminal {
+    width: 340px; height: 160px; padding: 10px 12px; border-radius: 10px;
+    background: rgba(0,0,0,.35); border: 1px solid var(--border-dim);
+    font-size: 10.5px; line-height: 1.75; overflow: hidden; text-align: left;
+    box-shadow: inset 0 0 24px rgba(0,0,0,.5);
+  }
+  .boot-line { animation: boot-line-in 220ms ease-out both; white-space: nowrap; }
+  .boot-line--decor { color: rgba(148,163,184,.55); }
+  .boot-caret { margin-right: 6px; }
+  .boot-caret--accent { color: var(--accent); text-shadow: 0 0 6px var(--accent-glow); }
+  @keyframes boot-line-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+  .boot-cursor {
+    display: inline-block; width: 6px; height: 10px; margin-top: 3px; vertical-align: middle;
+    background: var(--accent); box-shadow: 0 0 6px var(--accent);
+    animation: boot-cursor-blink 0.9s steps(2) infinite;
+  }
+  @keyframes boot-cursor-blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0; } }
+
+  .boot-footer { position: absolute; bottom: 18px; font-size: 10px; color: rgba(148,163,184,.45); }
+  .boot-replay {
+    position: absolute; bottom: 44px; padding: 6px 14px; border-radius: 8px;
+    border: 1px solid var(--border-dim); background: var(--bg-elevated); color: var(--accent);
+    font-size: 11px; cursor: pointer; z-index: 3; font-family: var(--font-mono);
+  }
+  .boot-replay:hover { background: rgba(14,165,233,.12); }
+</style>
+</head>
+<body>
+<div class="boot">
+  <div class="boot-grid" aria-hidden="true"></div>
+  <div class="boot-scan" aria-hidden="true"></div>
+
+  <div class="boot-center">
+    <!-- Si 原子（核=瞳孔 + 2-8-4 电子轨道 + 眼睛环顾） -->
+    <div class="si-atom" aria-hidden="true">
+      <span class="si-label">Si</span>
+      <div class="si-orbit si-orbit--outer"><div class="si-spin si-spin--outer">
+        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:90deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:270deg"><i class="si-e"></i></i>
+      </div></div>
+      <div class="si-orbit si-orbit--mid"><div class="si-spin si-spin--mid">
+        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:45deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:90deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:135deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:225deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:270deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:315deg"><i class="si-e"></i></i>
+      </div></div>
+      <div class="si-orbit si-orbit--inner"><div class="si-spin si-spin--inner">
+        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i>
+      </div></div>
+      <div class="si-nucleus"><span class="si-pupil"></span><span class="si-glint"></span></div>
+    </div>
+
+    <!-- 进度条 -->
+    <div class="boot-progress" role="progressbar">
+      <div class="boot-progress-fill" id="pfill" style="width:0%"></div>
+      <span class="boot-progress-pct" id="ppct">0%</span>
+    </div>
+
+    <!-- 假终端日志 -->
+    <div class="boot-terminal" id="term">
+      <span class="boot-cursor"></span>
+    </div>
+  </div>
+
+  <div class="boot-footer">分形 v0.1.0 · OC 引擎 v1.18.15 · 硅基之心</div>
+  <button class="boot-replay" onclick="replay()">↻ 重播载入过程</button>
+</div>
+
+<script>
+// ── 模拟启动串行链（真实阶段文案 + 装饰代码行交替）──
+const STAGES = [
+  { text: '载入本地配置…', decor: false, pct: 12 },
+  { text: '$ fractal init --core v0.1.0', decor: true, pct: 18 },
+  { text: '配置就绪', decor: false, pct: 30 },
+  { text: '$ opencode serve --port 51888', decor: true, pct: 38 },
+  { text: '启动引擎 serve…', decor: false, pct: 45 },
+  { text: '[ok] 校验引擎完整性 sha256 … 通过', decor: true, pct: 55 },
+  { text: '引擎就绪 · 事件流已连接', decor: false, pct: 70 },
+  { text: '[ok] 建立事件通道 … connected', decor: true, pct: 76 },
+  { text: '加载会话列表…', decor: false, pct: 82 },
+  { text: '[ok] 索引记忆区块 … 42 blocks', decor: true, pct: 88 },
+  { text: '[ok] 恢复工作区 … fractal', decor: true, pct: 94 },
+  { text: '分形核心已就绪', decor: false, pct: 100 },
+];
+const term = document.getElementById('term');
+const pfill = document.getElementById('pfill');
+const ppct = document.getElementById('ppct');
+let timer = null;
+
+function pushLine(text, decor) {
+  const line = document.createElement('div');
+  line.className = 'boot-line' + (decor ? ' boot-line--decor' : '');
+  const caret = document.createElement('span');
+  caret.className = 'boot-caret' + (decor ? '' : ' boot-caret--accent');
+  caret.textContent = decor ? '›' : '▶';
+  line.appendChild(caret);
+  line.appendChild(document.createTextNode(text));
+  term.insertBefore(line, term.querySelector('.boot-cursor'));
+  // 滚动错觉：超 7 行丢弃最早行
+  const lines = term.querySelectorAll('.boot-line');
+  if (lines.length > 7) term.removeChild(lines[0]);
+}
+
+function replay() {
+  clearTimeout(timer);
+  term.querySelectorAll('.boot-line').forEach((l) => l.remove());
+  pfill.style.width = '0%';
+  ppct.textContent = '0%';
+  let i = 0;
+  (function next() {
+    if (i >= STAGES.length) return;
+    const s = STAGES[i++];
+    pushLine(s.text, s.decor);
+    pfill.style.width = s.pct + '%';
+    ppct.textContent = s.pct + '%';
+    timer = setTimeout(next, s.decor ? 260 : 520);
+  })();
+}
+replay();
+</script>
+</body>
+</html>
