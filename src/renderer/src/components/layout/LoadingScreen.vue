@@ -148,15 +148,16 @@ const stageLines = computed(() => {
 }
 
 /* ── 轨道环：rotateX 压扁成椭圆投影 + rotateY 错开平面（立体原子感——
-   三轨道不在同一平面，绕 Y 轴依次偏转形成 3D 倾斜轨道系）── */
+   三轨道不在同一平面，绕 Y 轴依次偏转形成 3D 倾斜轨道系；55° 为自然斜率，
+   62° 实测过于扁平（用户指正 2026-08-09）── */
 .si-orbit {
   position: absolute;
   border: 1px solid rgba(14, 165, 233, 0.4);
   border-radius: 50%;
 }
-.si-orbit--outer { inset: 0; transform: rotateX(62deg); }
-.si-orbit--mid { inset: 11%; transform: rotateX(62deg) rotateY(14deg); }
-.si-orbit--inner { inset: 24%; transform: rotateX(62deg) rotateY(-22deg); }
+.si-orbit--outer { inset: 0; transform: rotateX(55deg); }
+.si-orbit--mid { inset: 11%; transform: rotateX(55deg) rotateY(14deg); }
+.si-orbit--inner { inset: 24%; transform: rotateX(55deg) rotateY(-22deg); }
 
 /* ── 旋转层：绕 z 公转（不同壳层不同速度 + 错位起始角）── */
 .si-spin {
@@ -185,6 +186,8 @@ const stageLines = computed(() => {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
+  /* 抵消轨道 rotateX(55°) 压扁：电子保持正圆（球形感，用户指正 2026-08-09） */
+  transform: rotateX(-55deg);
 }
 .si-orbit--outer .si-e { width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
 .si-orbit--mid .si-e { opacity: 0.9; }
@@ -232,17 +235,16 @@ const stageLines = computed(() => {
   92%  { transform: translate(0, 0); }
   100% { transform: translate(0, 0); }
 }
-/* 高光：瞳孔内随动（瞳孔移动即跟随） */
+/* 高光：光源反射固定在虹膜左上（瞳孔移动时高光不动——光源方向不变，用户指正 2026-08-09） */
 .si-glint {
   position: absolute;
-  left: 5px;
-  top: 4px;
+  left: 6px;
+  top: 5px;
   width: 7px;
   height: 7px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.95);
   box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
-  animation: eye-look 6.5s ease-in-out infinite;
 }
 
 /* ── 进度条：accent 渐变填充 + 前端光点 ── */

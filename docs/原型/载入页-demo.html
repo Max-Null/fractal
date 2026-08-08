@@ -44,9 +44,9 @@
   /* ─────── Si 原子（核=瞳孔 + 2-8-4 电子轨道）─────── */
   .si-atom { position: relative; width: 220px; height: 220px; perspective: 700px; }
   .si-orbit { position: absolute; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 50%; }
-  .si-orbit--outer { inset: 0; transform: rotateX(62deg); }
-  .si-orbit--mid { inset: 11%; transform: rotateX(62deg) rotateY(14deg); }
-  .si-orbit--inner { inset: 24%; transform: rotateX(62deg) rotateY(-22deg); }
+  .si-orbit--outer { inset: 0; transform: rotateX(55deg); }
+  .si-orbit--mid { inset: 11%; transform: rotateX(55deg) rotateY(14deg); }
+  .si-orbit--inner { inset: 24%; transform: rotateX(55deg) rotateY(-22deg); }
   .si-spin { position: absolute; inset: 0; animation: si-spin linear infinite; }
   .si-spin--outer { animation-duration: 11s; animation-delay: -2.6s; }
   .si-spin--mid { animation-duration: 6.5s; animation-delay: -1.2s; }
@@ -57,6 +57,7 @@
     position: absolute; left: 50%; top: -4px; width: 8px; height: 8px; margin-left: -4px;
     border-radius: 50%; background: var(--accent);
     box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
+    transform: rotateX(-55deg); /* 抵消轨道压扁，电子保持正圆 */
   }
   .si-orbit--outer .si-e { width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
   .si-orbit--mid .si-e { opacity: 0.9; }
@@ -80,7 +81,6 @@
   .si-glint {
     position: absolute; left: 6px; top: 5px; width: 7px; height: 7px; border-radius: 50%;
     background: rgba(255,255,255,.95); box-shadow: 0 0 6px rgba(255,255,255,.8);
-    animation: eye-look 6.5s ease-in-out infinite;
   }
   @keyframes eye-look {
     0%   { transform: translate(0, 0); }
