@@ -108,7 +108,7 @@ function removeAttachedFile(index: number) {
   attachedFiles.value.splice(index, 1);
 }
 
-// 图片附件加入时预加载缩略图（原 sb-attachment-bar 在 chip 挂载时触发，现 chips 在 InputBar 内渲染，改由 watch 驱动）
+// 图片附件加入时预加载缩略图（原 f-attachment-bar 在 chip 挂载时触发，现 chips 在 InputBar 内渲染，改由 watch 驱动）
 watch(attachedFiles, (files) => {
   for (const f of files) {
     if (isImageFile(f.name)) getThumbnail(f.path, f.name).catch(() => {});
@@ -860,7 +860,7 @@ watch(
 
 <template>
   <ErrorBoundary name="ChatPanel">
-  <div class="sb-chat-panel">
+  <div class="f-chat-panel">
     <!-- Sticky question banner -->
     <div
       v-if="showSticky"
@@ -1013,10 +1013,10 @@ watch(
     <!-- ═══ 底部通知区：审批条 + 工作清单 ═══ -->
     <div class="bottom-notices">
       <div v-if="chat.pendingControlRequest && chat.pendingControlRequest.subtype !== 'question'" class="approval-bar">
-        <div class="w-0.5 h-5 rounded-full shrink-0" style="background:var(--accent)" />
-        <span class="text-xs flex-1" style="color:var(--text-secondary)">
+        <div class="approval-accent" />
+        <span class="approval-msg">
           {{ $t('chat.allowTool', { tool: toolLabel(chat.pendingControlRequest.tool_name || '') }) }}
-          <span v-if="alwaysAllowHint" class="block text-[10px] mt-0.5" style="color:var(--text-muted)">{{ alwaysAllowHint }}</span>
+          <span v-if="alwaysAllowHint" class="approval-hint">{{ alwaysAllowHint }}</span>
         </span>
         <button v-if="alwaysAllowHint" @click="handleAlwaysAllow" class="btn-ghost" style="color:var(--accent); border-color:var(--accent-dim)">{{ $t('chat.alwaysAllow') }}</button>
         <button @click="handleAllow" class="btn-primary">{{ $t('chat.allow') }}</button>
@@ -1025,8 +1025,8 @@ watch(
       <TodoPanel />
     </div>
 
-    <!-- ═══ 底部区域：滚动按钮 + 状态消息 + 工具栏 + 输入框 ═══ -->
-    <div class="shrink-0 relative">
+    <!-- ═══ 底部区域：滚动按钮 + 状态消息 + 工具栏 + 输入框（语义类 composer-area：不收缩 + 定位参照）═══ -->
+    <div class="composer-area">
       <!-- 滚动到底按钮 — 悬浮在底部区域上方 -->
       <Transition name="scroll-btn">
         <button
@@ -1081,7 +1081,7 @@ watch(
               <span>{{ stderrLog.visible.value ? '▾' : '▸' }}</span>
               <span>📤 {{ $t('chat.llmRequestLabel') }} ({{ stderrLog.lines.value.length }})</span>
             </button>
-            <div class="w-px h-4 shrink-0" style="background: var(--border-dim)"></div>
+            <div class="debug-divider"></div>
           </template>
         </template>
       </InputBar>
@@ -1241,5 +1241,40 @@ watch(
 }
 .offline-logo {
   border: 1px solid var(--border-dim);
+}
+
+/* ═══ 输入区语义类（原原子 class 收敛：shrink-0/relative → 语义名，用户反馈整理）═══ */
+/* 底部区域容器：不收缩（flex 布局下输入区固定）+ 滚动按钮绝对定位参照 */
+.composer-area {
+  flex-shrink: 0;
+  position: relative;
+}
+/* 审批条 accent 装饰竖线（原 w-0.5 h-5 rounded-full shrink-0） */
+.approval-accent {
+  width: 2px;
+  height: 20px;
+  border-radius: 9999px;
+  flex-shrink: 0;
+  background: var(--accent);
+}
+/* 审批条主文本（原 text-xs flex-1） */
+.approval-msg {
+  flex: 1;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* 审批条「总是允许」建议文案（原 block text-[10px] mt-0.5） */
+.approval-hint {
+  display: block;
+  font-size: 10px;
+  margin-top: 2px;
+  color: var(--text-muted);
+}
+/* debug 按钮分隔线（原 w-px h-4 shrink-0） */
+.debug-divider {
+  width: 1px;
+  height: 16px;
+  flex-shrink: 0;
+  background: var(--border-dim);
 }
 </style>

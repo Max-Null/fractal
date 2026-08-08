@@ -1,4 +1,4 @@
-﻿@import "tailwindcss";
+@import "tailwindcss";
 @plugin "daisyui";
 @plugin "@tailwindcss/typography";
 
@@ -353,7 +353,7 @@ body {
 }
 
 /* ── 聊天面板 ── */
-.sb-chat-panel {
+.f-chat-panel {
   display: flex;
   flex-direction: column;
   flex: 1;

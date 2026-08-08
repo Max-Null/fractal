@@ -11,7 +11,7 @@ export interface PanelLayout {
 
 export const PANEL_LAYOUT_KEY: InjectionKey<PanelLayout> = Symbol("panelLayout")
 
-// 侧栏双态宽度（展开列表 / 收起 rail），与 AppShell 的 .sb-sidebar 宽度保持同步
+// 侧栏双态宽度（展开列表 / 收起 rail），与 AppShell 的 .f-sidebar 宽度保持同步
 export const SIDEBAR_WIDTH = 232
 export const SIDEBAR_COLLAPSED_WIDTH = 56
 

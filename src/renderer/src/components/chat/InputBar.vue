@@ -339,7 +339,7 @@ async function polishInput() {
 </script>
 
 <template>
-  <div class="sb-input-bar">
+  <div class="f-input-bar">
     <!-- 斜杠自动补全下拉 — 绝对定位，不挤占消息区域 -->
     <div v-if="showSlashMenu && slashSuggestions.length > 0" class="slash-autocomplete">
       <button
@@ -570,7 +570,7 @@ async function polishInput() {
 
 <style scoped>
 /* ── composer 容器：760px 居中（与消息区/待办列表对齐）+ 仅垂直 padding（水平 0——无背景无边框，避免双层卡片视觉）── */
-.sb-input-bar {
+.f-input-bar {
   position: relative;
   max-width: 760px;
   margin-inline: auto;
@@ -675,7 +675,8 @@ async function polishInput() {
   resize: none;
   outline: none;
   box-shadow: none;
-  padding: 8px 10px 2px;
+  /* padding-bottom 6px 与右侧按钮底部对齐（cf-right padding-bottom 同为 6px——用户反馈底部距离不一致） */
+  padding: 8px 10px 6px;
   font-size: 14px;
   line-height: 1.7;
   min-height: 42px;

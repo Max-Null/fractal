@@ -816,7 +816,7 @@ function switchTab(t: Tab) {
 </script>
 
 <template>
-  <ModalShell :open="open" size="lg" class="sb-manage-panel" @close="emit('close')">
+  <ModalShell :open="open" size="lg" class="f-manage-panel" @close="emit('close')">
     <template #header>
       <div class="flex flex-col flex-1">
         <div class="flex items-center gap-2">

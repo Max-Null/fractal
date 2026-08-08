@@ -74,7 +74,7 @@ onMounted(() => {
   const railTimer = setInterval(updateRailScroll, 1000);
   setTimeout(() => clearInterval(railTimer), 10000);
   window.addEventListener("resize", updateRailScroll);
-  const aside = document.querySelector(".sb-sidebar");
+  const aside = document.querySelector(".f-sidebar");
   if (aside && typeof MutationObserver !== "undefined") {
     railObserver = new MutationObserver(scheduleRailUpdate);
     railObserver.observe(aside, { childList: true, subtree: true, attributes: true });
@@ -442,9 +442,9 @@ async function openFilePanelTo(_path: string) {
   <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面 -->
   <Onboarding v-else-if="showOnboarding" @finish="dismissOnboarding" @skip="dismissOnboarding" />
 
-  <div v-else class="sb-shell">
+  <div v-else class="f-shell">
     <!-- Navbar（原型 app-bar：52px 半透明毛玻璃） -->
-    <header class="sb-header">
+    <header class="f-header">
       <!-- app-bar-left：brand + ws-pill -->
       <div class="header-logo-group">
         <div class="brand">
@@ -575,11 +575,11 @@ async function openFilePanelTo(_path: string) {
     <div v-if="alertText" class="ws-alert">{{ alertText }}</div>
 
     <!-- Body -->
-    <div ref="sbBodyRef" class="sb-body">
+    <div ref="sbBodyRef" class="f-body">
       <!-- 会话侧栏：可折叠（展开列表 232px / 收起 rail 56px 双态） -->
-      <aside class="sb-sidebar" :class="{ 'sb-sidebar--collapsed': !drawerOpen }">
+      <aside class="f-sidebar" :class="{ 'f-sidebar--collapsed': !drawerOpen }">
         <!-- 展开态：会话列表（搜索 + 列表 + 底部） -->
-        <div v-if="drawerOpen" class="sb-expanded">
+        <div v-if="drawerOpen" class="f-expanded">
           <SessionSidebar @navigate="drawerOpen = false" @collapse="drawerOpen = false" />
         </div>
 
@@ -633,8 +633,8 @@ async function openFilePanelTo(_path: string) {
       <div v-if="hoveredRailTip" class="rail-tip" :style="{ top: hoveredRailTip.top + 'px' }">{{ hoveredRailTip.title }}</div>
 
       <!-- Main -->
-      <main class="sb-main">
-        <div class="sb-main-content">
+      <main class="f-main">
+        <div class="f-main-content">
           <router-view />
         </div>
       </main>
@@ -690,7 +690,7 @@ async function openFilePanelTo(_path: string) {
 
 <style scoped>
 /* ── Shell ── */
-.sb-shell {
+.f-shell {
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -698,7 +698,7 @@ async function openFilePanelTo(_path: string) {
 }
 
 /* ── Header（原型 app-bar：52px 半透明 + 毛玻璃）── */
-.sb-header {
+.f-header {
   display: flex;
   align-items: center;
   height: 52px;
@@ -716,7 +716,7 @@ async function openFilePanelTo(_path: string) {
 }
 
 /* ── Body ── */
-.sb-body {
+.f-body {
   flex: 1;
   display: flex;
   overflow: hidden;
@@ -870,14 +870,14 @@ async function openFilePanelTo(_path: string) {
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
-.sb-main {
+.f-main {
   flex: 1;
   display: flex;
   overflow: hidden;
   min-width: 300px;  /* 保护聊天区不被右侧面板挤扁 */
 }
 
-.sb-main-content {
+.f-main-content {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -885,7 +885,7 @@ async function openFilePanelTo(_path: string) {
 }
 
 /* ── 会话侧栏：自身折叠（展开列表 232px / 收起 rail 56px，原型 .sidebar）── */
-.sb-sidebar {
+.f-sidebar {
   width: 232px;
   flex-shrink: 0;
   border-right: 1px solid var(--border-dim);
@@ -897,12 +897,12 @@ async function openFilePanelTo(_path: string) {
   transition: width 0.22s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: hidden;
 }
-.sb-sidebar--collapsed {
+.f-sidebar--collapsed {
   width: 56px;
 }
 
 /* 展开内容区（会话列表占满，SessionSidebar 自适应） */
-.sb-expanded {
+.f-expanded {
   display: flex;
   flex-direction: column;
   min-height: 0;

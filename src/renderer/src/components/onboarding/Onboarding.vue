@@ -173,7 +173,7 @@ function skip() { emit("skip"); }
 </template>
 
 <style scoped>
-/* 全屏遮罩：fixed 占满视口（z-index 需盖过 sb-shell 顶栏），居中卡片 */
+/* 全屏遮罩：fixed 占满视口（z-index 需盖过 f-shell 顶栏），居中卡片 */
 .ob {
   position: fixed;
   inset: 0;

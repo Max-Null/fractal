@@ -56,7 +56,7 @@ const draggingSplit = ref(false);
 function onSplitDragStart(e: MouseEvent) {
   e.preventDefault();
   draggingSplit.value = true;
-  const panelEl = (e.target as HTMLElement).closest(".sb-file-panel-body") as HTMLElement | null;
+  const panelEl = (e.target as HTMLElement).closest(".f-file-panel-body") as HTMLElement | null;
   if (!panelEl) return;
   const startY = e.clientY;
   const startRatio = splitRatio.value;
@@ -199,7 +199,7 @@ function goUp() {
 
 <template>
   <ErrorBoundary name="FilePanel">
-    <div class="sb-file-panel">
+    <div class="f-file-panel">
     <!-- Drag handle (thin strip, visible when panel is open) -->
     <div
       v-if="!collapsed"
@@ -278,7 +278,7 @@ function goUp() {
         </div>
 
         <!-- 文件子 Tab -->
-        <div v-if="fileTab === 'files'" class="sb-file-panel-body">
+        <div v-if="fileTab === 'files'" class="f-file-panel-body">
           <!-- File tree -->
           <div
             class="overflow-y-auto px-1 py-0.5 min-h-0"
@@ -415,12 +415,12 @@ function goUp() {
 }
 
 /* ── 文件面板 ── */
-.sb-file-panel {
+.f-file-panel {
   display: flex;
   overflow: hidden;
 }
 
-.sb-file-panel-body {
+.f-file-panel-body {
   display: flex;
   flex-direction: column;
   flex: 1;

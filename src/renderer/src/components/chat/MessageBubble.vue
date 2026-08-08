@@ -219,16 +219,16 @@ function summarizeResult(content: string): string {
       </div>
 
       <!-- ═══ 按时间线渲染（contentBlocks 可用时） ═══ -->
-      <div v-if="message.contentBlocks?.length" class="sb-timeline">
+      <div v-if="message.contentBlocks?.length" class="f-timeline">
         <!-- 跳过独立的 tool_result 块——结果已嵌套在 tool_use 内部展示 -->
         <template v-for="(block, i) in message.contentBlocks" :key="i">
           <div
             v-if="block.type !== 'tool_result'"
-            class="sb-timeline-block"
+            class="f-timeline-block"
             :class="['tl-' + block.type, { 'tl-last': i === message.contentBlocks.length - 1 && !message.isStreaming }]"
           >
           <!-- 时间线圆点 -->
-          <div class="sb-timeline-dot">
+          <div class="f-timeline-dot">
             <span v-if="block.type === 'thinking'">💭</span>
             <span v-else-if="block.type === 'tool_use'">🔧</span>
             <span v-else>💬</span>
@@ -431,20 +431,20 @@ function summarizeResult(content: string): string {
 .msg-action-btn:hover { background: var(--bg-hover); }
 
 /* ── 时间线 ── */
-.sb-timeline {
+.f-timeline {
   position: relative;
 }
 
-.sb-timeline-block {
+.f-timeline-block {
   position: relative;
   padding-left: 26px;
   margin-bottom: 8px;
 }
-.sb-timeline-block.tl-last {
+.f-timeline-block.tl-last {
   margin-bottom: 0;
 }
 /* 每块画线段穿过圆点中心到下一块，末块不画 */
-.sb-timeline-block::after {
+.f-timeline-block::after {
   content: '';
   position: absolute;
   left: 10px;
@@ -454,11 +454,11 @@ function summarizeResult(content: string): string {
   background: var(--border-dim);
   border-radius: 1px;
 }
-.sb-timeline-block.tl-last::after {
+.f-timeline-block.tl-last::after {
   display: none;
 }
 
-.sb-timeline-dot {
+.f-timeline-dot {
   position: absolute;
   left: 3px;
   top: 4px;
@@ -474,10 +474,10 @@ function summarizeResult(content: string): string {
   border: 1.5px solid var(--border-dim);
   z-index: 1;
 }
-.tl-thinking .sb-timeline-dot   { border-color: var(--amber); }
-.tl-tool_use .sb-timeline-dot   { border-color: var(--violet); }
-.tl-tool_result .sb-timeline-dot { border-color: var(--accent); }
-.tl-text .sb-timeline-dot       { border-color: var(--border-bright); }
+.tl-thinking .f-timeline-dot   { border-color: var(--amber); }
+.tl-tool_use .f-timeline-dot   { border-color: var(--violet); }
+.tl-tool_result .f-timeline-dot { border-color: var(--accent); }
+.tl-text .f-timeline-dot       { border-color: var(--border-bright); }
 
 /* ── 各块 ── */
 .tl-thinking {

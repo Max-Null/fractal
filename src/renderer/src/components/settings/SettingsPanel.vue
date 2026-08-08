@@ -233,7 +233,7 @@ const showAdvanced = ref(false);
 
 <template>
   <ErrorBoundary name="SettingsPanel">
-    <div class="sb-settings-panel flex flex-col" style="flex:1;min-height:0">
+    <div class="f-settings-panel flex flex-col" style="flex:1;min-height:0">
       <!-- Header（固定顶部） -->
       <div class="flex items-center gap-3 shrink-0 px-5 pt-3 pb-2">
         <button @click="router.push('/chat')" class="w-7 h-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]" style="color:var(--text-secondary)">
