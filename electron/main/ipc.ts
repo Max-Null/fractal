@@ -548,6 +548,36 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   )
 
+  // ✨ 输入消息优化（原型发送左侧功能）：临时会话润色 → 提取回复 → 删除临时会话。
+  // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现（20s 超时）。
+  ipcMain.handle('ai:polishMessage', async (_e, args: { text: string }) => {
+    const text = typeof args?.text === 'string' ? args.text.trim() : ''
+    if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
+    const client = await requireClient()
+    let tempId = ''
+    try {
+      const s = await client.session.create({ title: '消息润色' })
+      // oc-sdk create 返回 Session 本体（normalizeError 已解包 data）
+      tempId = s.id || ''
+      if (!tempId) throw new Error('临时会话创建失败')
+      await client.session.promptAsync(tempId, POLISH_PROMPT + text)
+      // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 40 = 20s 上限）
+      let polished = ''
+      for (let i = 0; i < 40 && !polished; i++) {
+        await new Promise((r) => setTimeout(r, 500))
+        const msgs = await client.session.messages(tempId)
+        polished = extractAssistantText(msgs)
+      }
+      if (!polished) throw new Error('润色超时：模型未在 20 秒内回复')
+      return { ok: true, text: polished }
+    } finally {
+      // 尽力清理临时会话（失败不阻断——serve 侧会残留一条「消息润色」会话，可接受）
+      if (tempId) {
+        try { await client.session.delete(tempId) } catch { /* 清理失败可接受 */ }
+      }
+    }
+  })
+
   ipcMain.handle('engine:testConnection', async (_e, args: { apiKey: string }) => {
     // 设置面板「测试连接」：写 key 到 serve 隔离配置 + 验证 serve 可达
     if (typeof args?.apiKey !== 'string' || !args.apiKey.trim()) {
@@ -865,6 +895,26 @@ function buildHistoryContentBlocks(
     .join('\n')
   if (text) blocks.push({ type: 'text', content: text })
   return blocks
+}
+
+// ── ✨ 输入消息润色辅助（ai:polishMessage 用）──
+
+/** 润色指令前缀：中文写作助手，直接输出优化结果不解释（防污染输入框） */
+const POLISH_PROMPT =
+  '你是专业的中文写作助手。请优化下面的用户消息，使其表达更清晰、准确、有条理，保持原意和语气，不改变用户意图。直接输出优化后的消息，不要任何解释、前缀或引号。\n\n消息：'
+
+/** 提取最后一条 assistant 消息的全部 text part（润色回复；多 part 拼接；导出供测试） */
+export function extractAssistantText(msgs: SessionMessage[]): string {
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const m = msgs[i]
+    if (m.info.role !== 'assistant') continue
+    const texts = m.parts
+      .filter((p) => p.type === 'text')
+      .map((p) => (p as { text?: string }).text || '')
+    const joined = texts.join('')
+    if (joined.trim()) return joined
+  }
+  return ''
 }
 
 /**

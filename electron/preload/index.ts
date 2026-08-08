@@ -30,6 +30,7 @@ const ALLOWED_INVOKE = [
   'engine:getStatus',
   'engine:testConnection',
   'engine:refresh',
+  'ai:polishMessage',
   'memory:list', 'memory:confirm', 'memory:remove',
   'plans:list',
   'status:get',

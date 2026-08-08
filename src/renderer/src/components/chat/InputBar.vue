@@ -9,6 +9,7 @@ import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore, type Effort } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import ContextIndicator from "./ContextIndicator.vue";
+import { polishMessage } from "@/lib/electron-bridge";
 
 const { t } = useI18n();
 const settings = useSettingsStore();
@@ -315,6 +316,26 @@ const currentEffortLabel = computed(() => {
 
 // 发送按钮启用条件：输入非空（chips 附件不计入，保持现有交互）
 const canSend = computed(() => input.value.trim().length > 0);
+
+// ══════════════════════════════════════════════════════════════
+// ✨ 优化输入消息（原型发送按钮左侧功能）：调引擎临时会话润色，结果替换输入框
+// ══════════════════════════════════════════════════════════════
+const polishing = ref(false);
+
+async function polishInput() {
+  const text = input.value.trim();
+  if (!text || polishing.value) return;
+  polishing.value = true;
+  try {
+    const result = await polishMessage(text);
+    if (result?.ok && result.text) {
+      input.value = result.text;
+      autoResize();
+    }
+  } finally {
+    polishing.value = false;
+  }
+}
 </script>
 
 <template>
@@ -340,28 +361,25 @@ const canSend = computed(() => input.value.trim().length > 0);
       @dragleave="onDragLeave"
       @drop="onDrop"
     >
-      <!-- ① chips 行：附件/引用 chips + 空态提示 -->
-      <div class="composer-tools">
-        <template v-if="props.chips.length > 0">
-          <button
-            v-for="chip in props.chips"
-            :key="chip.id"
-            class="composer-tool"
-            :class="{ 'composer-tool--on': chip.tone === 'accent', 'composer-tool--clickable': chip.clickable }"
-            @click="chip.clickable ? emit('chipClick', chip.id) : undefined"
-          >
-            <img v-if="chip.imageUrl" :src="chip.imageUrl" class="chip-thumb" alt="" />
-            <span v-else-if="chip.icon" class="chip-icon">{{ chip.icon }}</span>
-            <span class="chip-name" :title="chip.label">{{ chip.label }}</span>
-            <span
-              v-if="chip.removable"
-              class="chip-x"
-              :title="$t('chat.remove')"
-              @click.stop="emit('removeChip', chip.id)"
-            >×</span>
-          </button>
-        </template>
-        <span v-else class="composer-chip-hint">{{ props.chipHint || $t('composer.chipHint') }}</span>
+      <!-- ① chips 行：附件/引用 chips（无内容时不渲染，不占高度——用户反馈） -->
+      <div v-if="props.chips.length > 0" class="composer-tools">
+        <button
+          v-for="chip in props.chips"
+          :key="chip.id"
+          class="composer-tool"
+          :class="{ 'composer-tool--on': chip.tone === 'accent', 'composer-tool--clickable': chip.clickable }"
+          @click="chip.clickable ? emit('chipClick', chip.id) : undefined"
+        >
+          <img v-if="chip.imageUrl" :src="chip.imageUrl" class="chip-thumb" alt="" />
+          <span v-else-if="chip.icon" class="chip-icon">{{ chip.icon }}</span>
+          <span class="chip-name" :title="chip.label">{{ chip.label }}</span>
+          <span
+            v-if="chip.removable"
+            class="chip-x"
+            :title="$t('chat.remove')"
+            @click.stop="emit('removeChip', chip.id)"
+          >×</span>
+        </button>
       </div>
 
       <!-- ③ 输入行：textarea + hint/发送 同一行（cf-left 操作行用 order 显示在其上方） -->
@@ -385,6 +403,16 @@ const canSend = computed(() => input.value.trim().length > 0);
 
         <div class="cf-right">
           <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
+          <!-- ✨ 优化消息（发送按钮左侧，原型有此功能——用户反馈⑤） -->
+          <button
+            class="polish-btn"
+            :class="{ 'polish-btn--busy': polishing }"
+            :disabled="!canSend || polishing"
+            :title="$t('composer.polishTitle')"
+            @click="polishInput"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.3L12 17l-1.9-5.7L4.4 10l5.7-1.3L12 3z"/><path d="M19 15l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6-2.6-.9 2.6-.9L19 15z"/></svg>
+          </button>
           <!-- Stop button（处理中显示红色方块，替代发送） -->
           <button
             v-if="disabled"
@@ -405,14 +433,51 @@ const canSend = computed(() => input.value.trim().length > 0);
         </div>
       </div>
 
-      <!-- ③ foot 操作行 -->
+      <!-- ③ foot 操作行：左组（附件/斜杠/指令按钮）+ 右组（agent/模型/权限/推理/上下文）——用户反馈③ -->
       <div class="composer-foot">
         <div class="cf-left">
-          <!-- 📎 附件 -->
-          <button class="composer-tool" :title="$t('toolbar.attachTitle')" @click="emit('attach')">
-            📎 <span>{{ $t('toolbar.attach') }}</span>
+          <!-- ＋ 附件（指令按钮同风格 + 加号图标，用户反馈②） -->
+          <button class="composer-icon-btn" :title="$t('toolbar.attachTitle')" @click="emit('attach')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           </button>
 
+          <!-- / 快捷斜杠命令（按钮自身 position:relative 作下拉定位参照，去掉多余容器层——用户反馈④） -->
+          <button class="composer-icon-btn" :title="$t('toolbar.slashTitle')" @click.stop="toggleMenu('slash')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="4" x2="6" y2="20"/></svg>
+            <Transition name="drop">
+              <div v-if="openMenu === 'slash'" class="dropdown-menu slash-dropdown">
+                <template v-if="recentCommands.length > 0">
+                  <div class="slash-section-header">🕐 {{ $t('toolbar.slashRecent') }}</div>
+                  <button
+                    v-for="r in recentCommands.slice(0, 5)"
+                    :key="r"
+                    class="dropdown-item"
+                    @click="emit('sendSlash', '/' + r); openMenu = null"
+                  >{{ r }}</button>
+                </template>
+                <template v-if="favorites.size > 0">
+                  <div class="slash-section-header">⭐ {{ $t('toolbar.slashFavorites') }}</div>
+                  <button
+                    v-for="f in [...favorites]"
+                    :key="f"
+                    class="dropdown-item"
+                    @click="emit('sendSlash', '/' + f); openMenu = null"
+                  >{{ f }}</button>
+                </template>
+                <div v-if="recentCommands.length > 0 || favorites.size > 0" class="slash-section-divider"></div>
+                <button class="dropdown-item slash-browse-all" @click="emit('openCommandMenu'); openMenu = null">📋 {{ $t('toolbar.slashBrowseAll') }}</button>
+                <div v-if="favorites.size === 0 && recentCommands.length === 0" class="slash-empty">{{ $t('toolbar.slashEmpty') }}</div>
+              </div>
+            </Transition>
+          </button>
+
+          <!-- ☰ 命令菜单 -->
+          <button class="composer-icon-btn" :title="$t('toolbar.commandsTitle')" @click="emit('openCommandMenu')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+          </button>
+        </div>
+
+        <div class="cf-right-pills">
           <!-- ✦ 主 agent pill -->
           <div class="composer-pill" @click.stop="toggleMenu('agent')" :title="$t('composer.agentTitle')">
             <span class="pill-star">✦</span><span>{{ settings.currentAgent }}</span><span class="pill-caret">▾</span>
@@ -491,47 +556,10 @@ const canSend = computed(() => input.value.trim().length > 0);
             </Transition>
           </div>
 
-          <!-- / 快捷斜杠命令（最近/收藏） -->
-          <div class="slash-menu-container">
-            <button class="composer-icon-btn" :title="$t('toolbar.slashTitle')" @click.stop="toggleMenu('slash')">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="4" x2="6" y2="20"/></svg>
-            </button>
-            <Transition name="drop">
-              <div v-if="openMenu === 'slash'" class="dropdown-menu slash-dropdown">
-                <template v-if="recentCommands.length > 0">
-                  <div class="slash-section-header">🕐 {{ $t('toolbar.slashRecent') }}</div>
-                  <button
-                    v-for="r in recentCommands.slice(0, 5)"
-                    :key="r"
-                    class="dropdown-item"
-                    @click="emit('sendSlash', '/' + r); openMenu = null"
-                  >{{ r }}</button>
-                </template>
-                <template v-if="favorites.size > 0">
-                  <div class="slash-section-header">⭐ {{ $t('toolbar.slashFavorites') }}</div>
-                  <button
-                    v-for="f in [...favorites]"
-                    :key="f"
-                    class="dropdown-item"
-                    @click="emit('sendSlash', '/' + f); openMenu = null"
-                  >{{ f }}</button>
-                </template>
-                <div v-if="recentCommands.length > 0 || favorites.size > 0" class="slash-section-divider"></div>
-                <button class="dropdown-item slash-browse-all" @click="emit('openCommandMenu'); openMenu = null">📋 {{ $t('toolbar.slashBrowseAll') }}</button>
-                <div v-if="favorites.size === 0 && recentCommands.length === 0" class="slash-empty">{{ $t('toolbar.slashEmpty') }}</div>
-              </div>
-            </Transition>
-          </div>
-
-          <!-- ☰ 命令菜单 -->
-          <button class="composer-icon-btn" :title="$t('toolbar.commandsTitle')" @click="emit('openCommandMenu')">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
-          </button>
-
           <!-- 上下文用量（有消息时才显示，点击打开上下文弹窗） -->
           <ContextIndicator @click="emit('showContext')" />
 
-          <!-- 左侧扩展插槽：ChatPanel 注入 debug 按钮 -->
+          <!-- 左侧扩展插槽：ChatPanel 注入 debug 按钮（放右组末尾） -->
           <slot name="left" />
         </div>
       </div>
@@ -636,10 +664,6 @@ const canSend = computed(() => input.value.trim().length > 0);
   padding: 0 2px;
 }
 .chip-x:hover { color: var(--coral); }
-.composer-chip-hint {
-  font-size: 11px;
-  color: var(--text-muted);
-}
 
 /* ── ② textarea（14px / 1.7 / min 42 max 160，对齐原型 .composer-input）── */
 .composer-input {
@@ -659,11 +683,12 @@ const canSend = computed(() => input.value.trim().length > 0);
 }
 .composer-input::placeholder { color: var(--text-muted); }
 
-/* ── ③ 操作行（原 foot 左区）+ 输入行 ── */
+/* ── ③ 操作行（foot）+ 输入行 ── */
 .composer-foot {
-  /* 独立一行显示在输入行上方（用户反馈：与发送按钮同排会换行）；order 控制显示顺序 */
+  /* 独立一行显示在输入行上方；左组（附件/斜杠/指令）与右组（pills）两端对齐——用户反馈③ */
   display: flex;
   align-items: center;
+  justify-content: space-between;
   flex-wrap: wrap;
   gap: 4px;
   padding: 2px 8px 4px;
@@ -672,6 +697,13 @@ const canSend = computed(() => input.value.trim().length > 0);
   margin-bottom: 2px;
 }
 .cf-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* 右组：agent/模型/权限/推理/上下文/debug（用户反馈③：功能类右对齐） */
+.cf-right-pills {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -755,8 +787,9 @@ const canSend = computed(() => input.value.trim().length > 0);
 .pill-shield { font-size: 11px; line-height: 1; }
 .pill-bolt { font-size: 11px; line-height: 1; }
 
-/* 命令小图标按钮（/ ☰，非原型元素，放 foot 左区不抢视觉） */
+/* 命令小图标按钮（＋/ / ☰，对齐原型 icon-btn：26px 边框按钮） */
 .composer-icon-btn {
+  position: relative; /* 斜杠下拉的定位参照（去掉旧容器层后需要自身 relative——用户反馈④） */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -829,7 +862,6 @@ const canSend = computed(() => input.value.trim().length > 0);
 .dropdown-item:hover { background: var(--bg-hover); }
 
 /* ── / 快捷斜杠菜单 ── */
-.slash-menu-container { position: relative; }
 .slash-dropdown {
   left: 0;
   min-width: 180px;
@@ -895,6 +927,42 @@ const canSend = computed(() => input.value.trim().length > 0);
   color: var(--text-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
+}
+
+/* ✨ 优化消息按钮（发送左侧，原型 .polish：小图标 + hover accent） */
+.polish-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 150ms ease;
+}
+.polish-btn:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-color: var(--accent-line);
+}
+.polish-btn:disabled {
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.5;
+}
+.polish-btn--busy {
+  animation: polish-spin 1s linear infinite;
+  border-style: dashed;
+  border-color: var(--accent-line);
+}
+@keyframes polish-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 /* ── 斜杠自动补全（输入框内 / 触发，绝对定位不挤占卡片）── */

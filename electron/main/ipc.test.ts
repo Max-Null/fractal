@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText } from './ipc'
 import type { SessionMessage } from './oc-sdk'
 
 describe('assertValidFsPath（路径校验）', () => {
@@ -272,5 +272,26 @@ describe('buildSendParts 附件 parts 构建', () => {
     expect(mimeFromExt('x.yaml')).toBe('text/yaml')
     expect(mimeFromExt('x.sh')).toBe('text/x-sh')
     expect(mimeFromExt('unknown.zzz')).toBe('application/octet-stream')
+  })
+})
+
+// ── extractAssistantText（ai:polishMessage 润色回复提取：最后一条 assistant 的 text parts）──
+describe('extractAssistantText', () => {
+  it('取最后一条 assistant 消息的多 text part 拼接', () => {
+    const msgs = [
+      makeMessage('user', [textPart('原始消息')]),
+      makeMessage('assistant', [textPart('优化后的'), textPart('消息内容')]),
+    ]
+    expect(extractAssistantText(msgs)).toBe('优化后的消息内容')
+  })
+  it('assistant 无文本（仅思考）时跳过取更早的', () => {
+    const msgs = [
+      makeMessage('assistant', [{ type: 'reasoning', text: '思考中' }]),
+      makeMessage('user', [textPart('x')]),
+    ]
+    expect(extractAssistantText(msgs)).toBe('')
+  })
+  it('空列表返回空串', () => {
+    expect(extractAssistantText([])).toBe('')
   })
 })

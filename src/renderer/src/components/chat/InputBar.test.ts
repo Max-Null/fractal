@@ -26,6 +26,7 @@ const i18n = createI18n({
         permTitle: "Permission mode",
         effortTitle: "Reasoning effort",
         sendHint: "Shift+Enter ↵",
+        polishTitle: "Polish message with AI",
       },
       mode: {
         plan: "Plan mode",
@@ -233,9 +234,38 @@ describe("InputBar", () => {
     expect(wrapper.emitted("chipClick")![0]).toEqual(["file:/a/b.ts"]);
   });
 
-  it("shows hint text when no chips", () => {
+  // chips 空态不再占高度（用户反馈①）：整行不渲染，无 hint 残留
+  it("hides chips row when no chips (zero height)", () => {
     const wrapper = mountInputBar();
-    expect(wrapper.find(".composer-chip-hint").exists()).toBe(true);
+    expect(wrapper.find(".composer-tools").exists()).toBe(false);
+  });
+
+  it("renders chips row when chips present", () => {
+    const wrapper = mountInputBar({ chips: [{ id: "c1", label: "file.md", tone: "elevated", removable: true }] });
+    expect(wrapper.find(".composer-tools").exists()).toBe(true);
+    expect(wrapper.find(".chip-name").text()).toBe("file.md");
+  });
+
+  // ── ✨ 优化消息按钮（原型发送左侧功能：AI 润色替换输入框）──
+
+  it("polish button replaces input with polished text", async () => {
+    // mock electronBridge：ai:polishMessage 返回润色结果（其余通道空对象）
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      invoke: (channel: string) =>
+        channel === "ai:polishMessage" ? Promise.resolve({ ok: true, text: "优化后的文本" }) : Promise.resolve({}),
+      on: () => () => {},
+    };
+    const wrapper = mountInputBar();
+    const textarea = wrapper.find("textarea");
+    await textarea.setValue("请帮我优化这条消息");
+    await wrapper.find("button[title='Polish message with AI']").trigger("click");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(textarea.element.value).toBe("优化后的文本");
+  });
+
+  it("polish button disabled when input empty", () => {
+    const wrapper = mountInputBar();
+    expect(wrapper.find("button[title='Polish message with AI']").attributes("disabled")).toBeDefined();
   });
 
   // ── foot 操作按钮 ──

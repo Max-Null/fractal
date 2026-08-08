@@ -464,6 +464,11 @@ export async function refreshEngine(): Promise<{ ok: boolean }> {
   return invoke<{ ok: boolean }>("engine:refresh");
 }
 
+/** ✨ 优化输入消息：引擎临时会话润色，返回 {ok, text}（失败 ok=false，无文本） */
+export async function polishMessage(text: string): Promise<{ ok: boolean; text?: string }> {
+  return invoke<{ ok: boolean; text?: string }>("ai:polishMessage", { text });
+}
+
 /**
  * 拉取指定模型的可用思考强度 variants（如 deepseek-v4-flash → ['low','high','max']）。
  * modelId 兼容 settings.model 存储格式（带 [1M] 标注/provider 前缀），主进程按去标注后的模型 id 匹配。

@@ -12,6 +12,7 @@ import {
   compactSession,
   openWorkspaceWindow,
   onInitWorkspace,
+  polishMessage,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -188,6 +189,12 @@ describe("forkSession / testConnection / listMessages（IPC 直连）", () => {
     invokeMock.mockResolvedValue([]);
     await listMessages("ses-1", { limit: 50 });
     expect(invokeMock).toHaveBeenCalledWith("message:list", { sessionId: "ses-1", limit: 50 });
+  });
+
+  it("polishMessage 传 text → ai:polishMessage 通道", async () => {
+    invokeMock.mockResolvedValue({ ok: true, text: "优化后的消息" });
+    await polishMessage("请优化这条");
+    expect(invokeMock).toHaveBeenCalledWith("ai:polishMessage", { text: "请优化这条" });
   });
 });
 

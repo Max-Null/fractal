@@ -1,4 +1,4 @@
-﻿{
+{
   "app": {
     "title": "分形"
   },
@@ -23,7 +23,7 @@
     "skip": "跳过，稍后配置"
   },
   "chat": {
-    "placeholder": "输入消息，Enter 发送...",
+    "placeholder": "输入消息…",
     "send": "发送",
     "stop": "停止",
     "thinking": "思考中...",
@@ -274,7 +274,8 @@
     "permBypass": "无安全检查，仅隔离环境使用",
     "permDontAsk": "仅预批准工具，适合 CI/脚本",
     "effortTitle": "推理强度",
-    "sendHint": "Shift+Enter ↵"
+    "sendHint": "Shift+Enter ↵",
+    "polishTitle": "优化输入消息（AI 润色）"
   },
   "status": {
     "exportDone": "导出完成",
