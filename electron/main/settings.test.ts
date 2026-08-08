@@ -17,7 +17,7 @@ import {
 import { getConfigPath } from './oc-config'
 
 describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
-  it('包含全部 14 个字段与默认值', () => {
+  it('包含全部 15 个字段与默认值', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'ui.theme': 'dark',
       'ui.language': 'zh',
@@ -33,6 +33,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'engine.opencodePath': '',
       'engine.logLevel': 'INFO',
       'dataMode': 'shared',
+      'todos.maxSnapshotsPerSession': 20,
     })
   })
 
@@ -51,6 +52,16 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['dataMode']).toBeDefined()
     expect(props['dataMode'].enum).toEqual(['shared', 'isolated'])
     expect(props['dataMode'].default).toBe('shared')
+  })
+
+  it('getSchema 含 todos.maxSnapshotsPerSession（整数 1-100，default 20）', () => {
+    const schema = getSchema()
+    const props = schema.properties as Record<string, { type?: string; minimum?: number; maximum?: number; default?: unknown }>
+    expect(props['todos.maxSnapshotsPerSession']).toBeDefined()
+    expect(props['todos.maxSnapshotsPerSession'].type).toBe('integer')
+    expect(props['todos.maxSnapshotsPerSession'].minimum).toBe(1)
+    expect(props['todos.maxSnapshotsPerSession'].maximum).toBe(100)
+    expect(props['todos.maxSnapshotsPerSession'].default).toBe(20)
   })
 })
 

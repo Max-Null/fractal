@@ -26,6 +26,7 @@ import {
   openDialog,
   saveDialog,
   compactSession,
+  listTodoSnapshots,
 } from "@/lib/electron-bridge";
 import { useFilePreview } from "@/composables/useFilePreview";
 import { useSettingsStore } from "@/stores/settings";
@@ -41,6 +42,7 @@ import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
+import TodoRecordCard from "./TodoRecordCard.vue";
 import SubTaskCard from "./SubTaskCard.vue";
 import SubTaskMonitor from "./SubTaskMonitor.vue";
 import SubTaskDetail from "./SubTaskDetail.vue";
@@ -495,6 +497,8 @@ watch(() => session.activeSessionId, async (sid) => {
       try { debugLog.importLines(sid, JSON.parse(debugJson)); } catch {}
     }
   } catch { /* 静默，DB 加载失败不影响功能 */ }
+  // 历史恢复：加载该会话的待办回合快照（记录卡；主进程文件不存在 → 空数组静默）
+  await chat.loadTodoSnapshots(sid);
 }, { immediate: true });
 
 // ── 命令面板聊天命令监听 ──
@@ -1210,6 +1214,16 @@ watch(
         <ThinkingIndicator
           v-if="chat.isProcessing && !chat.currentAssistantMsg?.content && !chat.currentAssistantMsg?.thinking"
           :tool-name="activeToolName"
+        />
+      </div>
+
+      <!-- 待办回合记录卡（消息流尾部，独立于消息容器：消息为空但历史快照存在时也渲染）：
+           已完成的轮次固化快照，按 endedAt 时间序；默认折叠，点击展开 -->
+      <div v-if="chat.todoSnapshots.length > 0" class="todo-records-block">
+        <TodoRecordCard
+          v-for="snap in chat.todoSnapshots"
+          :key="snap.round"
+          :snapshot="snap"
         />
       </div>
     </div>

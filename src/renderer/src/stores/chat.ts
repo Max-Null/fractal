@@ -1,6 +1,9 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { listMessages } from "@/lib/electron-bridge";
+import { listMessages, saveTodoSnapshot, listTodoSnapshots, type TodoSnapshot } from "@/lib/electron-bridge";
+// 惰性解析：pushTodoSnapshot/maybeSnapshotTodos 内函数级调用（避免模块循环依赖——settings/session 依赖 chat 的事件流）
+import { useSettingsStore } from "./settings";
+import { useSessionStore } from "./session";
 
 export interface AttachedFile {
   name: string;
@@ -233,6 +236,8 @@ export const useChatStore = defineStore("chat", () => {
   const historyLoading = ref(false);
   // CC 工作清单（TodoWrite / TaskCreate → 前端实时展示）
   const todos = ref<TodoItem[]>([]);
+  // 待办回合快照（一轮全完成后固化；记录卡展示，历史恢复时从主进程加载）
+  const todoSnapshots = ref<TodoSnapshot[]>([]);
   // 子任务（task 派生子 agent）可视化：subId → SubTask（serve 广播事件累积，idle 后拉摘要）
   const subTasks = ref<Record<string, SubTask>>({});
   // 审批队列：防止子 agent 并发 control_request 互相覆盖
@@ -673,6 +678,57 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /** 读取会话待办快照（历史恢复；IPC 失败/无文件 → 静默空数组，不打扰用户） */
+  async function loadTodoSnapshots(sessionId: string) {
+    if (!sessionId) return;
+    try {
+      const r = await listTodoSnapshots(sessionId);
+      todoSnapshots.value = Array.isArray(r.snapshots) ? r.snapshots : [];
+    } catch (err) {
+      // 主进程未就绪/文件损坏：静默（记录卡缺失可接受，不阻塞历史加载）
+      console.error("[chat] 加载待办快照失败:", err);
+      todoSnapshots.value = [];
+    }
+  }
+
+  /** 追加待办快照（内存 + 主进程持久化；IPC 失败仅 console.error，内存保留本轮展示） */
+  function pushTodoSnapshot(snapshot: TodoSnapshot) {
+    // 保留轮数从 settings store 读（高级设置 todos.maxSnapshotsPerSession；惰性解析避免模块循环）
+    const settingsStore = useSettingsStore();
+    const max = settingsStore.maxSnapshotsPerSession;
+    // 内存截断：超出轮数丢弃最旧（与主进程截断双保险，round 始终递增不重排）
+    todoSnapshots.value = [...todoSnapshots.value, snapshot];
+    if (todoSnapshots.value.length > max) {
+      todoSnapshots.value = todoSnapshots.value.slice(todoSnapshots.value.length - max);
+    }
+    const sessionStore = useSessionStore();
+    const sid = sessionStore.activeSessionId;
+    if (!sid) return;
+    saveTodoSnapshot(sid, max, snapshot).catch((err) => {
+      // 写盘失败：记录卡本轮仍显示（内存态），重启后该轮可能丢失——接受
+      console.error("[chat] 保存待办快照失败:", err);
+    });
+  }
+
+  /**
+   * 回合收尾快照判定（useStreamProcessor result 分支 settle 之后调用）：
+   * 有 todo 且全部 completed/cancelled（deleted 视同完成，不阻塞）→ 固化快照；
+   * 部分完成 → 不处理（面板保持折叠态，不生成记录卡）。
+   */
+  function maybeSnapshotTodos() {
+    const list = todos.value;
+    if (list.length === 0) return;
+    // 未完成项 = 非 completed/cancelled/deleted（pending/in_progress 任一存在即不快照）
+    const unfinished = list.filter(t => t.status !== "completed" && t.status !== "cancelled" && t.status !== "deleted");
+    if (unfinished.length > 0) return;
+    pushTodoSnapshot({
+      round: todoSnapshots.value.length + 1,
+      endedAt: Date.now(),
+      todos: list.map(t => ({ content: t.content, status: t.status, priority: t.priority })),
+      completedAll: true,
+    });
+  }
+
   /** 追加工具执行结果，同时更新 toolUses 数组和 contentBlocks 时间线 */
   function appendToolResult(toolUseId: string, content: string, isError?: boolean) {
     const msg = currentAssistantMsg.value;
@@ -742,6 +798,7 @@ export const useChatStore = defineStore("chat", () => {
   function clearMessages() {
     messages.value = [];
     todos.value = [];
+    todoSnapshots.value = [];
     currentAssistantMsg.value = null;
     isProcessing.value = false;
     pendingControlRequests.value = [];
@@ -1017,6 +1074,10 @@ export const useChatStore = defineStore("chat", () => {
     hasMoreHistory,
     setHasMoreHistory,
     todos,
+    todoSnapshots,
+    loadTodoSnapshots,
+    pushTodoSnapshot,
+    maybeSnapshotTodos,
     pendingControlRequest,
     pendingControlRequests,
     addUserMessage,

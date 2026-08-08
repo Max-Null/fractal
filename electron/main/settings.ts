@@ -28,6 +28,8 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   // 会话数据隔离：shared=共享系统 XDG_DATA_HOME（与其他工具同库）/ isolated=独立到 <userData>/data
   // （serve 数据目录跟随 XDG_DATA_HOME；startServer 注入 env 时读此值，见 server-manager.ts）
   'dataMode': 'shared',
+  // 待办记录保留轮数：每个会话保留最近 N 轮完成快照（记录卡展示上限；1-100，前端高级设置可改）
+  'todos.maxSnapshotsPerSession': 20,
 }
 
 /** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置） */

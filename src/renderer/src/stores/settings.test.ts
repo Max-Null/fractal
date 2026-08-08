@@ -378,4 +378,43 @@ describe("settings store", () => {
     const refreshCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "engine:refresh");
     expect(refreshCalls).toHaveLength(0);
   });
+
+  // ── 待办记录保留轮数（todos.maxSnapshotsPerSession：记录卡上限）──
+
+  it("maxSnapshotsPerSession 默认 20", () => {
+    const settings = useSettingsStore();
+    expect(settings.maxSnapshotsPerSession).toBe(20);
+  });
+
+  it("applySettingsJson 同步 maxSnapshotsPerSession（合法 1-100 才覆盖；非法/缺失保持当前值）", () => {
+    const settings = useSettingsStore();
+    settings.maxSnapshotsPerSession = 20;
+    settings.applySettingsJson({ "todos.maxSnapshotsPerSession": 50 });
+    expect(settings.maxSnapshotsPerSession).toBe(50);
+    // 非法值保持（不破坏用户已设值）
+    settings.applySettingsJson({ "todos.maxSnapshotsPerSession": 0 });
+    expect(settings.maxSnapshotsPerSession).toBe(50);
+    settings.applySettingsJson({ "todos.maxSnapshotsPerSession": 101 });
+    expect(settings.maxSnapshotsPerSession).toBe(50);
+    settings.applySettingsJson({ "todos.maxSnapshotsPerSession": 2.5 });
+    expect(settings.maxSnapshotsPerSession).toBe(50);
+  });
+
+  it("persistMaxSnapshots 写 settings.json（合并当前显式字段 + 新值）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    // 模拟文件已含其他字段：persist 必须合并而非整体覆盖
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:getConfig") return Promise.resolve({ config: { "dataMode": "isolated" }, jsoncText: "", warnings: [], exists: true });
+      return Promise.resolve({});
+    });
+
+    await settings.persistMaxSnapshots(30);
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls).toHaveLength(1);
+    const written = JSON.parse(saveCalls[0]![1].jsoncText);
+    expect(written["todos.maxSnapshotsPerSession"]).toBe(30);
+    expect(written["dataMode"]).toBe("isolated"); // 文件原有字段不丢失
+  });
 });

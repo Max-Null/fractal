@@ -1,20 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useChatStore, type TodoItem } from "@/stores/chat";
-
-// 折叠态持久化键（sb-* 前缀遵循项目本地存储命名规范；todo 折叠是 UI 瞬态偏好，不进 settings store）
-const COLLAPSE_KEY = "sb-todo-collapsed";
-const collapsed = ref(localStorage.getItem(COLLAPSE_KEY) === "1");
-
-// 切换展开/折叠并持久化（写入失败仅丢失偏好，不影响交互）
-function toggleCollapsed() {
-  collapsed.value = !collapsed.value;
-  try {
-    localStorage.setItem(COLLAPSE_KEY, collapsed.value ? "1" : "0");
-  } catch (e) {
-    console.error("todo-collapsed 持久化失败:", e);
-  }
-}
 
 const chat = useChatStore();
 
@@ -31,49 +17,121 @@ const hasTodos = computed(() => visibleTodos.value.length > 0);
 
 function statusIcon(s: TodoItem["status"]): string {
   switch (s) {
-    case "completed": return "☑";
+    case "completed": return "✓"; // 完成：对勾 + 主题蓝（规格 D5，原 ☑ 换 ✓ 语义更清晰）
     case "in_progress": return "●";
     case "pending": return "☐";
     case "cancelled": return "✕";
     default: return "";
   }
 }
+
+/** 序号转圆圈数字（1-20 有 unicode，超出回退普通数字——todo 列表理论上可超 20） */
+function toCircled(n: number): string {
+  if (n >= 1 && n <= 20) return "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"[n - 1];
+  return String(n);
+}
+
+// ── 自动展开（D2）：todos 内容/数量/状态变化 → 展开 15s 后收起；频繁变化续期 ──
+const AUTO_EXPAND_MS = 15_000;
+const autoExpanded = ref(false);
+let autoTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  () => chat.todos,
+  () => {
+    // 任何 todos 变化都触发自动展开 + 重置计时（连续工具更新续期，15s 无变化才收起）
+    autoExpanded.value = true;
+    if (autoTimer) clearTimeout(autoTimer);
+    autoTimer = setTimeout(() => {
+      autoExpanded.value = false;
+    }, AUTO_EXPAND_MS);
+  },
+  { deep: true },
+);
+onUnmounted(() => {
+  // 组件卸载后清理计时器（防止泄漏：chat.todos 后续变化不再触发本组件）
+  if (autoTimer) clearTimeout(autoTimer);
+});
+
+// ── hover 展开/收起（D4）：mouseenter 展开 / mouseleave 收起；删除原点击 toggle ──
+const hoverExpanded = ref(false);
+// expanded = autoExpanded || hoverExpanded（D3：15s 到点鼠标仍在面板内 → hover 保持展开）
+const expanded = computed(() => autoExpanded.value || hoverExpanded.value);
+
+// ── 折叠态当前项（D1）：第一个 in_progress，无则第一 pending；序号 = visibleTodos 中 index+1 ──
+const currentTodo = computed(() => {
+  if (visibleTodos.value.length === 0) return null;
+  return (
+    visibleTodos.value.find(t => t.status === "in_progress")
+    ?? visibleTodos.value.find(t => t.status === "pending")
+    ?? null
+  );
+});
+const currentTodoIndex = computed(() => {
+  if (!currentTodo.value) return 0;
+  return visibleTodos.value.indexOf(currentTodo.value) + 1;
+});
+// 折叠态文案：内容取 activeForm || content（activeForm 是 CC 动词化形式，如「列出 docs 目录结构」）
+const currentTodoLabel = computed(() => {
+  const t = currentTodo.value;
+  if (!t) return "";
+  return t.activeForm || t.content;
+});
+
+// ── 面板隐藏（D10）：全部 completed/cancelled 且已有快照 → 记录卡替代活动面板 ──
+// 全部完成但本回合快照尚未生成（result 事件收尾中）→ 仍显示折叠态，避免闪现空白
+const hidePanel = computed(() => {
+  if (visibleTodos.value.length === 0) return false;
+  const allFinished = visibleTodos.value.every(t => t.status === "completed" || t.status === "cancelled");
+  return allFinished && chat.todoSnapshots.length > 0;
+});
 </script>
 
 <template>
-  <div class="todo-panel">
+  <div
+    v-if="!hidePanel"
+    class="todo-panel"
+    @mouseenter="hoverExpanded = true"
+    @mouseleave="hoverExpanded = false"
+  >
     <template v-if="hasTodos">
-      <!-- 标题栏整行可点击切换折叠：标题 + 总数徽标 + 完成计数（仅展开时）+ 方向箭头 -->
-      <button
-        type="button"
-        class="todo-panel-header"
-        :title="collapsed ? $t('chat.todoExpand') : $t('chat.todoCollapse')"
-        :aria-expanded="!collapsed"
-        @click="toggleCollapsed"
-      >
-        <span class="todo-panel-title">📋 {{ $t('chat.todos') }}</span>
-        <span class="todo-count-badge">{{ visibleTodos.length }}</span>
-        <span v-if="completedCount > 0 && !collapsed" class="todo-count">
-          {{ completedCount }}/{{ visibleTodos.length }}
+      <!-- 折叠态：一行「📋 ②/ ④ 内容」+ 完成计数（hover 展开；无点击切换） -->
+      <div v-if="!expanded" class="todo-panel-collapsed">
+        <span class="todo-panel-title">📋</span>
+        <span v-if="currentTodo" class="todo-current">
+          {{ toCircled(currentTodoIndex) }}<span class="todo-current-sep">/</span>{{ toCircled(visibleTodos.length) }}
         </span>
-        <span class="todo-arrow" :class="{ 'todo-arrow--collapsed': collapsed }">▾</span>
-      </button>
-      <!-- 列表用 v-if 而非 v-show：折叠时从 DOM 完全卸载（Vue Transition 管理 enter/leave，收起动画结束后移除） -->
-      <Transition name="todo-collapse">
-        <div v-if="!collapsed" class="todo-panel-list">
-          <div
-            v-for="(t, i) in visibleTodos"
-            :key="i"
-            class="todo-chip"
-            :class="`todo-chip--${t.status}`"
-            :title="t.content"
-          >
-            <span class="todo-chip-num">{{ i + 1 }}</span>
-            <span class="todo-chip-status">{{ statusIcon(t.status) }}</span>
-            <span class="todo-chip-text">{{ t.status === 'in_progress' ? t.activeForm || t.content : t.content }}</span>
-          </div>
+        <span v-else class="todo-current">{{ $t('chat.todos') }}</span>
+        <span class="todo-current-text">{{ currentTodoLabel }}</span>
+        <span v-if="completedCount > 0" class="todo-count">
+          {{ completedCount }}/{{ visibleTodos.length }} ✓
+        </span>
+      </div>
+      <!-- 展开态：标题 + 列表（hover 在场保持；离开收起） -->
+      <template v-else>
+        <div class="todo-panel-header">
+          <span class="todo-panel-title">📋 {{ $t('chat.todos') }}</span>
+          <span class="todo-count-badge">{{ visibleTodos.length }}</span>
+          <span v-if="completedCount > 0" class="todo-count">
+            {{ completedCount }}/{{ visibleTodos.length }} ✓
+          </span>
         </div>
-      </Transition>
+        <!-- 列表用 v-if 而非 v-show：折叠时从 DOM 完全卸载（Vue Transition 管理 enter/leave，收起动画结束后移除） -->
+        <Transition name="todo-collapse">
+          <div class="todo-panel-list">
+            <div
+              v-for="(t, i) in visibleTodos"
+              :key="i"
+              class="todo-chip"
+              :class="`todo-chip--${t.status}`"
+              :title="t.content"
+            >
+              <span class="todo-chip-num">{{ i + 1 }}</span>
+              <span class="todo-chip-status">{{ statusIcon(t.status) }}</span>
+              <span class="todo-chip-text">{{ t.activeForm || t.content }}</span>
+            </div>
+          </div>
+        </Transition>
+      </template>
     </template>
     <!-- 空态兜底：无可见 todo（含全 deleted 或 v-if 时序）时仍显示提示，防御极端时序 -->
     <div v-else class="todo-panel-empty">{{ $t('chat.noTodos') }}</div>
@@ -92,7 +150,15 @@ function statusIcon(s: TodoItem["status"]): string {
   width: 100%;
 }
 
-/* 标题栏整行可点击：重置 button 默认样式，布局与旧 div 版保持一致（full-width + 左对齐） */
+/* 折叠态单行：图标 + 序号 + 内容 + 计数；hover 整块展开（无点击交互） */
+.todo-panel-collapsed {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 1.1rem;
+  cursor: default;
+}
+
 .todo-panel-header {
   display: flex;
   align-items: center;
@@ -100,17 +166,7 @@ function statusIcon(s: TodoItem["status"]): string {
   margin-bottom: 0.25rem;
   width: 100%;
   padding: 0;
-  background: none;
-  border: none;
-  cursor: pointer;
-  text-align: left;
-  font: inherit;
-  color: inherit;
-}
-
-/* 标题栏 hover 反馈：仅提示可点击，不改变布局 */
-.todo-panel-header:hover .todo-panel-title {
-  color: var(--text-bright);
+  cursor: default;
 }
 
 .todo-panel-title {
@@ -122,7 +178,7 @@ function statusIcon(s: TodoItem["status"]): string {
   transition: color 0.15s ease;
 }
 
-/* 总数徽标（折叠态也显示）：满足「待办清单 · N」折叠显示需求 */
+/* 总数徽标（展开态标题） */
 .todo-count-badge {
   font-size: 10px;
   font-variant-numeric: tabular-nums;
@@ -136,16 +192,27 @@ function statusIcon(s: TodoItem["status"]): string {
   opacity: 0.7;
 }
 
-/* 方向箭头：右对齐；折叠时 ▾ 旋转 90° 变右指（▸），CSS 变换替代切换字符 */
-.todo-arrow {
-  margin-left: auto;
+/* 折叠态序号「②/ ④」：accent 强调当前项位置 */
+.todo-current {
   font-size: 10px;
-  color: var(--text-muted);
-  transition: transform 0.2s ease;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  flex-shrink: 0;
 }
 
-.todo-arrow--collapsed {
-  transform: rotate(-90deg);
+.todo-current-sep {
+  opacity: 0.5;
+}
+
+/* 折叠态当前任务文案：超长省略（单行不换行，保持面板高度稳定） */
+.todo-current-text {
+  font-size: 10px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 /* 折叠动画：max-height 伸缩（chips 行数不定，用足够上限 + overflow hidden 近似高度过渡） */
@@ -191,21 +258,22 @@ function statusIcon(s: TodoItem["status"]): string {
   background: var(--bg-root);
 }
 
+/* 进行中：主题蓝 + 虚线边框 + 8% 蓝底（视觉上「正在跑」的强调层） */
 .todo-chip--in_progress {
   color: var(--accent);
-  background: var(--accent-glow);
-  border-color: var(--accent-dim);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px dashed var(--accent);
 }
 
-/* 已完成：同色背景 + 删除线——与待处理（普通文字）和进行中（accent 高亮）形成三种视觉层级 */
+/* 已完成：主题蓝 + 对勾图标，不划掉（规格 D5：完成 ≠ 退场，用蓝色正向反馈） */
 .todo-chip--completed {
-  color: var(--text-muted);
-  background: var(--bg-root);
-  border-color: transparent;
-  text-decoration: line-through;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  text-decoration: none;
 }
 
-/* 已取消：比已完成更淡的灰 + 删除线，视觉上完全退场 */
+/* 已取消：比已完成更淡的灰 + 删除线，视觉上完全退场（现状保留） */
 .todo-chip--cancelled {
   color: var(--text-muted);
   background: var(--bg-root);

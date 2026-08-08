@@ -1,12 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, type Message, type SubTaskChildRef } from "./chat";
+import { useSessionStore } from "./session";
+import { useSettingsStore } from "./settings";
 
-// mock electron-bridge：仅覆盖 listMessages（子任务 idle 拉摘要用），其余保留原模块
-const { listMessagesMock } = vi.hoisted(() => ({ listMessagesMock: vi.fn() }));
+// mock electron-bridge：覆盖 listMessages（子任务 idle 拉摘要用）+ 待办快照（save/list），其余保留原模块
+const { listMessagesMock, saveTodoSnapshotMock, listTodoSnapshotsMock } = vi.hoisted(() => ({
+  listMessagesMock: vi.fn(),
+  saveTodoSnapshotMock: vi.fn(),
+  listTodoSnapshotsMock: vi.fn(),
+}));
 vi.mock("@/lib/electron-bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/electron-bridge")>();
-  return { ...actual, listMessages: listMessagesMock };
+  return { ...actual, listMessages: listMessagesMock, saveTodoSnapshot: saveTodoSnapshotMock, listTodoSnapshots: listTodoSnapshotsMock };
 });
 
 describe("chat store", () => {
@@ -14,6 +20,10 @@ describe("chat store", () => {
     setActivePinia(createPinia());
     listMessagesMock.mockReset();
     listMessagesMock.mockResolvedValue([]);
+    saveTodoSnapshotMock.mockReset();
+    saveTodoSnapshotMock.mockResolvedValue({ ok: true });
+    listTodoSnapshotsMock.mockReset();
+    listTodoSnapshotsMock.mockResolvedValue({ snapshots: [] });
   });
 
   it("starts with empty messages", () => {
@@ -1030,6 +1040,155 @@ describe("chat store", () => {
     expect(chat.subTasks["sub-1"].status).toBe("done");
     expect(chat.subTasks["sub-1"].deltaText).toBe("进行中");
   });
+  // ── 待办回合快照（pushTodoSnapshot / loadTodoSnapshots / maybeSnapshotTodos）──
+
+  it("pushTodoSnapshot：内存追加 + 调 saveTodoSnapshot(sessionId, maxSnapshots, snapshot)", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    const settings = useSettingsStore();
+
+    chat.pushTodoSnapshot({ round: 1, endedAt: 123, todos: [{ content: "a", status: "completed" }], completedAll: true });
+    expect(chat.todoSnapshots).toHaveLength(1);
+    expect(saveTodoSnapshotMock).toHaveBeenCalledWith(
+      "ses_x",
+      settings.maxSnapshotsPerSession,
+      { round: 1, endedAt: 123, todos: [{ content: "a", status: "completed" }], completedAll: true },
+    );
+  });
+
+  it("pushTodoSnapshot：内存超 maxSnapshotsPerSession 截断（保留最近 N 轮）", () => {
+    const chat = useChatStore();
+    const settings = useSettingsStore();
+    settings.maxSnapshotsPerSession = 2; // 模拟高级设置 2 轮
+
+    for (let i = 1; i <= 3; i++) {
+      chat.pushTodoSnapshot({ round: i, endedAt: i, todos: [{ content: `t${i}`, status: "completed" }], completedAll: true });
+    }
+    expect(chat.todoSnapshots.map((s) => s.round)).toEqual([2, 3]);
+  });
+
+  it("pushTodoSnapshot：无活跃会话 → 只入内存，不调 IPC", async () => {
+    const chat = useChatStore();
+    chat.pushTodoSnapshot({ round: 1, endedAt: 1, todos: [], completedAll: true });
+    expect(chat.todoSnapshots).toHaveLength(1);
+    expect(saveTodoSnapshotMock).not.toHaveBeenCalled();
+  });
+
+  it("pushTodoSnapshot：IPC 失败仅 console.error，内存保留本轮", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    saveTodoSnapshotMock.mockRejectedValue(new Error("写盘失败"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    chat.pushTodoSnapshot({ round: 1, endedAt: 1, todos: [{ content: "a", status: "completed" }], completedAll: true });
+    // IPC promise 未 await（fire-and-forget）——等微任务结算
+    await Promise.resolve();
+    expect(chat.todoSnapshots).toHaveLength(1); // 内存保留
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
+  it("loadTodoSnapshots：成功填充 todoSnapshots；无 sessionId 直接返回", async () => {
+    const chat = useChatStore();
+    listTodoSnapshotsMock.mockResolvedValue({
+      snapshots: [{ round: 1, endedAt: 1, todos: [{ content: "a", status: "completed" }], completedAll: true }],
+    });
+    await chat.loadTodoSnapshots("ses_y");
+    expect(chat.todoSnapshots).toHaveLength(1);
+    expect(chat.todoSnapshots[0].round).toBe(1);
+
+    await chat.loadTodoSnapshots(""); // 空 id 静默跳过，不调 IPC
+    expect(listTodoSnapshotsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("loadTodoSnapshots：IPC 失败 → 静默空数组", async () => {
+    const chat = useChatStore();
+    listTodoSnapshotsMock.mockRejectedValue(new Error("文件损坏"));
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    await chat.loadTodoSnapshots("ses_z");
+    expect(chat.todoSnapshots).toEqual([]);
+    errSpy.mockRestore();
+  });
+
+  it("maybeSnapshotTodos：全部 completed → 生成快照（round 递增 / completedAll / todos 全量）", () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    chat.setTodos([
+      { content: "列出 docs 目录结构", status: "completed", priority: "high" },
+      { content: "写测试", status: "completed" },
+    ]);
+
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(1);
+    const s = chat.todoSnapshots[0];
+    expect(s.round).toBe(1);
+    expect(s.completedAll).toBe(true);
+    expect(s.todos).toEqual([
+      { content: "列出 docs 目录结构", status: "completed", priority: "high" },
+      { content: "写测试", status: "completed" },
+    ]);
+
+    // 第二次全完成 → round 递增（基于现有快照数）
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(2);
+    expect(chat.todoSnapshots[1].round).toBe(2);
+  });
+
+  it("maybeSnapshotTodos：全部 cancelled 也生成快照（completedAll=true）", () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    chat.setTodos([{ content: "任务A", status: "cancelled" }]);
+
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(1);
+    expect(chat.todoSnapshots[0].completedAll).toBe(true);
+  });
+
+  it("maybeSnapshotTodos：部分完成（有 pending/in_progress）→ 不生成快照", () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    chat.setTodos([
+      { content: "做完的", status: "completed" },
+      { content: "没做完的", status: "pending" },
+    ]);
+
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(0);
+  });
+
+  it("maybeSnapshotTodos：deleted 不阻塞快照（视同已移除）", () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses_x");
+    chat.setTodos([
+      { content: "已完成项", status: "completed" },
+      { content: "已删除项", status: "deleted" },
+    ]);
+
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(1);
+  });
+
+  it("maybeSnapshotTodos：无 todos → 不生成", () => {
+    const chat = useChatStore();
+    chat.maybeSnapshotTodos();
+    expect(chat.todoSnapshots).toHaveLength(0);
+  });
+
+  it("clearMessages：重置 todoSnapshots", () => {
+    const chat = useChatStore();
+    chat.setTodos([{ content: "a", status: "completed" }]);
+    chat.pushTodoSnapshot({ round: 1, endedAt: 1, todos: [{ content: "a", status: "completed" }], completedAll: true });
+    expect(chat.todoSnapshots).toHaveLength(1);
+
+    chat.clearMessages();
+    expect(chat.todoSnapshots).toHaveLength(0);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1179,4 +1338,5 @@ describe("buildSubTaskMap", () => {
     const map = buildSubTaskMap(msgs, []);
     expect(map.size).toBe(0);
   });
+
 });

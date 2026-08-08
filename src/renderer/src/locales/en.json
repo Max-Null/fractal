@@ -33,6 +33,8 @@
     "todos": "Task List",
     "todoExpand": "Expand task list",
     "todoCollapse": "Collapse task list",
+    "todoRecord": "Todos",
+    "todoRecordDone": "done",
     "loading": "Loading...",
     "engineNotReady": "Engine not ready, try again later",
     "export": "Export",
@@ -178,7 +180,9 @@
     "dataModeDesc": "When enabled, sessions are stored only in this app's data directory, isolated from other tools",
     "dataModeRestarting": "Restarting engine…",
     "dataModeDone": "Engine restarted: isolated session data mode",
-    "dataModeFail": "Engine restart failed, restored original mode"
+    "dataModeFail": "Engine restart failed, restored original mode",
+    "todoSnapshotLimit": "Todo record rounds to keep",
+    "todoSnapshotLimitDesc": "Keep the latest N completed rounds per session (record card cap)"
   },
   "session": {
     "new": "New Session",

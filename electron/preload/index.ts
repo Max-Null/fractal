@@ -21,6 +21,7 @@ const ALLOWED_INVOKE = [
   'settings:saveProviderConfig', 'settings:loadProviderConfigs',
   'settings:getConfig', 'settings:saveSettings', 'settings:getSchema',
   'logs:saveSessionDebugLog', 'logs:readServeLog', 'logs:loadSessionLogs',
+  'todos:saveSnapshot', 'todos:listSnapshots',
   'app:getInfo',
   'dialog:openDialog', 'dialog:saveDialog',
   'chat:sendMessage', 'chat:stopSession',

@@ -355,6 +355,34 @@ export async function loadSessionLogs(sessionId: string): Promise<[string | null
   return invoke("logs:loadSessionLogs", { sessionId });
 }
 
+// ── 待办回合快照（辅助存储层：serve 无每轮历史 → 分形本地固化，<userData>/data/session-todos）──
+
+/** 待办回合快照：一轮全完成后固化，供历史恢复与记录卡展示 */
+export interface TodoSnapshot {
+  /** 轮次序号（会话内从 1 递增） */
+  round: number;
+  /** 回合结束时间戳（Date.now()） */
+  endedAt: number;
+  /** 该轮结束时全部 todo（content/status/priority，不含 activeForm 瞬时字段） */
+  todos: Array<{ content: string; status: string; priority?: string }>;
+  /** 是否全部完成（true=全 completed/cancelled → 面板隐藏 + 记录卡） */
+  completedAll: boolean;
+}
+
+/** 保存待办回合快照（追加 + 超 maxSnapshots 删最旧；失败 {ok:false,error}，调用方仅 console.error 保留内存） */
+export async function saveTodoSnapshot(
+  sessionId: string,
+  maxSnapshots: number,
+  snapshot: TodoSnapshot,
+): Promise<{ ok: boolean; error?: string }> {
+  return invoke<{ ok: boolean; error?: string }>("todos:saveSnapshot", { sessionId, maxSnapshots, snapshot });
+}
+
+/** 读取会话待办快照（历史恢复；文件不存在/损坏 → 空数组） */
+export async function listTodoSnapshots(sessionId: string): Promise<{ snapshots: TodoSnapshot[] }> {
+  return invoke<{ snapshots: TodoSnapshot[] }>("todos:listSnapshots", { sessionId });
+}
+
 // ── 文件对话框（替代 @tauri-apps/plugin-dialog 的 open/save）──
 
 /** 打开文件/目录选择对话框，返回路径或 null（取消） */

@@ -33,6 +33,8 @@
     "todos": "工作清单",
     "todoExpand": "展开工作清单",
     "todoCollapse": "收起工作清单",
+    "todoRecord": "待办",
+    "todoRecordDone": "完成",
     "loading": "加载中...",
     "engineNotReady": "引擎未就绪，可稍后重试",
     "export": "导出",
@@ -178,7 +180,9 @@
     "dataModeDesc": "开启后会话只保存在本应用的数据目录，与其他工具隔离",
     "dataModeRestarting": "正在重启引擎…",
     "dataModeDone": "引擎已重启：独立会话数据模式",
-    "dataModeFail": "引擎重启失败，已恢复原模式"
+    "dataModeFail": "引擎重启失败，已恢复原模式",
+    "todoSnapshotLimit": "待办记录保留轮数",
+    "todoSnapshotLimitDesc": "每个会话保留最近 N 轮完成快照（记录卡展示上限）"
   },
   "session": {
     "new": "新会话",
