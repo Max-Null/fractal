@@ -111,11 +111,19 @@
     </div>
   </div>
 
-  <div class="boot-footer">分形 v0.1.0 · OC 引擎 v1.18.15 · 硅基之心</div>
+  <div class="boot-footer">分形 v0.1.0 · OC 引擎 v1.18.15 · 硅基之心 <span style="opacity:.45;font-size:10px">demo build 2026-08-09-1700</span></div>
   <button class="boot-replay" onclick="replay()">↻ 重播载入过程</button>
 </div>
 
 <script>
+// 页内错误显示：任何脚本错误直接浮层展示（用户无需 F12——2026-08-09 排查「卡 12%」定位用）
+window.addEventListener('error', (e) => {
+  const box = document.createElement('div');
+  box.style.cssText = 'position:fixed;top:8px;right:8px;z-index:9999;background:#7f1d1d;color:#fecaca;font:12px/1.5 Consolas,monospace;padding:8px 12px;border-radius:6px;max-width:70%;white-space:pre-wrap;box-shadow:0 4px 16px rgba(0,0,0,.5)';
+  box.textContent = '[JS错误] ' + (e.message || String(e.error));
+  document.body.appendChild(box);
+});
+
 // ═══════════ Canvas 3D Si 原子（数学投影渲染）═══════════
 // 轨道 = 3D 空间圆环（绕 Y 主轴 0/120/240° 分布 + 俯视 68°），电子在环上匀速公转；
 // 投影 = 旋转矩阵 + 透视除法（近大远小）；电子画成径向渐变球体——任意角度都是圆（CSS 平面圆做不到）；
@@ -290,6 +298,7 @@ function frame(now) {
   for (const o of ORBITS) drawOrbit(o, wobble, orbitAlpha);
 
 requestAnimationFrame(frame);
+}
 
 // ═══════════ 终端日志 + 进度条（模拟启动串行链）═══════════
 const STAGES = [
@@ -340,8 +349,6 @@ function replay() {
   })();
 }
 replay();
-}
-requestAnimationFrame(frame);
 </script>
 </body>
 </html>
