@@ -55,8 +55,13 @@ export const useSessionStore = defineStore("session", () => {
   // 竞态守卫：并发 loadSessions（新窗口 onMounted 与 onInitWorkspace 各发一次）时，
   // 只有最后一次调用的结果能写入——先发请求若后返回会覆盖新工作区列表（多窗口切换 bug）
   let loadSeq = 0;
+  /** 会话列表加载中（供空态显示「加载中」而非「暂无会话」——serve 未就绪时列表会短暂为空，误导用户） */
+  const sessionsLoading = ref(false);
+  let pendingLoads = 0;
   async function loadSessions(directory?: string) {
     const seq = ++loadSeq;
+    pendingLoads++;
+    sessionsLoading.value = true;
     try {
       const list = await listSessions(directory);
       if (seq !== loadSeq) return; // 已有更新的加载请求，丢弃过期结果
@@ -64,6 +69,9 @@ export const useSessionStore = defineStore("session", () => {
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {
       console.error("Failed to load sessions:", err);
+    } finally {
+      pendingLoads--;
+      if (pendingLoads <= 0) sessionsLoading.value = false;
     }
   }
 
@@ -141,6 +149,7 @@ export const useSessionStore = defineStore("session", () => {
     activeSessionId,
     serving,
     setServing,
+    sessionsLoading,
     insertSession,
     loadSessions,
     createSession,

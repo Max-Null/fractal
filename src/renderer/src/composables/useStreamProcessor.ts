@@ -397,6 +397,8 @@ export function useStreamProcessor() {
           loadModelVariants(settings.model)
             .then((v) => settings.setModelVariants(v))
             .catch(() => settings.setModelVariants([]));
+          // 会话列表补拉（同 engine:status running 分支的说明：serve 就绪后重拉当前工作区会话）
+          session.loadSessions(settings.cwd || undefined);
         }
       })
       .catch(() => {});
@@ -413,6 +415,10 @@ export function useStreamProcessor() {
         loadModelVariants(settings.model)
           .then((v) => settings.setModelVariants(v))
           .catch(() => settings.setModelVariants([]));
+        // 会话列表补拉：新窗口 onInitWorkspace 的 loadSessions 可能在 serve 未就绪时静默失败
+        // （列表停留在 onMounted 的旧工作区结果——用户看到前工作区列表）——引擎就绪后重拉
+        // 当前工作区会话；loadSeq 竞态守卫保证过期请求被丢弃（2026-08-08 实测）
+        session.loadSessions(settings.cwd || undefined);
       }
       // G3：serve 恢复（running=true）且当前会话历史加载失败过 → 自动重试加载
       // （离线灰显占位只应短暂存在，引擎就绪后应立即恢复历史消息）

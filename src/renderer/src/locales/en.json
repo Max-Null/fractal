@@ -174,7 +174,8 @@
     "loadFailed": "Failed to load messages",
     "clear": "Clear",
     "noSessions": "No sessions yet. Click + above to create one",
-    "noMatching": "No matching sessions"
+    "noMatching": "No matching sessions",
+    "loading": "Loading sessions…"
   },
   "mode": {
     "plan": "Plan mode",

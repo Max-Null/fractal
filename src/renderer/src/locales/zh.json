@@ -174,7 +174,8 @@
     "loadFailed": "加载消息失败",
     "clear": "清空",
     "noSessions": "暂无会话，点击上方 + 新建",
-    "noMatching": "无匹配会话"
+    "noMatching": "无匹配会话",
+    "loading": "正在加载会话…"
   },
   "mode": {
     "plan": "计划模式",

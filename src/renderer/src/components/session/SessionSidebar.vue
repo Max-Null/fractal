@@ -183,8 +183,15 @@ async function handleDelete(id: string) {
         </div>
       </button>
 
-      <!-- 空态引导：无会话且未搜索时显示；有搜索词无结果才显示 noMatching -->
-      <div v-if="!searchQuery && filteredSessions.length === 0" class="px-3 py-12 text-center text-xs space-y-2" style="color:var(--text-muted)">
+      <!-- 空态引导：加载中显示转圈（serve 未就绪/首次拉取时避免「暂无会话」误导）；
+           无会话且未搜索时显示引导；有搜索词无结果才显示 noMatching -->
+      <div v-if="!searchQuery && sessionStore.sessionsLoading && filteredSessions.length === 0" class="px-3 py-12 text-center text-xs space-y-2" style="color:var(--text-muted)">
+        <div class="flex justify-center">
+          <svg class="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
+        </div>
+        <div>{{ $t('session.loading') }}</div>
+      </div>
+      <div v-else-if="!searchQuery && filteredSessions.length === 0" class="px-3 py-12 text-center text-xs space-y-2" style="color:var(--text-muted)">
         <div class="text-lg leading-none opacity-50">＋</div>
         <div>{{ $t('session.noSessions') }}</div>
       </div>
