@@ -473,25 +473,25 @@ onMounted(async () => {
   // 严禁在引擎就绪前发引擎请求：实测 serve 启动 1s 内并发请求 → ECONNRESET → serve 崩溃（win:2）。
   try {
     // ① 本地初始化（SQLite/配置，快，不碰 serve）
-    bootStage.value = 'local'; bootPercent.value = 12; pushBootLog($t('boot.local'));
+    bootStage.value = 'local'; bootPercent.value = 12; pushBootLog(t('boot.local'));
     await settings.initFromDb();
     // ② 无 cwd 时兜底取工作区根（本地磁盘，不碰 serve）
     if (!settings.cwd) {
       try { settings.cwd = await getWorkspaceRoot(); } catch {}
     }
-    bootPercent.value = 30; pushBootLog($t('boot.localOk'));
+    bootPercent.value = 30; pushBootLog(t('boot.localOk'));
     // ③ 引擎就绪门禁：getEngineStatus 首查 + 轮询 + engine:status 事件，任一先到 running 即放行
-    bootStage.value = 'engine'; bootPercent.value = 45; pushBootLog($t('boot.engine'));
+    bootStage.value = 'engine'; bootPercent.value = 45; pushBootLog(t('boot.engine'));
     const engineReady = await waitEngineReady();
     // ④ 引擎就绪才加载会话列表（串行 await）——serve 未就绪期间绝不下发 session:list
     if (engineReady) {
-      bootStage.value = 'sessions'; bootPercent.value = 70; pushBootLog($t('boot.engineOk'));
+      bootStage.value = 'sessions'; bootPercent.value = 70; pushBootLog(t('boot.engineOk'));
       await sessionStore.loadSessions(settings.cwd || undefined);
       bootPercent.value = 92;
     } else {
       // 超时降级：引擎 15s 未就绪（崩溃/未启动），展示「引擎未就绪」提示片刻再进主界面，
       // 避免用户无感知进入离线态（转圈最久 15s + 1s 提示 + 0 列表 ≈ 16s，仍在 20s 上限内）
-      bootStage.value = 'timeout'; pushBootLog($t('boot.timeout'));
+      bootStage.value = 'timeout'; pushBootLog(t('boot.timeout'));
       await new Promise((r) => setTimeout(r, 1_000));
     }
     // ⑤ modelVariants 补拉由 useStreamProcessor 的挂载即查 / engine:status running 分支负责，
@@ -499,7 +499,7 @@ onMounted(async () => {
   } catch {
     // 各子步骤已有独立 catch，此处仅兜底——不会到达，但确保 initializing 必然复位
   } finally {
-    bootStage.value = 'done'; bootPercent.value = 100; pushBootLog($t('boot.done'));
+    bootStage.value = 'done'; bootPercent.value = 100; pushBootLog(t('boot.done'));
     initializing.value = false;
     document.addEventListener("keydown", onGlobalKeydown);
     panelLayout.setupObserver(); // ResizeObserver 监听容器宽度变化，自动 clamp 右侧面板
