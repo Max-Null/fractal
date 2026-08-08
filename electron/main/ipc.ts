@@ -549,7 +549,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   )
 
   // ✨ 输入消息优化（原型发送左侧功能）：临时会话润色 → 提取回复 → 删除临时会话。
-  // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现（20s 超时）。
+  // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现。
+  // 2026-08-08 修复：①指定 build agent（临时会话默认双星会触发读文件/工具流，润色只需纯文本回复——用户报错根因）；
+  // ②超时 20s→60s（deepseek-v4-pro 长推理，20s 内未回复即报「润色超时」——用户报错嫌疑）。
   ipcMain.handle('ai:polishMessage', async (_e, args: { text: string }) => {
     const text = typeof args?.text === 'string' ? args.text.trim() : ''
     if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
@@ -560,15 +562,16 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // oc-sdk create 返回 Session 本体（normalizeError 已解包 data）
       tempId = s.id || ''
       if (!tempId) throw new Error('临时会话创建失败')
-      await client.session.promptAsync(tempId, POLISH_PROMPT + text)
-      // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 40 = 20s 上限）
+      // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
+      await client.session.promptAsync(tempId, POLISH_PROMPT + text, { agent: 'build' })
+      // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
       let polished = ''
-      for (let i = 0; i < 40 && !polished; i++) {
+      for (let i = 0; i < 120 && !polished; i++) {
         await new Promise((r) => setTimeout(r, 500))
         const msgs = await client.session.messages(tempId)
         polished = extractAssistantText(msgs)
       }
-      if (!polished) throw new Error('润色超时：模型未在 20 秒内回复')
+      if (!polished) throw new Error('润色超时：模型未在 60 秒内回复')
       return { ok: true, text: polished }
     } finally {
       // 尽力清理临时会话（失败不阻断——serve 侧会残留一条「消息润色」会话，可接受）

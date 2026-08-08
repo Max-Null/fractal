@@ -337,19 +337,34 @@ const canSend = computed(() => input.value.trim().length > 0);
 // ✨ 优化输入消息（原型发送按钮左侧功能）：调引擎临时会话润色，结果替换输入框
 // ══════════════════════════════════════════════════════════════
 const polishing = ref(false);
+// 润色失败提示（3s 自动消失；此前 try/finally 无 catch → 错误变未捕获 rejection，用户看不到原因）
+const polishError = ref("");
+let polishErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function polishInput() {
   const text = input.value.trim();
   if (!text || polishing.value) return;
   polishing.value = true;
+  polishError.value = "";
   try {
     const result = await polishMessage(text);
     if (result?.ok && result.text) {
       input.value = result.text;
       autoResize();
+    } else {
+      // 主进程返回 ok=false（理论不达，防御）
+      polishError.value = "优化失败：引擎未返回结果";
     }
+  } catch (err) {
+    // 主进程 handler throw → invoke reject——显示具体原因（如「润色超时：模型未在 20 秒内回复」）
+    const msg = (err as Error)?.message?.replace(/^Error invoking remote method '[^']+':\s*/, "") || "优化失败，请稍后重试";
+    polishError.value = msg;
+    console.error("[polish] 润色失败:", err);
   } finally {
     polishing.value = false;
+    // 错误提示 3s 自动消失
+    if (polishErrorTimer) clearTimeout(polishErrorTimer);
+    polishErrorTimer = setTimeout(() => { polishError.value = ""; }, 3000);
   }
 }
 </script>
@@ -462,6 +477,11 @@ async function polishInput() {
           </button>
         </div>
       </div>
+
+      <!-- 润色失败提示（3s 自动消失；绝对定位在 composer 右上——用户可见的具体错误原因） -->
+      <Transition name="grad">
+        <div v-if="polishError" class="polish-error">{{ polishError }}</div>
+      </Transition>
 
       <!-- ③ foot 操作行：左组（附件/斜杠/指令按钮）+ 右组（agent/模型/权限/推理/上下文）——用户反馈③ -->
       <div class="composer-foot">
@@ -610,6 +630,8 @@ async function polishInput() {
   /* flex column：chips(默认 order 0) → 操作行(order 2) → 输入行(order 3) 的显示顺序 */
   display: flex;
   flex-direction: column;
+  /* polish-error 绝对定位参照 */
+  position: relative;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -1033,13 +1055,35 @@ async function polishInput() {
   cursor: default;
 }
 .polish-btn--busy {
-  animation: polish-spin 1s linear infinite;
+  /* 按钮本体不旋转（用户反馈：图标呼吸灯更好看）——旋转交给图标呼吸动画 */
   border-style: dashed;
   border-color: var(--accent-line);
 }
-@keyframes polish-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+/* 呼吸灯：图标 opacity+scale 脉冲（0.4→1），按钮静止 */
+.polish-btn--busy svg {
+  animation: polish-breathe 1.4s ease-in-out infinite;
+}
+@keyframes polish-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.85); }
+}
+/* 润色失败提示（composer 底部一行小字，3s 消失） */
+.polish-error {
+  position: absolute;
+  right: 4px;
+  bottom: 30px;
+  max-width: 70%;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--danger) 90%, #fff);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 3;
 }
 
 /* ── 斜杠自动补全（输入框内 / 触发，绝对定位不挤占卡片）── */
