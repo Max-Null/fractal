@@ -489,6 +489,12 @@ const MAX_SERVE_LOG_BYTES = 10 * 1024 * 1024
 
 /** 追加流缓存（按文件路径隔离；serve 重启时 stopServer end + 清理，startServer 复用/重建） */
 const serveLogStreams = new Map<string, WriteStream>()
+// 重建中的暂存队列：旧流已 end、新流未建（旧流 close 回调里建）期间的 append 先入队，
+// 保证「同一 logFile 任一时刻最多一个活动流」，否则新旧流 open 完成顺序不确定 → 写序颠倒（flaky）
+const serveLogPending = new Map<string, string[]>()
+// 重建完成 Promise：closeServeLog 等待它（旧流 close 回调里新建流 + flush 后 end + resolve），
+// 保证「close 后文件已创建且内容完整」，否则测试/停止场景读到 ENOENT 或空文件
+const serveLogRebuilds = new Map<string, Promise<void>>()
 /** 轮转失败警告位（rename EBUSY/EPERM 时只提示一次，避免高频 stderr 刷屏） */
 const serveRotateWarned = new Set<string>()
 
@@ -508,6 +514,12 @@ function serveLogTimestamp(): string {
  */
 export function appendServeLog(logFile: string, text: string, maxBytes = MAX_SERVE_LOG_BYTES): void {
   try {
+    // 重建中（旧流已 end、新流未建）：文本入队，由旧流 close 回调统一 flush——防双流并存写序颠倒
+    const pendingArr = serveLogPending.get(logFile)
+    if (pendingArr) {
+      pendingArr.push(text)
+      return
+    }
     // 本次调用前是否已有缓存流：区分「首写新建」（stat 必 ENOENT——createWriteStream 打开文件是异步的）
     // 与「旧流 + 文件被删」（须销毁重建，否则写入落到已 unlink 的 inode，文件永远不出现）
     const hadStream = serveLogStreams.has(logFile)
@@ -531,12 +543,33 @@ export function appendServeLog(logFile: string, text: string, maxBytes = MAX_SER
       // ① 首写——createWriteStream 打开文件是异步的，此时文件尚未出现：跳过轮转（文件必空），write 会排队等待 open
       // ② 旧流 + 文件被删（用户手动删 serve.log）——旧流句柄指向已 unlink 的 inode：销毁重建，否则写入落到不存在的文件上
       if (hadStream) {
-        stream.end()
-        stream = createWriteStream(logFile, { flags: 'a' })
-        stream.on('error', () => {
-          serveLogStreams.delete(logFile)
-        })
-        serveLogStreams.set(logFile, stream)
+        // 重建串行化：本行入队 → 删除 map 条目 → end 旧流，close 回调里建新流并 flush 队列后 end（一次性重建）。
+        // 旧流 end 与新流 open 是异步的，若立即建新流会双流并存，open 完成顺序不定 → 写序颠倒（历史 flaky）
+        serveLogPending.set(logFile, [text])
+        serveLogStreams.delete(logFile)
+        const old = stream
+        serveLogRebuilds.set(
+          logFile,
+          new Promise<void>((resolve) => {
+            old.end(() => {
+              const pending = serveLogPending.get(logFile) ?? []
+              serveLogPending.delete(logFile)
+              const s = createWriteStream(logFile, { flags: 'a' })
+              s.on('error', () => {
+                serveLogStreams.delete(logFile)
+              })
+              // open 完成后 flush 排队写入再 end——resolve 保证文件已创建且内容完整（closeServeLog 依赖）
+              s.on('open', () => {
+                s.end(() => {
+                  serveLogRebuilds.delete(logFile)
+                  resolve()
+                })
+              })
+              for (const t of pending) s.write(`${serveLogTimestamp()} ${t}${t.endsWith('\n') ? '' : '\n'}`)
+            })
+          }),
+        )
+        return
       }
       needsRotate = false
     }
@@ -579,5 +612,11 @@ export function closeServeLog(logFile?: string): Promise<void> {
     for (const s of serveLogStreams.values()) targets.push(s)
     serveLogStreams.clear()
   }
-  return Promise.all(targets.map((s) => new Promise<void>((resolve) => s.end(() => resolve())))).then(() => {})
+  // 重建中的 Promise 一并等待：旧流 end 回调会建新流并 flush 后 resolve，保证 close 后文件存在且内容完整
+  const rebuilds = logFile
+    ? serveLogRebuilds.get(logFile)
+      ? [serveLogRebuilds.get(logFile)!]
+      : []
+    : [...serveLogRebuilds.values()]
+  return Promise.all([...targets.map((s) => new Promise<void>((resolve) => s.end(() => resolve()))), ...rebuilds]).then(() => {})
 }
