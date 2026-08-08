@@ -259,6 +259,37 @@ function drawBase(s, glow) {
   ctx.beginPath(); ctx.ellipse(CX, CY + 108, 66, 13, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
 }
 
+// 主渲染循环：分层绘制（后段轨道+电子 → 核 → 前段电子+轨道）
+let start = performance.now();
+function frame(now) {
+  const s = (now - start) / 1000;
+  ctx.clearRect(0, 0, W, H);
+  const wobble = Math.sin(s * 0.52) * WOBBLE_AMP; // 整体摇摆
+  const glow = 0.5 + 0.5 * Math.sin(s * 2.4);     // 核辉光呼吸（0..1）
+  const orbitAlpha = 0.3 + 0.3 * glow;            // 轨道呼吸与核同步
+
+  drawBase(s, glow);
+  // 收集全部电子（投影 + z）→ 分层：后段（z<=0）先画在核下，前段（z>0）后画在核上
+  const backE = [], frontE = [];
+  for (const o of ORBITS) {
+    drawOrbitBack(o, wobble, orbitAlpha);
+    for (let i = 0; i < o.n; i++) {
+      const th = o.phase + s * o.speed + (i / o.n) * Math.PI * 2;
+      const pr = project(orbitPoint(o.r, o.tiltY, th), wobble);
+      (pr.z <= 0 ? backE : frontE).push({ o, pr });
+    }
+  }
+  // ① 后段电子（在核后面，先画）
+  for (const e of backE) drawElectron(e);
+  // ② 核（眼睛）
+  drawNucleus(s);
+  // ③ 前段电子（在核前面，后画）
+  for (const e of frontE) drawElectron(e);
+  // ④ 轨道前半段（z>0，最后画在核上）
+  for (const o of ORBITS) drawOrbit(o, wobble, orbitAlpha);
+
+  requestAnimationFrame(frame);
+}
 requestAnimationFrame(frame);
 </script>
 </body>
