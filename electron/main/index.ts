@@ -198,7 +198,8 @@ win.on('closed', () => {
     console.log('[engine] ready 完成')
     await startEngineEvents(win, serverManager)
   } catch (err) {
-    console.error('[engine] serve 启动失败（未安装 OC？）：', err)
+    // 首次启动偶发秒退（历史遗留竞态）：渲染层 IPC 触发 ready() 会再重试，最终失败才在此兜底
+    console.warn('[engine] 引擎首次启动失败（界面将按需重试）：', err)
   }
 
   app.on('activate', function () {
