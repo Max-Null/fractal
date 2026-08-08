@@ -38,7 +38,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
             'modal-shell-panel--xl': size === 'xl',
           },
         ]"
-        :style="width ? { width } : undefined"
+        :style="props.width ? { width: props.width } : undefined"
       >
         <div class="modal-shell-header">
           <slot name="header" />
