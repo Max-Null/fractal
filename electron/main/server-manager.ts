@@ -65,8 +65,7 @@ interface InternalState {
   statusCallbacks: Array<(info: ServerInfo) => void>
   /** spawn 后失败标记：进程 exit/error 触发后 startServer 不应返回"已运行"的假状态 */
   failed: boolean
-  /** ready() 缓存：并发调用共享同一次启动；失败置空可重试 */
-  startPromise: Promise<StartServerResult> | null
+  /** ready() 缓存：并发调用共享同一次启动；失败置空可重试 */  startPromise: Promise<StartServerResult> | null
 }
 
 /** 健康检查：轮询 GET /doc（带 Basic 头），200 即就绪；2s 间隔、30s 超时 */
@@ -100,6 +99,8 @@ function getFreePort(): Promise<number> {
 
 /** 内置 sidecar 运行失败标记：spawn error 后置 true，下次解析跳过内置走系统兜底（军师审查 🔴3） */
 let sidecarBroken = false
+/** 启动代数：stopServer 时 ++，使进行中的 startServer 重试循环在 spawn 前放弃（防双 serve 竞态，2026-08-08 实测） */
+let startGeneration = 0
 /** 最近一次解析是否来自内置 sidecar（spawn error 时判断是否标记 broken） */
 let lastResolvedFromSidecar = false
 
@@ -219,8 +220,15 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     // 秒退容错（2026-08-07 实测）：首次 spawn 偶发秒退 exit 1（原因未定，可能与端口/环境竞争有关），
     // 第二次尝试几乎必然成功——若等待 30s 健康检查失败才抛错，启动链（ready → startEngineEvents）会卡死，
     // 渲染层 splash 永不消失。改为循环重试，健康检查失败立即进入下一次尝试。
+    // generation 标记：stopServer 期间 ++startGeneration，使进行中的重试循环在下次 spawn 前放弃——
+    // 否则旧循环会继续 spawn 出第二个 serve（双 serve 实测 2026-08-08：启动残留 2 个进程）
+    const gen = ++startGeneration
     let lastErr: unknown = null
     for (let attempt = 1; attempt <= 3; attempt++) {
+      if (gen !== startGeneration) {
+        // 启动已被 stopServer 取消（竞态），放弃本次启动——直接抛错不再重试
+        throw new Error('serve 启动已取消（stopServer 竞态）')
+      }
       if (attempt > 1) {
         console.log(`[server-manager] serve 第 ${attempt} 次启动尝试`)
         await new Promise((r) => setTimeout(r, 800))
@@ -233,6 +241,10 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
         state.failed = false
         state.child = null
         state.client = null
+        if (gen !== startGeneration) {
+          // spawn 后/健康检查中又被 stopServer 取消——直接放弃，不再 spawn 下一个
+          throw err instanceof Error ? err : new Error('serve 启动已取消（stopServer 竞态）')
+        }
       }
     }
     state.failed = true
@@ -361,6 +373,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
   }
 
   async function stopServer(): Promise<void> {
+    // 取消进行中的启动重试循环（startServer 的 generation 检查点会放弃后续 spawn——防双 serve）
+    startGeneration++
     const child = state.child
     // 停止后启动缓存必须失效：否则后续 ready() 返回已死 serve 的连接参数（2026-08-06 实测：设置自动保存杀 serve 后永不重启）
     state.startPromise = null
