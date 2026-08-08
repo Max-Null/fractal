@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import TodoRecordCard from "./TodoRecordCard.vue";
-import type { TodoSnapshot } from "@/lib/electron-bridge";
+import type { TodoItem } from "@/stores/chat";
 
 const i18n = createI18n({
   legacy: false,
@@ -18,20 +18,17 @@ const i18n = createI18n({
   },
 });
 
-const baseSnap: TodoSnapshot = {
-  round: 1,
-  endedAt: 0,
-  todos: [
-    { content: "列出 docs 目录结构", status: "completed" },
-    { content: "写测试", status: "cancelled" },
-    { content: "收尾", status: "completed" },
-  ],
-  completedAll: true,
-};
+// v2 数据源：serve 消息历史 todowrite 工具卡提取的记录（endedAt + todos，无快照元数据）
+// activeForm 为 TodoItem 必填字段（记录卡只渲染 content/status；历史 todowrite input 无 activeForm——组件不依赖）
+const baseTodos: TodoItem[] = [
+  { content: "列出 docs 目录结构", status: "completed", activeForm: "" },
+  { content: "写测试", status: "cancelled", activeForm: "" },
+  { content: "收尾", status: "completed", activeForm: "" },
+];
 
-function mountCard(snapshot: TodoSnapshot = baseSnap): VueWrapper {
+function mountCard(endedAt = 0, todos: TodoItem[] = baseTodos): VueWrapper {
   return mount(TodoRecordCard, {
-    props: { snapshot },
+    props: { endedAt, todos },
     global: { plugins: [i18n] },
   });
 }
@@ -65,8 +62,12 @@ describe("TodoRecordCard", () => {
   it("时间格式化：endedAt → HH:mm（本地时区）", () => {
     const d = new Date();
     d.setHours(14, 30, 0, 0);
-    const snapshot = { ...baseSnap, endedAt: d.getTime() };
-    const wrapper = mountCard(snapshot);
+    const wrapper = mountCard(d.getTime());
     expect(wrapper.find(".todo-record-card__time").text()).toBe("14:30");
+  });
+
+  it("时间格式化：endedAt=0（消息无时间戳）→ '--:--'", () => {
+    const wrapper = mountCard(0);
+    expect(wrapper.find(".todo-record-card__time").text()).toBe("--:--");
   });
 });

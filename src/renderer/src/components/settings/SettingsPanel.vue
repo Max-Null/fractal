@@ -255,25 +255,6 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
   if (r.ok) dataModeMsg.value = { type: "ok", text: t("settings.dataModeDone") };
   else dataModeMsg.value = { type: "err", text: t("settings.dataModeFail") };
 }
-
-// ── 待办记录保留轮数（高级设置：todos.maxSnapshotsPerSession，1-100）──
-// 输入框本地态 + blur 提交（参照 contextLimit 模式）；settings store 回填（config-changed 广播同步）
-const snapshotLimitInput = ref(String(settings.maxSnapshotsPerSession));
-watch(
-  () => settings.maxSnapshotsPerSession,
-  (v) => {
-    // 外部变更（agent 改 settings.json / 广播）→ 回填输入框
-    snapshotLimitInput.value = String(v);
-  },
-);
-async function saveSnapshotLimit() {
-  // 边界钳制 1-100（非数回退当前 store 值；数字输入无法输入小数，round 兜底防粘贴异常）
-  const n = Math.round(Number(snapshotLimitInput.value));
-  const clamped = Number.isFinite(n) ? Math.min(100, Math.max(1, n)) : settings.maxSnapshotsPerSession;
-  snapshotLimitInput.value = String(clamped);
-  if (clamped === settings.maxSnapshotsPerSession) return; // 值未变不写盘（避免无意义 config-changed 循环）
-  await settings.persistMaxSnapshots(clamped);
-}
 </script>
 
 <template>
@@ -653,24 +634,6 @@ async function saveSnapshotLimit() {
               <template v-if="dataModeMsg.type === 'ok'">✓ </template>
               <template v-else-if="dataModeMsg.type === 'err'">✕ </template>
               {{ dataModeMsg.text }}
-            </div>
-
-            <!-- 待办记录保留轮数：每个会话保留最近 N 轮完成快照（写 settings.json；1-100，blur 提交） -->
-            <div class="flex items-center justify-between gap-3 mb-2">
-              <div class="min-w-0">
-                <div class="text-xs font-medium" style="color: var(--text-primary)">{{ $t('settings.todoSnapshotLimit') }}</div>
-                <div class="text-[10px] mt-0.5" style="color: var(--text-muted)">{{ $t('settings.todoSnapshotLimitDesc') }}</div>
-              </div>
-              <input
-                v-model="snapshotLimitInput"
-                type="number"
-                min="1"
-                max="100"
-                class="w-20 shrink-0 px-2 py-1 text-sm text-right rounded-lg outline-none focus:ring-1"
-                style="background: var(--bg-root); border: 1px solid var(--border-default); color: var(--text-primary)"
-                @blur="saveSnapshotLimit"
-                @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
-              />
             </div>
 
             <SettingsJsonEditor />

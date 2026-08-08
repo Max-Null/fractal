@@ -1,9 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
-import { listMessages, saveTodoSnapshot, listTodoSnapshots, type TodoSnapshot } from "@/lib/electron-bridge";
-// 惰性解析：pushTodoSnapshot/maybeSnapshotTodos 内函数级调用（避免模块循环依赖——settings/session 依赖 chat 的事件流）
-import { useSettingsStore } from "./settings";
-import { useSessionStore } from "./session";
+import { listMessages } from "@/lib/electron-bridge";
 
 export interface AttachedFile {
   name: string;
@@ -222,6 +219,68 @@ export function buildSubTaskMap(
   return map;
 }
 
+// ── 待办记录卡提取（v2：serve 消息历史 todowrite 工具卡 → 记录卡，替代 v1 本地快照链路）──
+
+/** 待办记录卡条目（ChatPanel 消息内渲染数据源） */
+export interface TodoRecord {
+  /** 承载全完成 todowrite 工具卡的消息 id（记录卡贴在该消息后） */
+  messageId: string;
+  /** 消息时间戳（无则 0——渲染时显示「--:--」） */
+  endedAt: number;
+  /** 该轮完整待办列表（todowrite input.todos） */
+  todos: TodoItem[];
+}
+
+/**
+ * 从消息流提取「全完成 todowrite」记录卡数据。
+ * 遍历消息的 toolUses + contentBlocks（双遍历参考 buildSubTaskMap），找 tool 名（小写化）=== 'todowrite' 的 part。
+ * input 容错：{todos:[...]} 对象或 JSON 字符串（parse 失败跳过该条）。
+ * 条件：todos 长度 > 0 && every(status === 'completed' || status === 'cancelled') → 产出记录。
+ * 同一条工具卡在 toolUses 与 contentBlocks 同源冗余（G2 还原）——按工具 id 去重防双计；
+ * 引擎重复写 TodoWrite（不同 id）→ 每条都产（v2 简化，不去重轮次）。
+ */
+export function extractTodoRecords(messages: Message[]): TodoRecord[] {
+  const records: TodoRecord[] = [];
+  for (const msg of messages) {
+    // 收集本条消息的全部 todowrite 工具 part（toolUses + contentBlocks 的 tool_use 块，按 id 去重防双计）
+    const seen = new Set<string>();
+    const parts: ToolUse[] = [...msg.toolUses];
+    for (const block of msg.contentBlocks ?? []) {
+      if (block.type === "tool_use" && block.toolUse) parts.push(block.toolUse);
+    }
+    for (const part of parts) {
+      // 工具名大小写兼容（todowrite / TodoWrite）；id 存在则跳过重复（同源冗余），无 id 时照常处理
+      if (!part.name || part.name.toLowerCase() !== "todowrite") continue;
+      if (part.id && seen.has(part.id)) continue;
+      if (part.id) seen.add(part.id);
+      // input 容错：对象 {todos:[...]} 或 JSON 字符串（损坏 parse 失败跳过，不产记录卡）
+      const rawTodos = extractTodoInputTodos(part.input);
+      if (!rawTodos || rawTodos.length === 0) continue;
+      // 全完成条件：所有项 completed/cancelled（任一 pending/in_progress 即不产）
+      if (!rawTodos.every((t) => t.status === "completed" || t.status === "cancelled")) continue;
+      records.push({ messageId: msg.id, endedAt: msg.timestamp || 0, todos: rawTodos });
+    }
+  }
+  return records;
+}
+
+/** 从 todowrite input 提取 todos 数组：对象直接取 .todos；JSON 字符串 parse 后取（损坏/结构不符 → null） */
+function extractTodoInputTodos(input: unknown): TodoItem[] | null {
+  if (input === null || input === undefined) return null;
+  let obj: unknown = input;
+  if (typeof input === "string") {
+    try {
+      obj = JSON.parse(input);
+    } catch {
+      // JSON 字符串损坏 → 跳过该条（不产记录卡，规格异常流程 6.2）
+      return null;
+    }
+  }
+  if (typeof obj !== "object" || obj === null) return null;
+  const todos = (obj as { todos?: unknown }).todos;
+  return Array.isArray(todos) ? (todos as TodoItem[]) : null;
+}
+
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<Message[]>([]);
   /** 全量历史缓存（进入会话一次拉取 ≤FULL_HISTORY_LIMIT，不渲染 DOM，供滚动到顶切片与时间线索引） */
@@ -236,8 +295,8 @@ export const useChatStore = defineStore("chat", () => {
   const historyLoading = ref(false);
   // CC 工作清单（TodoWrite / TaskCreate → 前端实时展示）
   const todos = ref<TodoItem[]>([]);
-  // 待办回合快照（一轮全完成后固化；记录卡展示，历史恢复时从主进程加载）
-  const todoSnapshots = ref<TodoSnapshot[]>([]);
+  // 待办记录卡（从 serve 消息历史 todowrite 工具卡提取——v2 移除本地快照链路；ChatPanel 消息内渲染数据源）
+  const todoRecords = ref<TodoRecord[]>([]);
   // 子任务（task 派生子 agent）可视化：subId → SubTask（serve 广播事件累积，idle 后拉摘要）
   const subTasks = ref<Record<string, SubTask>>({});
   // 审批队列：防止子 agent 并发 control_request 互相覆盖
@@ -678,55 +737,12 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** 读取会话待办快照（历史恢复；IPC 失败/无文件 → 静默空数组，不打扰用户） */
-  async function loadTodoSnapshots(sessionId: string) {
-    if (!sessionId) return;
-    try {
-      const r = await listTodoSnapshots(sessionId);
-      todoSnapshots.value = Array.isArray(r.snapshots) ? r.snapshots : [];
-    } catch (err) {
-      // 主进程未就绪/文件损坏：静默（记录卡缺失可接受，不阻塞历史加载）
-      console.error("[chat] 加载待办快照失败:", err);
-      todoSnapshots.value = [];
-    }
-  }
-
-  /** 追加待办快照（内存 + 主进程持久化；IPC 失败仅 console.error，内存保留本轮展示） */
-  function pushTodoSnapshot(snapshot: TodoSnapshot) {
-    // 保留轮数从 settings store 读（高级设置 todos.maxSnapshotsPerSession；惰性解析避免模块循环）
-    const settingsStore = useSettingsStore();
-    const max = settingsStore.maxSnapshotsPerSession;
-    // 内存截断：超出轮数丢弃最旧（与主进程截断双保险，round 始终递增不重排）
-    todoSnapshots.value = [...todoSnapshots.value, snapshot];
-    if (todoSnapshots.value.length > max) {
-      todoSnapshots.value = todoSnapshots.value.slice(todoSnapshots.value.length - max);
-    }
-    const sessionStore = useSessionStore();
-    const sid = sessionStore.activeSessionId;
-    if (!sid) return;
-    saveTodoSnapshot(sid, max, snapshot).catch((err) => {
-      // 写盘失败：记录卡本轮仍显示（内存态），重启后该轮可能丢失——接受
-      console.error("[chat] 保存待办快照失败:", err);
-    });
-  }
-
   /**
-   * 回合收尾快照判定（useStreamProcessor result 分支 settle 之后调用）：
-   * 有 todo 且全部 completed/cancelled（deleted 视同完成，不阻塞）→ 固化快照；
-   * 部分完成 → 不处理（面板保持折叠态，不生成记录卡）。
+   * 全量重建待办记录卡（调 extractTodoRecords 提取 serve 消息历史中的全完成 todowrite 工具卡）。
+   * 调用时机：loadMessages/loadFullHistory 后 + ChatPanel 消息流 watch（消息量 ≤500，全量重提取可接受）。
    */
-  function maybeSnapshotTodos() {
-    const list = todos.value;
-    if (list.length === 0) return;
-    // 未完成项 = 非 completed/cancelled/deleted（pending/in_progress 任一存在即不快照）
-    const unfinished = list.filter(t => t.status !== "completed" && t.status !== "cancelled" && t.status !== "deleted");
-    if (unfinished.length > 0) return;
-    pushTodoSnapshot({
-      round: todoSnapshots.value.length + 1,
-      endedAt: Date.now(),
-      todos: list.map(t => ({ content: t.content, status: t.status, priority: t.priority })),
-      completedAll: true,
-    });
+  function refreshTodoRecords(msgs: Message[]) {
+    todoRecords.value = extractTodoRecords(msgs);
   }
 
   /** 追加工具执行结果，同时更新 toolUses 数组和 contentBlocks 时间线 */
@@ -798,7 +814,7 @@ export const useChatStore = defineStore("chat", () => {
   function clearMessages() {
     messages.value = [];
     todos.value = [];
-    todoSnapshots.value = [];
+    todoRecords.value = [];
     currentAssistantMsg.value = null;
     isProcessing.value = false;
     pendingControlRequests.value = [];
@@ -1074,10 +1090,8 @@ export const useChatStore = defineStore("chat", () => {
     hasMoreHistory,
     setHasMoreHistory,
     todos,
-    todoSnapshots,
-    loadTodoSnapshots,
-    pushTodoSnapshot,
-    maybeSnapshotTodos,
+    todoRecords,
+    refreshTodoRecords,
     pendingControlRequest,
     pendingControlRequests,
     addUserMessage,

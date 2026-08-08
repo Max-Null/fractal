@@ -160,17 +160,6 @@ export const useSettingsStore = defineStore("settings", () => {
   /** 数据模式切换中（防连点锁；SettingsPanel 开关禁用 + 提示条） */
   const isRestarting = ref(false);
 
-  // ── 待办记录保留轮数（settings.json todos.maxSnapshotsPerSession：记录卡展示上限）──
-  // 同 dataMode 不进 UI 偏好 watch（防抖重建对象会带默认值覆盖用户设置）
-  const maxSnapshotsPerSession = ref(20);
-
-  /** 合并写 settings.json（读当前显式字段 + 新值，不覆盖文件其他字段） */
-  async function persistMaxSnapshots(v: number) {
-    const r = await getSettingsConfig();
-    const next: Record<string, unknown> = { ...r.config, "todos.maxSnapshotsPerSession": v };
-    await saveSettingsJson(JSON.stringify(next, null, 2));
-  }
-
   /** 合并 dataMode 写 settings.json（读当前显式字段 + 新值，不覆盖文件其他字段） */
   async function persistDataMode(v: "shared" | "isolated") {
     const r = await getSettingsConfig();
@@ -359,11 +348,6 @@ export const useSettingsStore = defineStore("settings", () => {
     if (typeof config["agent.contextLimit"] === "number") contextLimit.value = config["agent.contextLimit"];
     // 数据模式（settings.json 显式字段；非法/缺失保持当前值——agent 工具/GUI 保存三路统一生效）
     if (config["dataMode"] === "isolated" || config["dataMode"] === "shared") dataMode.value = config["dataMode"];
-    // 待办记录保留轮数（number 且 1-100 才覆盖；非法/缺失保持当前值）
-    const snapLimit = config["todos.maxSnapshotsPerSession"];
-    if (typeof snapLimit === "number" && Number.isInteger(snapLimit) && snapLimit >= 1 && snapLimit <= 100) {
-      maxSnapshotsPerSession.value = snapLimit;
-    }
   }
 
   // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
@@ -477,5 +461,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, maxSnapshotsPerSession, persistMaxSnapshots };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode };
 });

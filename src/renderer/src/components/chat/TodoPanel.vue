@@ -86,12 +86,13 @@ const currentTodoLabel = computed(() => {
   return t.activeForm || t.content;
 });
 
-// ── 面板隐藏（D10）：全部 completed/cancelled 且已有快照 → 记录卡替代活动面板 ──
-// 全部完成但本回合快照尚未生成（result 事件收尾中）→ 仍显示折叠态，避免闪现空白
+// ── 面板隐藏（D10 v2）：全部 completed/cancelled → 面板隐藏，记录卡替代 ──
+// v2 去快照依赖：记录卡从消息工具卡提取（消息流 watch 刷新），面板只由 todos 状态驱动——
+// 新回合 TodoWrite（出现 pending/in_progress）→ 面板重新显示（todos 变化天然驱动）
 const hidePanel = computed(() => {
   if (visibleTodos.value.length === 0) return false;
   const allFinished = visibleTodos.value.every(t => t.status === "completed" || t.status === "cancelled");
-  return allFinished && chat.todoSnapshots.length > 0;
+  return allFinished;
 });
 </script>
 

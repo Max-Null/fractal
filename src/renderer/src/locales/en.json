@@ -180,9 +180,7 @@
     "dataModeDesc": "When enabled, sessions are stored only in this app's data directory, isolated from other tools",
     "dataModeRestarting": "Restarting engine…",
     "dataModeDone": "Engine restarted: isolated session data mode",
-    "dataModeFail": "Engine restart failed, restored original mode",
-    "todoSnapshotLimit": "Todo record rounds to keep",
-    "todoSnapshotLimitDesc": "Keep the latest N completed rounds per session (record card cap)"
+    "dataModeFail": "Engine restart failed, restored original mode"
   },
   "session": {
     "new": "New Session",

@@ -1,21 +1,22 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
-import type { TodoSnapshot } from "@/lib/electron-bridge";
+import type { TodoItem } from "@/stores/chat";
 
-// 待办回合记录卡（D9）：一轮全完成后的固化快照；默认折叠，点击展开明细
+// 待办回合记录卡（D9）：从 serve 消息历史 todowrite 工具卡提取的数据（v2，替代 v1 快照）；默认折叠，点击展开明细
 // 折叠状态独立（本地 ref，不与其他卡片联动）——恢复历史时逐卡独立开关
-const props = defineProps<{ snapshot: TodoSnapshot }>();
+const props = defineProps<{ endedAt: number; todos: TodoItem[] }>();
 
 const expanded = ref(false);
 
 // 完成数 = completed + cancelled（cancelled 在记录中视同「处理完毕」，灰色退场）
 const doneCount = computed(
-  () => props.snapshot.todos.filter(t => t.status === "completed" || t.status === "cancelled").length
+  () => props.todos.filter(t => t.status === "completed" || t.status === "cancelled").length
 );
 
-// 回合结束时间 → HH:mm（会话多为短时轮次，不跨天，不显示日期）
+// 回合结束时间 → HH:mm（会话多为短时轮次，不跨天，不显示日期）；endedAt 缺失（0）→ '--:--'
 const timeLabel = computed(() => {
-  const d = new Date(props.snapshot.endedAt);
+  if (!props.endedAt) return "--:--";
+  const d = new Date(props.endedAt);
   const hh = String(d.getHours()).padStart(2, "0");
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${hh}:${mm}`;
@@ -42,7 +43,7 @@ function statusIcon(s: string): string {
       <span class="todo-record-card__icon">📋</span>
       <span class="todo-record-card__title">{{ $t('chat.todoRecord') }}</span>
       <span class="todo-record-card__count">
-        {{ doneCount }}/{{ snapshot.todos.length }} {{ $t('chat.todoRecordDone') }}
+        {{ doneCount }}/{{ todos.length }} {{ $t('chat.todoRecordDone') }}
       </span>
       <span class="todo-record-card__time">{{ timeLabel }}</span>
       <span class="todo-record-card__arrow" :class="{ 'todo-record-card__arrow--expanded': expanded }">▾</span>
@@ -50,7 +51,7 @@ function statusIcon(s: string): string {
     <!-- 展开明细：completed ✓ 主题蓝 / cancelled ✕ 灰；样式复用 todo-chip 体系（scoped 局部） -->
     <div v-if="expanded" class="todo-record-card__list">
       <div
-        v-for="(t, i) in snapshot.todos"
+        v-for="(t, i) in todos"
         :key="i"
         class="todo-record-chip"
         :class="`todo-record-chip--${t.status}`"

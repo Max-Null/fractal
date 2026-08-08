@@ -17,8 +17,6 @@ const listMessagesMock = vi.fn();
 const loadSessionLogsMock = vi.fn();
 const readServeLogMock = vi.fn();
 const getAppInfoMock = vi.fn();
-const listTodoSnapshotsMock = vi.fn();
-const saveTodoSnapshotMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
   respondPermission: (...args: unknown[]) => respondPermissionMock(...args),
@@ -35,8 +33,6 @@ vi.mock("@/lib/electron-bridge", () => ({
   openDialog: vi.fn().mockResolvedValue(null),
   saveDialog: vi.fn().mockResolvedValue(null),
   readFileBase64: vi.fn().mockResolvedValue(""),
-  listTodoSnapshots: (...args: unknown[]) => listTodoSnapshotsMock(...args),
-  saveTodoSnapshot: (...args: unknown[]) => saveTodoSnapshotMock(...args),
   // 活跃会话上报（session store 切会话时 fire-and-forget）：测试环境静默
   setActiveSession: vi.fn().mockResolvedValue({ ok: true }),
 }));
@@ -133,10 +129,10 @@ function mountChatPanel(): VueWrapper {
         ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
         // stub 渲染 data-todo-panel 标记：方案 A「按需显示」测试断言 TodoPanel 是否被渲染（v-if 控制存在性）
         TodoPanel: { template: "<div class='todo-panel-stub' />" },
-        // 待办记录卡 stub：记录卡渲染测试只断言数量与 snapshot 传递（卡片自身行为在 TodoRecordCard.test 覆盖）
+        // 待办记录卡 stub：记录卡渲染测试只断言数量与 todos 传递（卡片自身行为在 TodoRecordCard.test 覆盖）
         TodoRecordCard: {
-          props: ["snapshot"],
-          template: "<div class='todo-record-card-stub'>round={{ snapshot.round }}</div>",
+          props: ["endedAt", "todos"],
+          template: "<div class='todo-record-card-stub'>todos={{ todos.length }}</div>",
         },
         // 子任务可视化：测试聚焦弹窗/审批交互，子任务卡片/弹窗 stub（真实组件在 ChatPanel 专项测试覆盖）
         // stub 渲染 subtask.summary：预拉摘要注入卡片后可在文本中断言
@@ -174,10 +170,6 @@ describe("ChatPanel 弹窗", () => {
     readServeLogMock.mockResolvedValue([]);
     getAppInfoMock.mockReset();
     getAppInfoMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
-    listTodoSnapshotsMock.mockReset();
-    listTodoSnapshotsMock.mockResolvedValue({ snapshots: [] });
-    saveTodoSnapshotMock.mockReset();
-    saveTodoSnapshotMock.mockResolvedValue({ ok: true });
     questionReplyMock.mockResolvedValue({ ok: true });
     questionRejectMock.mockResolvedValue({ ok: true });
     respondPermissionMock.mockResolvedValue({ responded: true });
@@ -779,42 +771,77 @@ describe("ChatPanel 弹窗", () => {
     expect(wrapper.find(".todo-panel-stub").exists()).toBe(false);
   });
 
-  // ── 待办回合记录卡渲染（消息流尾部，按 endedAt 时间序）──
+  // ── 待办记录卡渲染（v2：消息流内，从 serve 消息历史 todowrite 工具卡提取）──
 
-  it("todoSnapshots 非空 → 渲染记录卡（每条含 round）", async () => {
-    // 历史恢复语义：loadTodoSnapshots（watch activeSessionId immediate）从主进程拉取已有快照
-    listTodoSnapshotsMock.mockResolvedValue({
-      snapshots: [
-        { round: 1, endedAt: 100, todos: [{ content: "a", status: "completed" }], completedAll: true },
-        { round: 2, endedAt: 200, todos: [{ content: "b", status: "completed" }], completedAll: true },
-      ],
-    });
+  it("消息流中全完成 todowrite → 该消息后渲染记录卡（todos 数透传）", async () => {
+    const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-
     const wrapper = mountChatPanel();
+    await flush();
+
+    // 实时流式：assistant 消息携带全完成 todowrite → watch(messages) 全量重提取 → 消息后渲染记录卡
+    chat.addUserMessage("完成收尾");
+    chat.startAssistantMessage();
+    chat.addToolUse({
+      id: "tu_1",
+      name: "todowrite",
+      input: { todos: [{ content: "a", status: "completed" }, { content: "b", status: "cancelled" }] },
+    });
+    chat.finishAssistantMessage();
     await flush();
 
     const cards = wrapper.findAll(".todo-record-card-stub");
-    expect(cards).toHaveLength(2);
-    expect(cards[0].text()).toContain("round=1");
-    expect(cards[1].text()).toContain("round=2");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].text()).toContain("todos=2");
   });
 
-  it("todoSnapshots 为空 → 不渲染记录卡", async () => {
+  it("消息流中 todowrite 部分完成 → 不渲染记录卡", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
     const wrapper = mountChatPanel();
     await flush();
+
+    chat.addUserMessage("进行中");
+    chat.startAssistantMessage();
+    chat.addToolUse({
+      id: "tu_1",
+      name: "todowrite",
+      input: { todos: [{ content: "a", status: "completed" }, { content: "b", status: "pending" }] },
+    });
+    chat.finishAssistantMessage();
+    await flush();
+
     expect(wrapper.find(".todo-record-card-stub").exists()).toBe(false);
   });
 
-  it("切会话恢复历史：listTodoSnapshots 被调用（sessionId 参数）", async () => {
+  it("恢复历史：loadFullHistory 含全完成 todowrite → 记录卡随消息渲染", async () => {
+    const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-restore");
+    const doneJson = JSON.stringify({
+      text: "回合结束",
+      thinking: "",
+      toolUses: [{ id: "t1", name: "todowrite", input: { todos: [{ content: "x", status: "completed" }] } }],
+      contentBlocks: [
+        { type: "tool_use", toolUse: { id: "t1", name: "todowrite", input: { todos: [{ content: "x", status: "completed" }] } } },
+      ],
+    });
 
     const wrapper = mountChatPanel();
     await flush();
 
-    expect(listTodoSnapshotsMock).toHaveBeenCalledWith("ses-restore");
+    // 模拟历史加载（切会话/compact 路径调用 loadFullHistory）→ messages 更新 → watch 全量重提取
+    chat.loadFullHistory([
+      { id: "m0", role: "user", content: "开始", created_at: "2026-01-01T00:00:00" },
+      { id: "m1", role: "assistant", content: doneJson, created_at: "2026-01-01T00:01:00" },
+    ]);
+    await flush();
+
+    const cards = wrapper.findAll(".todo-record-card-stub");
+    expect(cards).toHaveLength(1);
+    expect(cards[0].text()).toContain("todos=1");
   });
 });
 

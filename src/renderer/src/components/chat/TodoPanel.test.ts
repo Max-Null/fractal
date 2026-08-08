@@ -240,28 +240,30 @@ describe("TodoPanel（状态样式 D5）", () => {
 });
 
 describe("TodoPanel（面板隐藏 D10）", () => {
-  it("全部完成且已有快照 → 活动面板不渲染（记录卡替代）", async () => {
+  it("全部完成 → 活动面板不渲染（记录卡替代，v2 无快照依赖）", async () => {
     const chat = useChatStore();
     chat.setTodos([
       { content: "甲", status: "completed" },
       { content: "乙", status: "completed" },
     ]);
-    chat.pushTodoSnapshot({ round: 1, endedAt: 1, todos: [], completedAll: true });
     const wrapper = mountPanel();
     await nextTick();
     expect(wrapper.find(".todo-panel").exists()).toBe(false);
     expect(wrapper.find(".todo-panel-collapsed").exists()).toBe(false);
   });
 
-  it("全部完成但无快照（回合收尾中）→ 面板仍显示（避免闪现空白）", async () => {
+  it("全部 cancelled → 同样隐藏（视同完成回合）", async () => {
     const chat = useChatStore();
-    chat.setTodos([{ content: "甲", status: "completed" }]);
+    chat.setTodos([
+      { content: "甲", status: "cancelled" },
+      { content: "乙", status: "cancelled" },
+    ]);
     const wrapper = mountPanel();
     await nextTick();
-    expect(wrapper.find(".todo-panel").exists()).toBe(true);
+    expect(wrapper.find(".todo-panel").exists()).toBe(false);
   });
 
-  it("部分完成 → 面板显示折叠态（不隐藏、不生成记录卡逻辑在 chat store）", async () => {
+  it("部分完成 → 面板显示折叠态（不隐藏；记录卡提取在 chat store）", async () => {
     vi.useFakeTimers();
     const chat = useChatStore();
     chat.setTodos([

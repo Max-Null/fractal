@@ -4,12 +4,11 @@ import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useStreamProcessor } from "./useStreamProcessor";
 
-const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock, saveTodoSnapshotMock } = vi.hoisted(() => ({
+const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
   saveMessageMock: vi.fn(),
   listMessagesMock: vi.fn(),
   debugLogAddMock: vi.fn(),
-  saveTodoSnapshotMock: vi.fn(),
 }));
 // 桩 window.electronBridge：useStreamProcessor 的事件订阅入口（原 @tauri-apps/api/event listen）
 window.electronBridge = {
@@ -46,7 +45,6 @@ vi.mock("@/lib/electron-bridge", async () => {
     saveSessionDebugLog: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue([]),
     listMessages: listMessagesMock,
-    saveTodoSnapshot: saveTodoSnapshotMock,
   };
 });
 
@@ -58,8 +56,6 @@ describe("useStreamProcessor", () => {
     saveMessageMock.mockResolvedValue(undefined);
     listMessagesMock.mockReset();
     debugLogAddMock.mockReset();
-    saveTodoSnapshotMock.mockReset();
-    saveTodoSnapshotMock.mockResolvedValue({ ok: true });
   });
 
   afterEach(() => {
@@ -455,56 +451,12 @@ describe("useStreamProcessor", () => {
     stopListening();
   });
 
-  it("result 回合收尾：活跃会话全部完成 → maybeSnapshotTodos 落盘快照（saveTodoSnapshot 被调）", async () => {
-    const chat = useChatStore();
-    const session = useSessionStore();
-    session.setActiveSession("ses-todo");
-
-    // 全部完成的工作清单（settle 补勾不需要——本就全完成）
-    chat.setTodos([
-      { content: "列出 docs 目录结构", status: "completed" },
-      { content: "写测试", status: "completed" },
-    ]);
-
-    const { startListening, stopListening } = useStreamProcessor();
-    await startListening();
-
-    listeners.get("engine:event")?.({
-      type: "result",
-      session_id: "ses-todo",
-      text: "",
-      thinking: "",
-      is_final: true,
-      duration_ms: 800,
-      input_tokens: 5,
-      output_tokens: 8,
-      cost_usd: 0,
-    });
-    await flushPromises();
-
-    expect(saveTodoSnapshotMock).toHaveBeenCalledTimes(1);
-    // 参数：sessionId / maxSnapshots（settings 默认 20）/ snapshot（round=1 + 全量 todos）
-    const [sid, max, snap] = saveTodoSnapshotMock.mock.calls[0]!;
-    expect(sid).toBe("ses-todo");
-    expect(max).toBe(20);
-    expect(snap.round).toBe(1);
-    expect(snap.completedAll).toBe(true);
-    expect(snap.todos).toEqual([
-      { content: "列出 docs 目录结构", status: "completed" },
-      { content: "写测试", status: "completed" },
-    ]);
-    // 内存快照同步保留（记录卡渲染数据源）
-    expect(chat.todoSnapshots).toHaveLength(1);
-
-    stopListening();
-  });
-
-  it("result 回合收尾：最后一项未完成 → settle 补勾后仍触发快照", async () => {
+  it("result 回合收尾：最后一项未完成 → settle 补勾（模型漏勾兜底，v2 保留）", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-todo2");
 
-    // 最后一项 in_progress（模型收尾漏勾场景）→ settle 补勾 → 全完成 → 快照
+    // 最后一项 in_progress（模型收尾漏勾场景）→ settle 补勾 → 全完成
     chat.setTodos([
       { content: "已完成项", status: "completed" },
       { content: "收尾项", status: "in_progress" },
@@ -527,13 +479,11 @@ describe("useStreamProcessor", () => {
     await flushPromises();
 
     expect(chat.todos[1].status).toBe("completed"); // settle 生效
-    expect(saveTodoSnapshotMock).toHaveBeenCalledTimes(1);
-    expect(chat.todoSnapshots[0].todos[1].status).toBe("completed");
 
     stopListening();
   });
 
-  it("result 回合收尾：部分完成（有 pending）→ 不快照", async () => {
+  it("result 回合收尾：pending 在非末位 → settle 不补勾（真没做完）", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-todo3");
@@ -561,18 +511,19 @@ describe("useStreamProcessor", () => {
     await flushPromises();
 
     expect(chat.todos[0].status).toBe("pending"); // settle 未补勾
-    expect(saveTodoSnapshotMock).not.toHaveBeenCalled();
-    expect(chat.todoSnapshots).toHaveLength(0);
 
     stopListening();
   });
 
-  it("result 回合收尾：后台会话（session_id ≠ 活跃）→ 不快照", async () => {
+  it("result 回合收尾：后台会话（session_id ≠ 活跃）→ settle 跳过（todos 保持原状）", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-active");
 
-    chat.setTodos([{ content: "完成项", status: "completed" }]);
+    chat.setTodos([
+      { content: "完成项", status: "completed" },
+      { content: "后台未收尾", status: "in_progress" },
+    ]);
 
     const { startListening, stopListening } = useStreamProcessor();
     await startListening();
@@ -590,13 +541,12 @@ describe("useStreamProcessor", () => {
     });
     await flushPromises();
 
-    expect(saveTodoSnapshotMock).not.toHaveBeenCalled();
-    expect(chat.todoSnapshots).toHaveLength(0);
+    expect(chat.todos[1].status).toBe("in_progress"); // 后台会话不补勾
 
     stopListening();
   });
 
-  it("result 回合收尾：无 todos → 不快照（空列表安全）", async () => {
+  it("result 回合收尾：无 todos → settle 安全空跑", async () => {
     const session = useSessionStore();
     session.setActiveSession("ses-todo4");
 
@@ -616,8 +566,7 @@ describe("useStreamProcessor", () => {
     });
     await flushPromises();
 
-    expect(saveTodoSnapshotMock).not.toHaveBeenCalled();
-
+    // 无 todos 空跑不抛错（v2 记录卡由消息历史提取，与 result 事件解耦）
     stopListening();
   });
 });

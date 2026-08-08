@@ -504,66 +504,6 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return [debug] as [string | null]
   })
 
-  // ── 待办回合快照（辅助存储层 D7/D8：serve 无每轮历史 → 分形本地固化）──
-  // 路径：<userData>/data/session-todos/{sessionId}.json（与会话数据同目录，后续随「清除数据」一并删除）
-
-  ipcMain.handle('todos:saveSnapshot', async (_e, args: {
-    sessionId: string
-    maxSnapshots: number
-    snapshot: { round: number; endedAt: number; todos: Array<{ content: string; status: string; priority?: string }>; completedAll: boolean }
-  }) => {
-    // 参数校验（防损坏数据写盘）：sessionId 必须 serve 会话格式；快照结构/时间戳/单轮数量兜底
-    if (typeof args?.sessionId !== 'string' || !/^ses_/.test(args.sessionId)) {
-      return { ok: false, error: 'sessionId 非法' }
-    }
-    const max = Number.isInteger(args?.maxSnapshots) && args.maxSnapshots >= 1 && args.maxSnapshots <= 100 ? args.maxSnapshots : 20
-    const s = args?.snapshot
-    if (!s || typeof s !== 'object' || !Number.isFinite(s.endedAt) || !Array.isArray(s.todos) || s.todos.length > 50) {
-      return { ok: false, error: '快照参数非法' }
-    }
-    const file = join(app.getPath('userData'), 'data', 'session-todos', `${args.sessionId}.json`)
-    try {
-      // 读现有快照（文件不存在/JSON 损坏 → 空列表，从零重建；损坏不阻断本轮保存）
-      let snapshots: unknown[] = []
-      try {
-        const raw = JSON.parse(await fsp.readFile(file, 'utf-8'))
-        if (raw && Array.isArray((raw as { snapshots?: unknown }).snapshots)) snapshots = (raw as { snapshots: unknown[] }).snapshots
-      } catch {
-        // 文件不存在或损坏：忽略（v1 接受，重新开始累积）
-      }
-      snapshots.push(s)
-      // 超 maxSnapshots 删最旧（保留轮数由前端设置传入；主进程兜底截断，双保险）
-      if (snapshots.length > max) snapshots.splice(0, snapshots.length - max)
-      // 原子写：tmp + rename（防半截文件；多窗口并发读-改-写最后写赢，v1 接受）
-      const tmp = `${file}.tmp`
-      await fsp.mkdir(dirname(file), { recursive: true })
-      await fsp.writeFile(tmp, JSON.stringify({ sessionId: args.sessionId, snapshots }), 'utf-8')
-      await fsp.rename(tmp, file)
-      return { ok: true }
-    } catch (err) {
-      // 写失败（磁盘满/权限）→ 不重试返回 error（前端仅 console.error + 内存保留，重启后该轮可能丢失）
-      console.error(`[ipc] todos:saveSnapshot 写盘失败：${err instanceof Error ? err.message : String(err)}`)
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
-
-  ipcMain.handle('todos:listSnapshots', async (_e, args: { sessionId: string }) => {
-    // 读快照文件 → 历史恢复用；文件不存在/损坏 → 空数组（无记录卡，不报错打扰）
-    if (typeof args?.sessionId !== 'string' || !/^ses_/.test(args.sessionId)) {
-      return { snapshots: [] }
-    }
-    try {
-      const raw = JSON.parse(await fsp.readFile(join(app.getPath('userData'), 'data', 'session-todos', `${args.sessionId}.json`), 'utf-8'))
-      if (raw && Array.isArray((raw as { snapshots?: unknown }).snapshots)) {
-        return { snapshots: (raw as { snapshots: unknown[] }).snapshots }
-      }
-      return { snapshots: [] }
-    } catch {
-      // 文件不存在/损坏 → 空数组（静默，无报错打扰）
-      return { snapshots: [] }
-    }
-  })
-
   // 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本：分形/OC 引擎/预置包）
   ipcMain.handle('app:getInfo', async () => {
     const [engineVersion, presetVersion] = await Promise.all([getEngineVersion(), getPresetVersion()])

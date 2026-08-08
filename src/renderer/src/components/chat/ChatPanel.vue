@@ -7,6 +7,7 @@ import {
   SUBTASK_SUMMARY_MAX,
   type AttachedFile,
   type SubTask,
+  type TodoRecord,
 } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
@@ -26,7 +27,6 @@ import {
   openDialog,
   saveDialog,
   compactSession,
-  listTodoSnapshots,
 } from "@/lib/electron-bridge";
 import { useFilePreview } from "@/composables/useFilePreview";
 import { useSettingsStore } from "@/stores/settings";
@@ -486,20 +486,32 @@ watch(() => chat.pendingControlRequest, (cr) => {
     }
   }
 });
-// 会话切换时同步 debug 日志到当前会话（stderr 槽位已移除——CC 遗留机制废除，方案 D4）
-watch(() => session.activeSessionId, async (sid) => {
-  if (!sid) return;
-  debugLog.setSession(sid);
-  // 从 DB 恢复持久化的日志
-  try {
-    const [debugJson] = await loadSessionLogs(sid);
-    if (debugJson) {
-      try { debugLog.importLines(sid, JSON.parse(debugJson)); } catch {}
-    }
-  } catch { /* 静默，DB 加载失败不影响功能 */ }
-  // 历史恢复：加载该会话的待办回合快照（记录卡；主进程文件不存在 → 空数组静默）
-  await chat.loadTodoSnapshots(sid);
-}, { immediate: true });
+  // 会话切换时同步 debug 日志到当前会话（stderr 槽位已移除——CC 遗留机制废除，方案 D4）
+  watch(() => session.activeSessionId, async (sid) => {
+    if (!sid) return;
+    debugLog.setSession(sid);
+    // 从 DB 恢复持久化的日志
+    try {
+      const [debugJson] = await loadSessionLogs(sid);
+      if (debugJson) {
+        try { debugLog.importLines(sid, JSON.parse(debugJson)); } catch {}
+      }
+    } catch { /* 静默，DB 加载失败不影响功能 */ }
+  }, { immediate: true });
+
+// ── 待办记录卡（v2）：从 serve 消息历史 todowrite 工具卡提取，消息流内渲染 ──
+/** 消息 id → 记录卡（todoRecords 索引；同消息多条 todowrite 取最后一条——收尾态通常单条，多条时展示最新） */
+const recordForMsg = computed(() => {
+  const map = new Map<string, TodoRecord>();
+  for (const rec of chat.todoRecords) map.set(rec.messageId, rec);
+  return map;
+});
+// 消息变化（实时流式 / loadMessages / prependMessages）→ 全量重提取（消息量 ≤500，性能可接受）
+watch(
+  () => chat.messages,
+  () => chat.refreshTodoRecords(chat.messages),
+  { deep: true },
+);
 
 // ── 命令面板聊天命令监听 ──
 const { chatCommand } = useChatCommandBus();
@@ -1185,6 +1197,13 @@ watch(
               @fork="handleFork"
               @preview-file="(f) => openFileInPanel(f)"
             />
+            <!-- 待办记录卡（v2 D9）：该轮全完成 todowrite 工具卡 → 消息后渲染；数据从 serve 消息历史提取（纯 serve 源） -->
+            <TodoRecordCard
+              v-if="recordForMsg.get(msg.id)"
+              :key="`todo-record-${msg.id}`"
+              :ended-at="recordForMsg.get(msg.id)!.endedAt"
+              :todos="recordForMsg.get(msg.id)!.todos"
+            />
             <!-- 历史子任务卡片（平铺，复用 SubTaskCard）：已完成子会话在消息块下方；点击展开 → summaryLoader 懒加载摘要；
                  运行中/本 app 已见已在 subTaskMap 互斥过滤（D3）剔除，不重复显示 -->
             <SubTaskCard
@@ -1214,16 +1233,6 @@ watch(
         <ThinkingIndicator
           v-if="chat.isProcessing && !chat.currentAssistantMsg?.content && !chat.currentAssistantMsg?.thinking"
           :tool-name="activeToolName"
-        />
-      </div>
-
-      <!-- 待办回合记录卡（消息流尾部，独立于消息容器：消息为空但历史快照存在时也渲染）：
-           已完成的轮次固化快照，按 endedAt 时间序；默认折叠，点击展开 -->
-      <div v-if="chat.todoSnapshots.length > 0" class="todo-records-block">
-        <TodoRecordCard
-          v-for="snap in chat.todoSnapshots"
-          :key="snap.round"
-          :snapshot="snap"
         />
       </div>
     </div>

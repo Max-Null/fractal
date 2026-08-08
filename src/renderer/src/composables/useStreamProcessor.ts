@@ -351,8 +351,6 @@ export function useStreamProcessor() {
           // 社区已知行为 #28961/#27560；后台会话 result 罕见且 todos 属于活跃会话——跳过）
           if (!data.session_id || data.session_id === session.activeSessionId) {
             chat.settleIncompleteFinalTodo();
-            // 回合收尾快照：活跃会话 && 全部完成 → 固化记录（settle 补勾之后再判定，避免漏快照）
-            chat.maybeSnapshotTodos();
           }
           // 结算最后的思考和执行计时
           const finalThinking = popThinkingDuration(); // 最后一段思考（无后续 tool_use 触发 pop）
