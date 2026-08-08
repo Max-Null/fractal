@@ -183,6 +183,17 @@ async function autoResize() {
   await nextTick();
   const el = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null;
   if (el) { el.style.height = "auto"; el.style.height = Math.min(el.scrollHeight, 160) + "px"; }
+  updateInputGradient();
+}
+
+// ── 输入框底部渐变提示（隐藏滚动条后提示还有更多内容——仿会话列表 rail 渐变）──
+const showInputGradient = ref(false);
+
+function updateInputGradient() {
+  const el = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null;
+  if (!el) return;
+  // 可滚动（scrollHeight > clientHeight）且未滚动到底（留 4px 容差）时显示
+  showInputGradient.value = el.scrollHeight > el.clientHeight + 4 && el.scrollTop + el.clientHeight < el.scrollHeight - 4;
 }
 
 /** 外部设置输入框文本（FilePreview DOM 选择器等） */
@@ -389,7 +400,8 @@ async function polishInput() {
         v-model="input"
         @keydown="onKeydown"
         @paste="onPaste"
-        @input="autoResize(); onInputSlash()"
+        @input="autoResize(); onInputSlash(); updateInputGradient()"
+        @scroll="updateInputGradient"
         @focus="focused = true"
         @blur="onBlurSlash"
         :placeholder="$t('chat.placeholder')"
@@ -400,6 +412,11 @@ async function polishInput() {
           caretColor: 'var(--accent)'
         }"
       ></textarea>
+
+        <!-- 底部渐变提示：可滚动且未到底时显示（仿会话列表 rail 渐变，高度 0.5em——用户反馈②） -->
+        <Transition name="grad">
+          <div v-if="showInputGradient" class="input-scroll-hint"></div>
+        </Transition>
 
         <div class="cf-right">
           <!-- ✨ 优化消息（发送按钮左侧，原型有此功能——用户反馈⑤） -->
@@ -682,6 +699,12 @@ async function polishInput() {
   min-height: 42px;
   max-height: 160px;
   overflow-y: auto;
+  /* 隐藏 Y 轴滚动条（保留滚动功能）——与会话列表 rail 一致，用户反馈① */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.composer-input::-webkit-scrollbar {
+  display: none;
 }
 .composer-input::placeholder { color: var(--text-muted); }
 
@@ -719,7 +742,23 @@ async function polishInput() {
   gap: 8px;
   padding: 0 4px 2px;
   order: 3;
+  /* 渐变提示绝对定位参照 */
+  position: relative;
 }
+/* 底部渐变提示：0.5em 高（半个字符），accent 蓝渐变，指向可继续滚动的内容 */
+.input-scroll-hint {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 6px;
+  height: 0.5em;
+  border-radius: 2px;
+  pointer-events: none;
+  background: linear-gradient(to top, var(--accent-glow), transparent);
+}
+/* 渐变淡入淡出（Transition name=grad） */
+.grad-enter-active, .grad-leave-active { transition: opacity 150ms ease; }
+.grad-enter-from, .grad-leave-to { opacity: 0; }
 .composer-inputrow .composer-input {
   flex: 1;
   min-width: 0;
