@@ -58,6 +58,12 @@ export interface StreamEvent {
     content: string;
     is_error?: boolean;
   }>;
+  /** 子会话活动（type='subtask' 时；serve 广播的子 agent 会话事件，主进程 events.ts 识别） */
+  subId?: string;
+  parentId?: string;
+  agent?: string;
+  kind?: "created" | "delta" | "part" | "idle" | "error";
+  part?: { type: string; tool?: string; state?: string; text?: string };
 }
 
 export interface SendOptions {
@@ -454,6 +460,14 @@ export async function renameSession(sessionId: string, title: string): Promise<v
 
 export async function getSession(sessionId: string): Promise<SessionData> {
   return invoke<SessionData>("session:get", { id: sessionId });
+}
+
+/**
+ * 通知主进程当前活跃会话（子会话识别依赖：events.ts 用 sessionID ≠ 活跃会话 区分子任务事件）。
+ * fire-and-forget：切会话是高频操作，不等主进程确认；失败静默（仅影响子任务识别精度，不影响主链路）。
+ */
+export function setActiveSession(sessionId: string): void {
+  void invoke<{ ok: boolean }>("session:setActive", { id: sessionId }).catch(() => {});
 }
 
 /** 服务端分叉会话（OC serve session.fork）：返回新会话（标题自动追加 fork #N，阶段 0 实测 S8） */

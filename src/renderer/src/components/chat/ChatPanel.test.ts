@@ -33,6 +33,8 @@ vi.mock("@/lib/electron-bridge", () => ({
   openDialog: vi.fn().mockResolvedValue(null),
   saveDialog: vi.fn().mockResolvedValue(null),
   readFileBase64: vi.fn().mockResolvedValue(""),
+  // 活跃会话上报（session store 切会话时 fire-and-forget）：测试环境静默
+  setActiveSession: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 const i18n = createI18n({
@@ -124,6 +126,10 @@ function mountChatPanel(): VueWrapper {
         MarkdownRenderer: { template: "<div />" },
         ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
         TodoPanel: { template: "<div />" },
+        // 子任务可视化：测试聚焦弹窗/审批交互，子任务卡片/弹窗 stub（真实组件在 ChatPanel 专项测试覆盖）
+        SubTaskCard: { props: ["subtask", "expanded"], template: "<div class='subtask-card-stub' />" },
+        SubTaskMonitor: { props: ["subId"], template: "<div class='subtask-monitor-stub' />" },
+        SubTaskDetail: { props: ["subId"], template: "<div class='subtask-detail-stub' />" },
       },
     },
   });

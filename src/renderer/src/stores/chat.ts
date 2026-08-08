@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, computed } from "vue";
+import { listMessages } from "@/lib/electron-bridge";
 
 export interface AttachedFile {
   name: string;
@@ -94,6 +95,47 @@ export interface TodoItem {
 /** 全量历史拉取上限：超限截断（后续虚拟滚动放开）。进入会话一次拉全，内存建索引 + DOM 分页渲染 */
 export const FULL_HISTORY_LIMIT = 500;
 
+// ── 子任务（子智能体）可视化 ──
+
+/** 子任务 deltaText 累积上限：超限丢头部保留尾部（动态行只展示最新进度） */
+export const SUBTASK_DELTA_MAX = 500;
+/** 子任务 parts 数组上限：超限滚动丢最旧（监视弹窗长跑不爆内存） */
+export const SUBTASK_PARTS_MAX = 200;
+/** idle 拉取的 summary 截断长度（最后一条 assistant 文本前 500 字符） */
+export const SUBTASK_SUMMARY_MAX = 500;
+
+/** 子任务 part（监视弹窗的流式块：text 段落 / thinking 折叠区 / tool 工具卡片） */
+export interface SubTaskPart {
+  type: "text" | "thinking" | "tool";
+  tool?: string;
+  state?: string;
+  text?: string;
+}
+
+/** 子任务（task 派生子 agent 的可视化卡片数据源） */
+export interface SubTask {
+  id: string;
+  /** 子 agent 名（session.created 的 info.agent；未知时默认 '子智能体'） */
+  agent: string;
+  /** 主会话 id（当前活跃会话，created 事件携带）——详情弹窗「返回主会话」入口 */
+  parentId?: string;
+  status: "running" | "done";
+  /** 会话切换期间子任务事件丢失（规格 4.6 降级态）：恢复时 running 且无 endedAt → 状态未知 */
+  stale?: boolean;
+  /** 子会话 session.error → 失败标记（卡片显「❌ 失败」） */
+  failed?: boolean;
+  /** 动态行文本（deltaText 累积，截断尾部保留） */
+  deltaText: string;
+  /** 有序块流（监视弹窗渲染源，上限滚动；相邻 text/thinking 合并防碎片） */
+  parts: SubTaskPart[];
+  startedAt: number;
+  endedAt?: number;
+  /** idle 后从子会话消息拉取的最终摘要（最后 assistant 文本前 500 字符） */
+  summary?: string;
+  /** idle 拉取摘要失败（与「无 assistant 文本」区分——失败显「摘要获取失败」） */
+  summaryFailed?: boolean;
+}
+
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<Message[]>([]);
   /** 全量历史缓存（进入会话一次拉取 ≤FULL_HISTORY_LIMIT，不渲染 DOM，供滚动到顶切片与时间线索引） */
@@ -108,6 +150,8 @@ export const useChatStore = defineStore("chat", () => {
   const historyLoading = ref(false);
   // CC 工作清单（TodoWrite / TaskCreate → 前端实时展示）
   const todos = ref<TodoItem[]>([]);
+  // 子任务（task 派生子 agent）可视化：subId → SubTask（serve 广播事件累积，idle 后拉摘要）
+  const subTasks = ref<Record<string, SubTask>>({});
   // 审批队列：防止子 agent 并发 control_request 互相覆盖
   const pendingControlRequests = ref<ControlRequest[]>([]);
   // 兼容旧引用：队列头即当前待审批项
@@ -115,16 +159,17 @@ export const useChatStore = defineStore("chat", () => {
     pendingControlRequests.value.length > 0 ? pendingControlRequests.value[0] : null
   );
 
-  // 会话消息缓存：切换会话时保留进行中的流式消息和工作清单（DB 只有已完成的消息）
-  const sessionCache = new Map<string, { messages: Message[]; todos: TodoItem[] }>();
+  // 会话消息缓存：切换会话时保留进行中的流式消息、工作清单和子任务卡（DB 只有已完成的消息）
+  const sessionCache = new Map<string, { messages: Message[]; todos: TodoItem[]; subTasks: Record<string, SubTask> }>();
   const MAX_CACHE_SIZE = 20; // LRU 淘汰上限
 
-  /** 将当前消息和工作清单深拷贝存入缓存（切换会话前调用） */
+  /** 将当前消息、工作清单和子任务深拷贝存入缓存（切换会话前调用） */
   function saveSessionCache(sessionId: string) {
     if (!sessionId) return;
     sessionCache.set(sessionId, {
       messages: JSON.parse(JSON.stringify(messages.value)),
       todos: JSON.parse(JSON.stringify(todos.value)),
+      subTasks: JSON.parse(JSON.stringify(subTasks.value)),
     });
     // LRU 淘汰：超出上限时删除最旧条目
     if (sessionCache.size > MAX_CACHE_SIZE) {
@@ -133,7 +178,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  /** 从缓存恢复消息和工作清单；缓存无数据则返回 null。命中时将条目移到 LRU 末尾 */
+  /** 从缓存恢复消息、工作清单和子任务；缓存无数据则返回 null。命中时将条目移到 LRU 末尾 */
   function loadFromCache(sessionId: string): Message[] | null {
     const cached = sessionCache.get(sessionId);
     if (cached) {
@@ -141,6 +186,11 @@ export const useChatStore = defineStore("chat", () => {
       sessionCache.delete(sessionId);
       sessionCache.set(sessionId, cached);
       todos.value = cached.todos;
+      subTasks.value = cached.subTasks || {};
+      // #4 降级态：恢复时仍 running 且无 endedAt → 子任务事件在切走期间丢失（规格 4.6 状态未知）
+      for (const t of Object.values(subTasks.value)) {
+        if (t.status === "running" && !t.endedAt) t.stale = true;
+      }
       return cached.messages;
     }
     return null;
@@ -264,7 +314,168 @@ export const useChatStore = defineStore("chat", () => {
       }
     }
 
-    sessionCache.set(sessionId, { messages: cachedMessages, todos: cachedTodos });
+    // 后台会话消息/工作清单增量写回缓存（切回时 loadFromCache 恢复）。
+    // 注意：不再写 subTasks——子任务卡归属父会话（parentId），由 handleSubTaskEvent 按 parentId 写缓存，
+    // 此处若写当前 subTasks.value（切走后已是别的会话）会把错误数据覆盖进本会话缓存（军师 #1）
+    sessionCache.set(sessionId, {
+      messages: cachedMessages,
+      todos: cachedTodos,
+      subTasks: cached?.subTasks || {},
+    });
+  }
+
+  // ── 子任务（子智能体）事件处理 ──
+
+  /**
+   * 处理 serve 广播的子会话活动（type='subtask'，主进程 events.ts 识别）。
+   * 异步（idle 拉摘要）——调用方（useStreamProcessor）不 await，避免阻塞事件循环。
+   * @param activeSessionId 当前活跃会话 id（useStreamProcessor 传入）——决定 created 卡归属视图还是仅缓存：
+   *   parentId === activeSessionId → 卡显示在消息流；切走后（parentId ≠ 活跃）→ 只写父会话缓存（#1/#2）
+   */
+  async function handleSubTaskEvent(
+    evt: {
+      subId?: string;
+      kind?: string;
+      agent?: string;
+      parentId?: string;
+      text?: string;
+      part?: SubTaskPart | { type: string; tool?: string; state?: string; text?: string };
+    },
+    activeSessionId = "",
+  ) {
+    const subId = evt?.subId;
+    if (!subId) return;
+    const kind = evt?.kind;
+    const parentId = evt?.parentId;
+
+    if (kind === "created") {
+      // #7 去重：重复 created（重连后 serve 重发）→ 跳过，不重置已累积进度
+      const existing = subTasks.value[subId] || (parentId ? sessionCache.get(parentId)?.subTasks?.[subId] : undefined);
+      if (existing) {
+        // 仅补缺失字段（agent/parentId），不重置 deltaText/parts/status
+        if (evt.agent && !existing.agent) existing.agent = evt.agent;
+        if (parentId && !existing.parentId) existing.parentId = parentId;
+        return;
+      }
+      const task: SubTask = {
+        id: subId,
+        agent: evt.agent || "子智能体",
+        parentId,
+        status: "running",
+        deltaText: "",
+        parts: [],
+        startedAt: Date.now(),
+      };
+      // 归属：无 parentId（旧事件/测试语义）或父会话是当前活跃 → 显示在视图；
+      // 切走后（parentId ≠ 活跃）→ 只进父缓存（防污染当前会话消息流）
+      const isActiveParent = !parentId || parentId === activeSessionId;
+      if (isActiveParent) {
+        subTasks.value = { ...subTasks.value, [subId]: task };
+      }
+      // 持久归属：写父会话缓存（切走后事件也累积到同一卡；同引用，视图/缓存双写一致）
+      if (parentId) {
+        let entry = sessionCache.get(parentId);
+        if (!entry) {
+          entry = { messages: [], todos: [], subTasks: {} };
+          sessionCache.set(parentId, entry);
+        }
+        entry.subTasks = entry.subTasks || {};
+        entry.subTasks[subId] = task;
+      }
+      return;
+    }
+
+    // 非 created：先找当前视图（活跃父会话），再找父缓存（切走后事件）
+    const findTask = (): SubTask | undefined =>
+      subTasks.value[subId] || (parentId ? sessionCache.get(parentId)?.subTasks?.[subId] : undefined);
+
+    const task = findTask();
+    if (!task) return; // created 未到（异常乱序）→ 忽略后续增量
+
+    if (kind === "delta") {
+      // 打字机增量：deltaText 累积（截断尾部保留）+ parts 追加（相邻 text 自动合并防碎片）
+      const text = evt.text ?? "";
+      if (!text) return;
+      task.deltaText = (task.deltaText + text).slice(-SUBTASK_DELTA_MAX);
+      pushSubTaskPart(task, { type: "text", text });
+      return;
+    }
+
+    if (kind === "part") {
+      const part = evt.part;
+      if (!part) return;
+      if (part.type === "text" && part.text) {
+        // #6 updated 全量去重：已累积 deltaText 以全量开头 → 只取新后缀（对齐 MessageBubble text 模式）
+        const existing = task.deltaText;
+        if (existing && part.text.startsWith(existing)) {
+          const suffix = part.text.slice(existing.length);
+          if (suffix) {
+            task.deltaText = (task.deltaText + suffix).slice(-SUBTASK_DELTA_MAX);
+            pushSubTaskPart(task, { type: "text", text: suffix });
+          }
+          // suffix 空 → 全量等于增量，跳过（避免重复）
+        } else {
+          task.deltaText = (task.deltaText + part.text).slice(-SUBTASK_DELTA_MAX);
+          pushSubTaskPart(task, { type: "text", text: part.text });
+        }
+      } else if (part.type === "thinking" && part.text) {
+        // thinking 折叠：相邻 thinking 合并（连续 updated 追加到同一块）
+        pushSubTaskPart(task, { type: "thinking", text: part.text });
+      } else if (part.type === "tool") {
+        // tool 记录：工具名 + state（task 无 tool part 流转，但其他子 agent 可能有）
+        pushSubTaskPart(task, { type: "tool", tool: part.tool, state: part.state });
+      }
+      return;
+    }
+
+    if (kind === "error") {
+      // #5 子会话 session.error → 失败标记（卡片显「❌ 失败」）
+      task.status = "done";
+      task.endedAt = Date.now();
+      task.failed = true;
+      task.summary = undefined;
+      task.summaryFailed = false;
+      return;
+    }
+
+    if (kind === "idle") {
+      // 完成：标记 done + 拉摘要（最后 assistant 文本前 500 字符）
+      task.status = "done";
+      task.endedAt = Date.now();
+      try {
+        const msgs = await listMessages(subId);
+        // #3 异步竞态：await 期间可能切走/卡片被重排 → 重新取引用再写，不写已脱离的对象
+        const liveTask = findTask();
+        if (!liveTask) return;
+        const lastAssistant = [...msgs].reverse().find((m) => m.role === "assistant");
+        if (lastAssistant && String(lastAssistant.content || "").trim()) {
+          liveTask.summary = String(lastAssistant.content || "").slice(0, SUBTASK_SUMMARY_MAX);
+          liveTask.summaryFailed = false; // #9：有文本
+        } else {
+          liveTask.summary = undefined; // #9：无 assistant 文本 → 「无摘要」
+          liveTask.summaryFailed = false;
+        }
+      } catch {
+        // #9 摘要获取失败（与「无文本」区分）：显「摘要获取失败」
+        const liveTask = findTask();
+        if (!liveTask) return;
+        liveTask.summary = undefined;
+        liveTask.summaryFailed = true;
+      }
+    }
+  }
+
+  /** 追加子任务 part，超上限滚动丢最旧；相邻同类（text/thinking）合并防碎片（#6） */
+  function pushSubTaskPart(task: SubTask, part: SubTaskPart) {
+    const last = task.parts[task.parts.length - 1];
+    if ((part.type === "text" || part.type === "thinking") && last?.type === part.type) {
+      last.text = (last.text || "") + (part.text || "");
+    } else {
+      task.parts.push({ ...part });
+    }
+    if (task.parts.length > SUBTASK_PARTS_MAX) {
+      task.parts.splice(0, task.parts.length - SUBTASK_PARTS_MAX);
+    }
   }
 
   /**
@@ -434,6 +645,7 @@ export const useChatStore = defineStore("chat", () => {
     isProcessing.value = false;
     pendingControlRequests.value = [];
     usedAgents.value = new Set();
+    subTasks.value = {};
     // 切会话/清空时重置分页与内存全量状态（避免旧会话"还有更早/全量缓存/时间线"残留到新会话）
     hasMoreHistory.value = false;
     fullHistory.value = [];
@@ -720,6 +932,8 @@ export const useChatStore = defineStore("chat", () => {
     finishAssistantMessage,
     updateTodosFromTool,
     usedAgents,
+    subTasks,
+    handleSubTaskEvent,
     clearMessages,
     loadMessages,
     prependMessages,

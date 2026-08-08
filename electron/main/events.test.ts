@@ -468,3 +468,168 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
     })
   })
 })
+
+describe('mapServeEvent 合成事件：子会话识别（activeSessionId ≠ sessionID → subtask）', () => {
+  /** 构造已设置活跃会话的 ctx（模拟 renderer 已上报 ses_main） */
+  function ctxWithActive(): MapContext {
+    const ctx = createMapContext()
+    ctx.activeSessionId = 'ses_main'
+    return ctx
+  }
+
+  it('子会话 session.created → subtask created（携带 agent 与 parentId）', () => {
+    const ctx = ctxWithActive()
+    const evt = synthEvent('session.created', {
+      sessionID: 'ses_sub_1',
+      info: { id: 'ses_sub_1', agent: '工匠' },
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'subtask',
+      subId: 'ses_sub_1',
+      parentId: 'ses_main',
+      agent: '工匠',
+      kind: 'created',
+    })
+  })
+
+  it('子会话 message.part.delta（text）→ subtask delta', () => {
+    const ctx = ctxWithActive()
+    ctx.partTypes.set('prt_sub_text', 'text')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_sub_1',
+      messageID: 'msg_sub',
+      partID: 'prt_sub_text',
+      field: 'text',
+      delta: '正在处理',
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({
+      type: 'subtask',
+      subId: 'ses_sub_1',
+      parentId: 'ses_main',
+      kind: 'delta',
+      text: '正在处理',
+    })
+  })
+
+  it('子会话 message.part.updated → subtask part（text/thinking/tool 分派）', () => {
+    const ctx = ctxWithActive()
+
+    const textOut = mapServeEvent(
+      synthEvent('message.part.updated', {
+        sessionID: 'ses_sub_1',
+        part: synthPart({ id: 'prt_a', type: 'text', text: '子任务回复' }),
+      }),
+      ctx,
+    )
+    expect(textOut[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', kind: 'part', part: { type: 'text', text: '子任务回复' } })
+
+    const thinkOut = mapServeEvent(
+      synthEvent('message.part.updated', {
+        sessionID: 'ses_sub_1',
+        part: synthPart({ id: 'prt_b', type: 'reasoning', text: '思考过程' }),
+      }),
+      ctx,
+    )
+    expect(thinkOut[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', kind: 'part', part: { type: 'thinking', text: '思考过程' } })
+
+    const toolOut = mapServeEvent(
+      synthEvent('message.part.updated', {
+        sessionID: 'ses_sub_1',
+        part: synthPart({ id: 'prt_c', type: 'tool', callID: 'call_sub', tool: 'Bash', state: { status: 'running', input: {} } }),
+      }),
+      ctx,
+    )
+    expect(toolOut[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', kind: 'part', part: { type: 'tool', tool: 'Bash', state: 'running' } })
+  })
+
+  it('子会话 session.idle → subtask idle（不产出 result）', () => {
+    const ctx = ctxWithActive()
+    const idle = synthEvent('session.idle', { sessionID: 'ses_sub_1' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', parentId: 'ses_main', kind: 'idle' })
+    expect(out[0].type).not.toBe('result')
+  })
+
+  it('主会话事件（sessionID = 活跃会话）不产生 subtask，现有映射不变', () => {
+    const ctx = ctxWithActive()
+    // session.created（主会话）→ 内部状态不产出（与无活跃会话时行为一致）
+    const created = synthEvent('session.created', {
+      sessionID: 'ses_main',
+      info: { id: 'ses_main', tokens: { input: 0, output: 0, cost: 0 } },
+    })
+    expect(mapServeEvent(created, ctx)).toHaveLength(0)
+    // 主会话 text part → assistant 事件（不受子会话识别影响）
+    ctx.messageRoles.set('msg_main', 'assistant')
+    const part = synthEvent('message.part.updated', {
+      sessionID: 'ses_main',
+      part: synthPart({ id: 'prt_main', type: 'text', text: '主会话回复' }),
+    })
+    const out = mapServeEvent(part, ctx)
+    expect(out[0]).toMatchObject({ type: 'assistant', session_id: 'ses_main', text: '主会话回复' })
+    // 主会话 idle → result
+    const idle = synthEvent('session.idle', { sessionID: 'ses_main' })
+    expect(mapServeEvent(idle, ctx)[0].type).toBe('result')
+  })
+
+  it('子会话 session.error → subtask error（不产主会话 error）', () => {
+    const ctx = ctxWithActive()
+    const err = synthEvent('session.error', {
+      sessionID: 'ses_sub_1',
+      error: { message: '子模型调用失败' },
+    })
+    const out = mapServeEvent(err, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', parentId: 'ses_main', kind: 'error' })
+  })
+
+  it('主会话 session.error → error 通道（不受子会话识别影响）', () => {
+    const ctx = ctxWithActive()
+    const err = synthEvent('session.error', {
+      sessionID: 'ses_main',
+      error: { message: '认证失败' },
+    })
+    const out = mapServeEvent(err, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'error', session_id: 'ses_main' })
+  })
+
+  it('多窗口：不同 ctx 的 activeSessionId 各自独立判定（窗口 B 切换不劫持窗口 A）', () => {
+    // 模拟窗口 A（活跃 ses_a）与窗口 B（活跃 ses_b）的独立订阅实例
+    const ctxA = createMapContext()
+    ctxA.activeSessionId = 'ses_a'
+    const ctxB = createMapContext()
+    ctxB.activeSessionId = 'ses_b'
+
+    // 会话 ses_a：窗口 A 视为主会话（assistant 事件），窗口 B 视为子会话（subtask）
+    ctxA.messageRoles.set('msg_a', 'assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_a',
+      part: synthPart({ id: 'prt_a', type: 'text', text: 'A 的回复' }),
+    })
+    const outA = mapServeEvent(evt, ctxA)
+    expect(outA[0]).toMatchObject({ type: 'assistant', session_id: 'ses_a' })
+    const outB = mapServeEvent(evt, ctxB)
+    expect(outB[0]).toMatchObject({ type: 'subtask', subId: 'ses_a', parentId: 'ses_b' })
+
+    // 会话 ses_b：窗口 B 视为主会话（result），窗口 A 视为子会话（subtask idle）
+    const idle = synthEvent('session.idle', { sessionID: 'ses_b' })
+    expect(mapServeEvent(idle, ctxB)[0].type).toBe('result')
+    expect(mapServeEvent(idle, ctxA)[0]).toMatchObject({ type: 'subtask', subId: 'ses_b', parentId: 'ses_a', kind: 'idle' })
+  })
+
+  it('活跃会话未设置（activeSessionId 空）→ 不识别子会话（保持旧行为）', () => {
+    const ctx = createMapContext() // activeSessionId 默认 ''
+    const created = synthEvent('session.created', {
+      sessionID: 'ses_any',
+      info: { id: 'ses_any', agent: '工匠' },
+    })
+    expect(mapServeEvent(created, ctx)).toHaveLength(0)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_any' })
+    expect(mapServeEvent(idle, ctx)[0].type).toBe('result')
+  })
+})

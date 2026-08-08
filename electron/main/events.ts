@@ -89,6 +89,22 @@ export type StreamFrontendEvent =
       thinking: string
       todos: Array<{ content: string; status: string; priority: string }>
     }
+  | {
+      // 子会话活动（serve 主会话 SSE 原生广播子会话事件，D1：sessionID ≠ 活跃会话 → 子任务事件流）
+      type: 'subtask'
+      session_id?: string
+      text: string
+      thinking: string
+      /** 子会话 id（= 子 agent 会话） */
+      subId: string
+      /** 主会话 id（当前活跃会话）——前端「返回主会话」入口 */
+      parentId: string
+      /** 子 agent 名（session.created 的 info.agent；无则前端默认 '子智能体'） */
+      agent?: string
+      kind: 'created' | 'delta' | 'part' | 'idle' | 'error'
+      /** kind='part' 时携带分派后的块信息（text/thinking/tool 三态） */
+      part?: { type: string; tool?: string; state?: string; text?: string }
+    }
 
 // ══════════════════════════════════════════════════════════════════
 // 映射上下文（跨事件状态，subscribeEvents 维护、测试可注入）
@@ -113,6 +129,8 @@ export interface MapContext {
   sessionStartTime: Map<string, number>
   /** 时间源（测试可注入固定值，默认 Date.now） */
   now: () => number
+  /** 当前活跃会话 id（renderer 侧 activeSessionId；用于区分主会话事件与子会话事件） */
+  activeSessionId: string
 }
 
 /** 创建空映射上下文（subscribeEvents 与测试共用） */
@@ -124,6 +142,7 @@ export function createMapContext(now: () => number = Date.now): MapContext {
     sessionTokens: new Map(),
     sessionStartTime: new Map(),
     now,
+    activeSessionId: '',
   }
 }
 
@@ -166,12 +185,32 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
   const props = evt.properties as Record<string, unknown> | undefined
   const sessionID = (props?.sessionID as string | undefined) ?? (props?.info as { id?: string } | undefined)?.id
 
+  // 子会话识别（D1）：sessionID 存在且 ≠ 当前活跃会话 → 该事件属于子 agent 会话
+  // （serve 主会话 SSE 原生广播子会话活动；活跃会话事件仍走现有 15+ 映射不动）
+  const isSubSession = !!sessionID && !!ctx.activeSessionId && sessionID !== ctx.activeSessionId
+
   // message.part.delta 是 serve 1.18.5 实测输出但 SDK 1.18.13 类型未生成（types.gen.d.ts 无该联合成员），
   // switch 表达式放宽为 string 以支持该 case（各分支均用 props 断言，不依赖 evt.type 收窄）
   switch (evt.type as string) {
     case 'server.connected':
       return [] // 内部状态；server.connected 由订阅层 onConnected 上报
     case 'session.created': {
+      // 子会话创建 → 建卡事件（agent 名供前端徽标映射；不记录回合起始时间——子会话 idle 不产 result）
+      if (isSubSession) {
+        const info = props?.info as { agent?: string } | undefined
+        return [
+          {
+            type: 'subtask',
+            session_id: sessionID,
+            text: '',
+            thinking: '',
+            subId: sessionID,
+            parentId: ctx.activeSessionId,
+            agent: info?.agent,
+            kind: 'created',
+          },
+        ]
+      }
       // 记录回合起始时间（session.idle 算 duration_ms）+ 初始 tokens（覆盖脏数据，🟡#3）
       if (sessionID && !ctx.sessionStartTime.has(sessionID)) {
         ctx.sessionStartTime.set(sessionID, ctx.now())
@@ -213,6 +252,26 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       ctx.partTypes.set(part.id, part.type)
       const partMsgID = (part as { messageID?: string }).messageID
       const role = partMsgID ? ctx.messageRoles.get(partMsgID) : undefined
+
+      // 子会话 part.updated → subtask part（text/thinking/tool 三态分派，供监视弹窗流式渲染）
+      if (isSubSession) {
+        if (part.type === 'text') {
+          const text = (props?.delta as string | undefined) ?? part.text
+          if (!text) return []
+          return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'part', part: { type: 'text', text } }]
+        }
+        if (part.type === 'reasoning') {
+          const text = (props?.delta as string | undefined) ?? part.text
+          if (!text) return []
+          return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'part', part: { type: 'thinking', text } }]
+        }
+        if (part.type === 'tool') {
+          const toolPart = part as Part & { type: 'tool' }
+          // 子会话工具（task 无 tool part 流转，但其他子 agent 可能有）→ 记 tool 名 + state
+          return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'part', part: { type: 'tool', tool: toolPart.tool, state: toolPart.state?.status } }]
+        }
+        return []
+      }
 
       if (part.type === 'text') {
         // 用户回显（role=user）：前端发送时已本地 addUserMessage，避免重复气泡
@@ -276,6 +335,11 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       if (!deltaProps?.partID || !deltaProps.field || !deltaProps.delta) return []
       const partType = ctx.partTypes.get(deltaProps.partID)
       if (!partType) return []
+      // 子会话 delta（D1：打字机增量）——仅 text part 产出 subtask delta（thinking/tool 由 updated 兜底）
+      // subId 用顶部 sessionID（isSubSession 已保证非空；deltaProps.sessionID 可能缺省，避免类型 undefined）
+      if (isSubSession && deltaProps.field === 'text' && partType === 'text') {
+        return [{ type: 'subtask', session_id: sessionID, text: deltaProps.delta, thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'delta' }]
+      }
       // field==='text'：text part → assistant(text)；reasoning part → assistant(thinking)
       // （前端 appendText 自带 startsWith 去重，delta 与后续全量 updated 兼容不重复）
       if (deltaProps.field === 'text' && partType === 'text') {
@@ -288,6 +352,10 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       return []
     }
     case 'session.idle': {
+      // 子会话完成 → subtask idle（不产 result，主会话 result 语义仅限活跃会话）
+      if (isSubSession) {
+        return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'idle' }]
+      }
       // 回合结束 → result(is_final)；tokens 附最近 session.updated 值（serve idle 事件本身无 usage）
       const tokens = sessionID ? ctx.sessionTokens.get(sessionID) : undefined
       const startTime = sessionID ? ctx.sessionStartTime.get(sessionID) : undefined
@@ -306,6 +374,10 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       return [evtOut]
     }
     case 'session.error': {
+      // 子会话错误（子 agent 模型/工具失败）→ subtask error（前端标失败，不产主会话 error）
+      if (isSubSession) {
+        return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'error' }]
+      }
       // 会话错误（模型不存在/认证失败等）→ error 通道
       const errText = extractErrorText(props?.error)
       const evtOut: StreamFrontendEvent = { type: 'error', session_id: sessionID, text: '', thinking: '', error: errText }
@@ -388,6 +460,12 @@ export interface SubscribeEventsOptions {
   onError?: (err: unknown) => void
   /** serve 就绪（server.connected 事件）回调 */
   onConnected?: () => void
+  /**
+   * 当前活跃会话 id 读取器（每次事件映射前调用）。
+   * 子会话识别依赖（sessionID ≠ 活跃会话 → subtask）；renderer 切会话时由 ipc.ts 模块级变量更新。
+   * 缺省时 ctx.activeSessionId 恒为 ''，不启用子会话识别（主会话事件映射不受影响）。
+   */
+  getActiveSessionId?: () => string
 }
 
 /**
@@ -415,6 +493,8 @@ export async function subscribeEvents(opts: SubscribeEventsOptions): Promise<() 
           opts.onConnected?.()
           continue
         }
+        // 每次事件前刷新活跃会话（renderer 切会话是异步通知，事件到达时取最新值）
+        ctx.activeSessionId = opts.getActiveSessionId?.() ?? ''
         for (const mapped of mapServeEvent(ev, ctx)) {
           opts.onEvent(mapped)
         }

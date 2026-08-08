@@ -369,6 +369,87 @@ describe("useStreamProcessor", () => {
 
     stopListening();
   });
+
+  it("subtask 事件 → chat.handleSubTaskEvent 建卡并累积（created/delta/part/idle 全链路）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-main");
+    listMessagesMock.mockResolvedValue([]);
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // 子会话 created（主进程 events.ts 识别：sessionID ≠ 活跃会话）
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-1",
+      subId: "ses-sub-1",
+      parentId: "ses-main",
+      agent: "工匠",
+      kind: "created",
+    });
+    expect(chat.subTasks["ses-sub-1"]).toBeDefined();
+    expect(chat.subTasks["ses-sub-1"].agent).toBe("工匠");
+    expect(chat.subTasks["ses-sub-1"].status).toBe("running");
+
+    // delta 增量
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-1",
+      subId: "ses-sub-1",
+      parentId: "ses-main",
+      kind: "delta",
+      text: "正在处理",
+    });
+    expect(chat.subTasks["ses-sub-1"].deltaText).toBe("正在处理");
+
+    // part（tool）
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-1",
+      subId: "ses-sub-1",
+      parentId: "ses-main",
+      kind: "part",
+      part: { type: "tool", tool: "Bash", state: "running" },
+    });
+    expect(chat.subTasks["ses-sub-1"].parts.some(p => p.type === "tool" && p.tool === "Bash")).toBe(true);
+
+    // idle（异步拉摘要，flushPromises 等待）
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-1",
+      subId: "ses-sub-1",
+      parentId: "ses-main",
+      kind: "idle",
+    });
+    await flushPromises();
+    expect(chat.subTasks["ses-sub-1"].status).toBe("done");
+
+    stopListening();
+  });
+
+  it("subtask 事件不写后台会话缓存（handleBackgroundStreamEvent 不被触发）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-main");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-2",
+      subId: "ses-sub-2",
+      parentId: "ses-main",
+      kind: "created",
+    });
+
+    // 子会话事件带非活跃 session_id，但不应写入 sessionCache（普通后台会话才写缓存）
+    expect(chat.sessionCache.has("ses-sub-2")).toBe(false);
+    expect(chat.messages).toHaveLength(0);
+
+    stopListening();
+  });
 });
 
 // ── buildContentBlocks 专项测试 ──

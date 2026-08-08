@@ -11,6 +11,8 @@ vi.mock("vue-router", () => ({
 }));
 vi.mock("@/lib/electron-bridge", () => ({
   listMessages: (...args: unknown[]) => listMessagesMock(...args),
+  // 活跃会话上报（session store setActiveSession 调）：测试环境静默
+  setActiveSession: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 /** 构造 N 条升序历史消息（m0 最旧） */

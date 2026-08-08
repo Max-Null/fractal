@@ -34,6 +34,9 @@ import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
+import SubTaskCard from "./SubTaskCard.vue";
+import SubTaskMonitor from "./SubTaskMonitor.vue";
+import SubTaskDetail from "./SubTaskDetail.vue";
 import { useI18n } from "vue-i18n";
 const { t } = useI18n();
 import { useCommandRegistry } from "@/composables/useCommandRegistry";
@@ -226,6 +229,32 @@ const showManage = ref(false);
 const manageTab = ref<string>("plugins");
 const exportContent = ref("");
 const exportFileName = ref("");
+
+// ── 子任务可视化（卡片 + 监视/详情弹窗）──
+/** 行内展开摘要全文的子任务 id（点已完成卡片切换；再点收起） */
+const expandSubTaskId = ref<string | null>(null);
+/** 正在实时监视的子任务 id（运行中卡片点击 → SubTaskMonitor） */
+const monitorSubTaskId = ref<string | null>(null);
+/** 查看完整详情的子任务 id（「查看会话详情」→ SubTaskDetail） */
+const detailSubTaskId = ref<string | null>(null);
+
+/** 子任务卡片排序：按 startedAt 升序（保持出现顺序稳定） */
+const sortedSubTasks = computed(() =>
+  Object.values(chat.subTasks).sort((a, b) => a.startedAt - b.startedAt)
+);
+
+function toggleExpandSubTask(id: string) {
+  expandSubTaskId.value = expandSubTaskId.value === id ? null : id;
+}
+
+/** 详情弹窗「返回主会话」：切回父会话并关闭详情（父会话不存在时静默） */
+function backToParentSubTask(parentId: string) {
+  detailSubTaskId.value = null;
+  monitorSubTaskId.value = null;
+  if (session.activeSessionId !== parentId && session.sessions.some(s => s.id === parentId)) {
+    session.setActiveSession(parentId);
+  }
+}
 
 function prepareExport() {
   const sid = session.activeSessionId;
@@ -1008,6 +1037,17 @@ watch(
           />
         </TransitionGroup>
 
+        <!-- 子任务卡片（消息流内，参与滚动）：运行中点击→实时监视；已完成点击→展开摘要 -->
+        <SubTaskCard
+          v-for="sub in sortedSubTasks"
+          :key="sub.id"
+          :subtask="sub"
+          :expanded="expandSubTaskId === sub.id"
+          @monitor="monitorSubTaskId = sub.id"
+          @expand="toggleExpandSubTask(sub.id)"
+          @detail="detailSubTaskId = sub.id"
+        />
+
         <!-- 处理中指示器：仅在消息还没内容时显示（有内容后时间线底部状态行接管） -->
         <ThinkingIndicator
           v-if="chat.isProcessing && !chat.currentAssistantMsg?.content && !chat.currentAssistantMsg?.thinking"
@@ -1269,6 +1309,21 @@ watch(
         <button @click="confirmRename" class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors" :style="{ background: 'var(--accent)', color: 'var(--bg-root)' }">确认</button>
       </div>
     </ModalShell>
+
+    <!-- 子任务实时监视弹窗（运行中卡片点击；数据源 chat store 响应式实时） -->
+    <SubTaskMonitor
+      v-if="monitorSubTaskId"
+      :sub-id="monitorSubTaskId"
+      @close="monitorSubTaskId = null"
+    />
+
+    <!-- 子任务详情弹窗（「查看会话详情」点击；onMounted 拉全量消息） -->
+    <SubTaskDetail
+      v-if="detailSubTaskId"
+      :sub-id="detailSubTaskId"
+      @close="detailSubTaskId = null"
+      @back-to-parent="backToParentSubTask"
+    />
 
     </div>
   </div>

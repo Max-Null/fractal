@@ -24,7 +24,7 @@ const ALLOWED_INVOKE = [
   'app:getInfo',
   'dialog:openDialog', 'dialog:saveDialog',
   'chat:sendMessage', 'chat:stopSession',
-  'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork',
+  'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork', 'session:setActive',
   'message:list', 'permission:respond',
   'question:reply', 'question:reject',
   'provider:modelVariants',

@@ -17,6 +17,18 @@ import { DEFAULT_MODEL } from './provider'
 import { ensureConfig } from './oc-config'
 import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
 
+// ── 模块级状态 ──
+
+/**
+ * 各窗口（webContentsId）的活跃会话 id（renderer 通过 session:setActive 上报；每次切换会话即更新）。
+ * 供 startEngineEvents 的 subscribeEvents getActiveSessionId 读取——events.ts 用它区分
+ * 主会话事件与子会话（task 派生的子 agent）事件。
+ * 多窗口隔离（军师 #2）：serve 事件流全局广播，若用单值会被其他窗口的切换劫持——
+ * 窗口 A 主会话 S1 的事件到达时若 activeSessionId 已被窗口 B 改成 S2，S1 全被误判成子任务。
+ * 改按 webContentsId 分桶，每个窗口订阅只读自己的活跃会话。
+ */
+const activeSessionByWebContents = new Map<number, string>()
+
 // ── 工具函数 ──
 
 /**
@@ -771,6 +783,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return toSessionData(s)
   })
 
+  ipcMain.handle('session:setActive', (e, args: { id?: string }) => {
+    // 活跃会话上报：renderer 切会话时 fire-and-forget 调用（子会话识别依赖，失败静默）
+    // 按 webContentsId 分桶——多窗口各自维护（军师 #2：防窗口间劫持主会话判断）
+    if (typeof args?.id === 'string' && args.id) {
+      activeSessionByWebContents.set(e.sender.id, args.id)
+    } else {
+      activeSessionByWebContents.delete(e.sender.id)
+    }
+    return { ok: true }
+  })
+
   ipcMain.handle('message:list', async (_e, args: { sessionId: string; limit?: number; before?: string }) => {
     // 参数校验：sessionId 必填；limit 可选正整数（1-1000）；before 可选字符串（消息 ID 分页游标）
     if (typeof args?.sessionId !== 'string' || !args.sessionId) {
@@ -1153,6 +1176,9 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
       baseURL: info.baseURL,
       username: info.username,
       password: info.password,
+      // 活跃会话动态读取（renderer session:setActive 上报 → 按本窗口 webContentsId 分桶，
+      // 多窗口互不干扰——军师 #2）
+      getActiveSessionId: () => activeSessionByWebContents.get(win.webContents.id) ?? '',
       onEvent: (evt) => {
         if (!win.isDestroyed()) win.webContents.send('engine:event', evt)
       },
@@ -1160,8 +1186,11 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
         console.error('[engine] SSE 订阅错误：', err)
       },
     })
-    // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）
-    win.on('closed', () => stop())
+    // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
+    win.on('closed', () => {
+      activeSessionByWebContents.delete(win.webContents.id)
+      stop()
+    })
   }
   // serve 进程状态（启动/退出/崩溃）→ engine:status，前端连接指示依赖
   manager.onStatusChange((s) => {

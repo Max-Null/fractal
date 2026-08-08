@@ -183,6 +183,15 @@ export function useStreamProcessor() {
       // 事件是否属于当前活跃会话（后台会话 → 写缓存 + 更新 activity 指示器）
       const isActive = data.session_id === session.activeSessionId;
 
+      // 子会话活动（type='subtask'，主进程 events.ts 识别）：必须在后台会话分支之前处理——
+      // subtask 事件带子会话 session_id（≠ 活跃会话），走后台分支会被当普通后台会话写缓存
+      if (data.type === "subtask" && data.subId) {
+        // 异步（idle 拉摘要）但不 await——事件循环不被阻塞
+        // 传 activeSessionId：事件按父会话归属写缓存（#2 兜底：不匹配活跃父会话的仅后台累积不建卡）
+        void chat.handleSubTaskEvent(data, session.activeSessionId);
+        return;
+      }
+
       // 事件属于后台会话 → 写入缓存，更新 activity 指示器
       if (data.session_id && !isActive) {
         chat.handleBackgroundStreamEvent(data.session_id, data);

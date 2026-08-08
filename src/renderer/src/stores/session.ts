@@ -6,6 +6,7 @@ import {
   listSessions,
   deleteSession as deleteSessionBackend,
   renameSession as renameSessionBackend,
+  setActiveSession as setActiveSessionBridge,
   type SessionData,
 } from "@/lib/electron-bridge";
 
@@ -97,7 +98,7 @@ export const useSessionStore = defineStore("session", () => {
     try {
       const s = await createSessionBackend(model, cwd, mode, finalTitle);
       sessions.value.unshift(toLocalSession(s));
-      activeSessionId.value = s.id;
+      setActiveSession(s.id);
       return s.id;
     } catch {
       // Fallback: local ID if backend unreachable
@@ -113,13 +114,15 @@ export const useSessionStore = defineStore("session", () => {
         mode: "cc",
       };
       sessions.value.unshift(session);
-      activeSessionId.value = id;
+      setActiveSession(id);
       return id;
     }
   }
 
   function setActiveSession(id: string) {
     activeSessionId.value = id;
+    // 通知主进程活跃会话变化（子会话识别依赖；fire-and-forget，失败静默）
+    setActiveSessionBridge(id);
   }
 
   /** Rename session via backend */

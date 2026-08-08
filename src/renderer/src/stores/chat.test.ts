@@ -1,10 +1,19 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
-import { useChatStore } from "./chat";
+import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX } from "./chat";
+
+// mock electron-bridge：仅覆盖 listMessages（子任务 idle 拉摘要用），其余保留原模块
+const { listMessagesMock } = vi.hoisted(() => ({ listMessagesMock: vi.fn() }));
+vi.mock("@/lib/electron-bridge", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/electron-bridge")>();
+  return { ...actual, listMessages: listMessagesMock };
+});
 
 describe("chat store", () => {
   beforeEach(() => {
     setActivePinia(createPinia());
+    listMessagesMock.mockReset();
+    listMessagesMock.mockResolvedValue([]);
   });
 
   it("starts with empty messages", () => {
@@ -725,5 +734,238 @@ describe("chat store", () => {
     // 全量锚点（fullHistory 部分）不因 messages 尾部渲染而重复
     const ids = chat.timelineIndex.map(t => t.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // ── 子任务（子智能体）可视化 ──
+
+  it("subtask created → 初始化 SubTask（agent 默认子智能体 + startedAt）", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠" });
+    expect(chat.subTasks["sub-1"]).toBeDefined();
+    expect(chat.subTasks["sub-1"].agent).toBe("工匠");
+    expect(chat.subTasks["sub-1"].status).toBe("running");
+    expect(chat.subTasks["sub-1"].deltaText).toBe("");
+    expect(chat.subTasks["sub-1"].parts).toHaveLength(0);
+    expect(chat.subTasks["sub-1"].startedAt).toBeGreaterThan(0);
+
+    // 无 agent → 默认「子智能体」
+    chat.handleSubTaskEvent({ subId: "sub-2", kind: "created" });
+    expect(chat.subTasks["sub-2"].agent).toBe("子智能体");
+  });
+
+  it("subtask delta → deltaText 累积（截断 SUBTASK_DELTA_MAX 尾部保留）+ parts 追加 text 块", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "正在分析代码…" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "继续处理" });
+
+    expect(chat.subTasks["sub-1"].deltaText).toBe("正在分析代码…继续处理");
+    // #6 相邻 delta 合并：连续 text 块合成一块（防碎片化）
+    expect(chat.subTasks["sub-1"].parts.map(p => p.text)).toEqual(["正在分析代码…继续处理"]);
+
+    // 截断：超过上限丢弃头部（尾部保留）——此时 deltaText = long 的尾部 500 字符
+    const long = "x".repeat(SUBTASK_DELTA_MAX + 100);
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: long });
+    expect(chat.subTasks["sub-1"].deltaText.length).toBe(SUBTASK_DELTA_MAX);
+    expect(chat.subTasks["sub-1"].deltaText).toBe(long.slice(-SUBTASK_DELTA_MAX));
+  });
+
+  it("subtask part → thinking 折叠记录 / tool 记录 / text 追加", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "thinking", text: "推理过程" } });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "tool", tool: "Bash", state: "running" } });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "text", text: "完整文本" } });
+
+    expect(chat.subTasks["sub-1"].parts).toEqual([
+      { type: "thinking", text: "推理过程" },
+      { type: "tool", tool: "Bash", state: "running" },
+      { type: "text", text: "完整文本" },
+    ]);
+    // text part 同时追加 deltaText（动态行展示）
+    expect(chat.subTasks["sub-1"].deltaText).toBe("完整文本");
+  });
+
+  it("subtask parts 超上限滚动丢最旧（SUBTASK_PARTS_MAX）", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    // 交替 text/thinking：相邻同类合并只影响连续同类型，交替保证每块独立 push
+    for (let i = 0; i < SUBTASK_PARTS_MAX + 10; i++) {
+      chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: `块${i}` });
+      chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "thinking", text: `思${i}` } });
+    }
+    expect(chat.subTasks["sub-1"].parts.length).toBe(SUBTASK_PARTS_MAX);
+    // 210 组 = 420 parts，保留最后 200 → 丢弃前 110 组；第一块是 i=110 的 text
+    expect(chat.subTasks["sub-1"].parts[0].text).toBe("块110");
+    // 最后一块是 i=209 的 thinking（交替 text/thinking，末位为 thinking）
+    expect(chat.subTasks["sub-1"].parts[chat.subTasks["sub-1"].parts.length - 1].text).toBe("思209");
+  });
+
+  it("subtask idle → 标记 done + 拉摘要（最后 assistant 文本前 SUBTASK_SUMMARY_MAX 字符）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+
+    // mock 子会话消息：user + assistant（最后 assistant 文本做摘要）
+    const longText = "总结".repeat(300); // 900 字符 > 500 上限
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", session_id: "sub-1", role: "user", content: "问题", token_usage: "", created_at: "2026-01-01T00:01:00" },
+      { id: "m2", session_id: "sub-1", role: "assistant", content: longText, token_usage: "", created_at: "2026-01-01T00:02:00" },
+    ]);
+
+    await chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle" });
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].endedAt).toBeGreaterThan(0);
+    expect(chat.subTasks["sub-1"].summary).toHaveLength(500);
+    expect(chat.subTasks["sub-1"].summary!.startsWith("总结总结")).toBe(true);
+  });
+
+  it("subtask idle 拉摘要失败 → summaryFailed 标记（#9 与无文本区分，不阻塞完成态）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    listMessagesMock.mockRejectedValue(new Error("serve 未就绪"));
+
+    await chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle" });
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].summary).toBeUndefined();
+    expect(chat.subTasks["sub-1"].summaryFailed).toBe(true);
+  });
+
+  it("subtask idle 无 assistant 文本 → summary undefined + summaryFailed false（#9 无摘要）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", session_id: "sub-1", role: "user", content: "问题", token_usage: "", created_at: "2026-01-01T00:01:00" },
+    ]);
+
+    await chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle" });
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].summary).toBeUndefined();
+    expect(chat.subTasks["sub-1"].summaryFailed).toBe(false);
+  });
+
+  it("subtask error → status done + failed 标记（#5）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "error" });
+
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].failed).toBe(true);
+    expect(chat.subTasks["sub-1"].endedAt).toBeGreaterThan(0);
+  });
+
+  it("subtask 重复 created 不重置进度（#7）", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "已累积" });
+    // 重连后 serve 重发 created
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠" });
+
+    expect(chat.subTasks["sub-1"].deltaText).toBe("已累积"); // 未重置
+    expect(chat.subTasks["sub-1"].parts).toHaveLength(1);
+    expect(chat.subTasks["sub-1"].startedAt).toBeGreaterThan(0);
+  });
+
+  it("subtask 相邻 delta 合并 + updated 全量 startsWith 去重（#6）", () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    // 连续 delta 碎片 → 相邻 text part 合并成一块
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "正在" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "分析" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "代码" });
+    expect(chat.subTasks["sub-1"].parts).toEqual([{ type: "text", text: "正在分析代码" }]);
+
+    // updated 全量已覆盖增量 → 跳过重复
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "text", text: "正在分析代码" } });
+    expect(chat.subTasks["sub-1"].parts).toEqual([{ type: "text", text: "正在分析代码" }]);
+    expect(chat.subTasks["sub-1"].deltaText).toBe("正在分析代码");
+
+    // updated 全量含新后缀 → 只追加后缀
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "part", part: { type: "text", text: "正在分析代码完成" } });
+    expect(chat.subTasks["sub-1"].parts).toEqual([{ type: "text", text: "正在分析代码完成" }]);
+    expect(chat.subTasks["sub-1"].deltaText).toBe("正在分析代码完成");
+  });
+
+  it("切走→后台事件（含 subtask）→切回 → 父缓存累积完整（#1）", async () => {
+    const chat = useChatStore();
+    const parent = "ses-parent";
+    // 活跃父会话 A：created 建卡
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠", parentId: parent }, parent);
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "第一段", parentId: parent }, parent);
+
+    // 切走（active 变 B）→ 后台事件写父缓存
+    const other = "ses-b";
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "第二段", parentId: parent }, other);
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", session_id: "sub-1", role: "user", content: "问题", token_usage: "", created_at: "2026-01-01T00:01:00" },
+      { id: "m2", session_id: "sub-1", role: "assistant", content: "完成摘要", token_usage: "", created_at: "2026-01-01T00:02:00" },
+    ]);
+    await chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle", parentId: parent }, other);
+
+    // 切回 A：loadFromCache 恢复完整累积（deltaText 含切走后增量 + summary）
+    chat.clearMessages();
+    const cached = chat.loadFromCache(parent);
+    expect(cached).not.toBeNull();
+    expect(chat.subTasks["sub-1"]).toBeDefined();
+    expect(chat.subTasks["sub-1"].deltaText).toBe("第一段第二段");
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].summary).toBe("完成摘要");
+  });
+
+  it("切走期间 idle 丢失 → 恢复时 running 卡标 stale 降级态（#4）", async () => {
+    const chat = useChatStore();
+    const parent = "ses-parent";
+    // 活跃时建卡，未收到 idle（切走期间事件丢失）→ running 无 endedAt
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠", parentId: parent }, parent);
+    chat.saveSessionCache(parent);
+    chat.clearMessages();
+
+    // 切回：恢复时 running 且无 endedAt → stale
+    const cached = chat.loadFromCache(parent);
+    expect(cached).not.toBeNull();
+    expect(chat.subTasks["sub-1"].status).toBe("running");
+    expect(chat.subTasks["sub-1"].stale).toBe(true);
+  });
+
+  it("idle await 期间切走 → 摘要写回缓存对象而非孤儿（#3 竞态）", async () => {
+    const chat = useChatStore();
+    const parent = "ses-parent";
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠", parentId: parent }, parent);
+    // idle 的 listMessages 挂起
+    let resolveList: (v: unknown) => void;
+    listMessagesMock.mockReturnValue(new Promise((r) => { resolveList = r; }));
+
+    const pending = chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle", parentId: parent }, parent);
+    // await 期间切走：视图 subTasks 清空（loadFromCache 其他会话），但父缓存仍持引用
+    chat.clearMessages();
+    chat.loadFromCache("ses-other");
+    resolveList!([
+      { id: "m1", session_id: "sub-1", role: "assistant", content: "竞态摘要", token_usage: "", created_at: "2026-01-01T00:02:00" },
+    ]);
+    await pending;
+
+    // 摘要写回父缓存中的 task（subTasks.value 已无此卡——clearMessages 重置）
+    expect(chat.subTasks["sub-1"]).toBeUndefined();
+    const entry = (chat as any).sessionCache.get(parent);
+    expect(entry.subTasks["sub-1"].summary).toBe("竞态摘要");
+  });
+
+  it("sessionCache 持久化 subTasks（saveSessionCache/loadFromCache 不丢子任务卡）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created", agent: "工匠" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "delta", text: "进行中" });
+    listMessagesMock.mockResolvedValue([]);
+    await chat.handleSubTaskEvent({ subId: "sub-1", kind: "idle" });
+
+    chat.saveSessionCache("ses-cache-1");
+    chat.clearMessages();
+    expect(Object.keys(chat.subTasks)).toHaveLength(0); // clearMessages 重置子任务
+
+    const cached = chat.loadFromCache("ses-cache-1");
+    expect(cached).not.toBeNull();
+    expect(chat.subTasks["sub-1"]).toBeDefined();
+    expect(chat.subTasks["sub-1"].agent).toBe("工匠");
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].deltaText).toBe("进行中");
   });
 });
