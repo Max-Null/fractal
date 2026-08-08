@@ -186,14 +186,19 @@ async function autoResize() {
   updateInputGradient();
 }
 
-// ── 输入框底部渐变提示（隐藏滚动条后提示还有更多内容——仿会话列表 rail 渐变）──
+// ── 输入框双向渐变提示（隐藏滚动条后提示上下还有更多内容——仿会话列表 rail 渐变）──
 const showInputGradient = ref(false);
+const showInputGradientTop = ref(false);
 
 function updateInputGradient() {
   const el = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null;
   if (!el) return;
-  // 可滚动（scrollHeight > clientHeight）且未滚动到底（留 4px 容差）时显示
-  showInputGradient.value = el.scrollHeight > el.clientHeight + 4 && el.scrollTop + el.clientHeight < el.scrollHeight - 4;
+  // 可滚动（scrollHeight > clientHeight + 容差）
+  const scrollable = el.scrollHeight > el.clientHeight + 4;
+  // 未到底（scrollTop 未到最大值，留 4px 容差）→ 底部渐变
+  showInputGradient.value = scrollable && el.scrollTop + el.clientHeight < el.scrollHeight - 4;
+  // 未到顶（scrollTop > 4）→ 顶部渐变
+  showInputGradientTop.value = scrollable && el.scrollTop > 4;
 }
 
 /** 外部设置输入框文本（FilePreview DOM 选择器等） */
@@ -413,7 +418,11 @@ async function polishInput() {
         }"
       ></textarea>
 
-        <!-- 底部渐变提示：可滚动且未到底时显示（仿会话列表 rail 渐变，高度 0.5em——用户反馈②） -->
+        <!-- 顶部渐变提示：可滚动且未到顶时显示（仿会话列表 rail 双向渐变——用户反馈①） -->
+        <Transition name="grad">
+          <div v-if="showInputGradientTop" class="input-scroll-hint input-scroll-hint--top"></div>
+        </Transition>
+        <!-- 底部渐变提示：可滚动且未到底时显示（贴 textarea 可视底——用户反馈②） -->
         <Transition name="grad">
           <div v-if="showInputGradient" class="input-scroll-hint"></div>
         </Transition>
@@ -745,16 +754,22 @@ async function polishInput() {
   /* 渐变提示绝对定位参照 */
   position: relative;
 }
-/* 底部渐变提示：0.5em 高（半个字符），accent 蓝渐变，指向可继续滚动的内容 */
+/* 双向渐变提示：0.5em 高（半个字符），accent 蓝渐变，指向可继续滚动的内容 */
 .input-scroll-hint {
   position: absolute;
   left: 10px;
   right: 10px;
-  bottom: 6px;
+  /* bottom 2px = textarea 可视底（inputrow padding-bottom 2px）——贴底防文字漏出（此前 6px 悬空于 padding 区，滚动中间态裁切文字从条下方露出） */
+  bottom: 2px;
   height: 0.5em;
   border-radius: 2px;
   pointer-events: none;
   background: linear-gradient(to top, var(--accent-glow), transparent);
+}
+.input-scroll-hint--top {
+  top: 2px;
+  bottom: auto;
+  background: linear-gradient(to bottom, var(--accent-glow), transparent);
 }
 /* 渐变淡入淡出（Transition name=grad） */
 .grad-enter-active, .grad-leave-active { transition: opacity 150ms ease; }
