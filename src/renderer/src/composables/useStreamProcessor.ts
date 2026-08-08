@@ -394,7 +394,9 @@ export function useStreamProcessor() {
     });
 
     // 挂载即查引擎状态：engine:status 广播可能早于本组件监听挂载（启动竞态，2026-08-08 实测
-    // 思考强度选择器启动后永远隐藏）——主动拉一次，统一走 running 分支补拉 variants
+    // 思考强度选择器启动后永远隐藏）——主动拉一次，统一走 running 分支补拉 variants。
+    // 注意：会话列表补拉已移至 AppShell 串行初始化链（引擎就绪门禁后 loadSessions），此处
+    // 不再拉列表避免双拉（2026-08-09 串行重构）；engine:status 监听的 running 补拉保留
     getEngineStatus()
       .then((info) => {
         session.setServing(!!info?.running);
@@ -403,8 +405,6 @@ export function useStreamProcessor() {
           loadModelVariants(settings.model)
             .then((v) => settings.setModelVariants(v))
             .catch(() => settings.setModelVariants([]));
-          // 会话列表补拉（同 engine:status running 分支的说明：serve 就绪后重拉当前工作区会话）
-          session.loadSessions(settings.cwd || undefined);
         }
       })
       .catch(() => {});

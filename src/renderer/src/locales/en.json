@@ -32,6 +32,7 @@
     "completed": "Completed",
     "todos": "Task List",
     "loading": "Loading...",
+    "engineNotReady": "Engine not ready, try again later",
     "export": "Export",
     "exportTitle": "Export session as Markdown",
     "scrollToBottom": "Scroll to bottom",

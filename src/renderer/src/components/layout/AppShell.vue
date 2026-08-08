@@ -11,7 +11,7 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer, getEngineStatus } from "@/lib/electron-bridge";
 import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
@@ -376,6 +376,63 @@ watch(() => globalCommand.value.ts, () => {
 
 const initializing = ref(true);
 
+// ── 引擎就绪门禁（2026-08-09 串行初始化重构）──
+// 启动链路：serve 刚启动 1s 未稳时立即发引擎请求会 ECONNRESET 并把 serve 打崩（win:2 实测），
+// 因此 loadSessions 等引擎请求必须等 running 确认后才发出。
+// 实现：首查 + 500ms 轮询 getEngineStatus（主进程本地状态，不碰 serve 端口，安全）+ engine:status
+// 事件监听，任一先到 running 即返回 true；15s 超时返回 false（不抛错）——转圈最久 15s，超时降级进主界面。
+const ENGINE_READY_TIMEOUT_MS = 15_000;
+const ENGINE_POLL_INTERVAL_MS = 500;
+/** 引擎等待超时标记：转圈界面显示「引擎未就绪」提示（超时降级路径），并短暂停留让用户看到 */
+const engineReadyTimedOut = ref(false);
+
+function waitEngineReady(): Promise<boolean> {
+  return new Promise((resolve) => {
+    // 已有 serving=true 状态（engine:status 早于本组件挂载）直接放行，不再重复等待
+    if (sessionStore.serving) { resolve(true); return; }
+    let settled = false;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let timeoutTimer: ReturnType<typeof setTimeout> | null = null;
+    let unlistenStatus: (() => void) | null = null;
+    const done = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      if (timeoutTimer) { clearTimeout(timeoutTimer); timeoutTimer = null; }
+      unlistenStatus?.();
+      unlistenStatus = null;
+      resolve(ok);
+    };
+    // 事件监听：serve 就绪会广播 engine:status（useStreamProcessor 也监听同一事件，二者互补不冲突）。
+    // 测试环境无 window.electronBridge → 跳过事件路径，走纯轮询
+    const bridge = (window as { electronBridge?: { on?: (ch: string, cb: (p: unknown) => void) => () => void } }).electronBridge;
+    if (bridge?.on) {
+      unlistenStatus = bridge.on("engine:status", (payload) => {
+        const info = payload as { running?: boolean };
+        if (info?.running) done(true);
+      });
+    }
+    // 首查立即执行：主进程本地状态在窗口加载后通常已稳定，比等第一个轮询 tick 更快放行
+    getEngineStatus()
+      .then((info) => { if (info?.running) done(true); })
+      .catch(() => { /* 主进程暂不可达（窗口极早期）：转入轮询等待 */ });
+    // 轮询兜底：serve 未就绪期间继续探测（不碰 serve 端口，安全）
+    pollTimer = setInterval(async () => {
+      try {
+        const info = await getEngineStatus();
+        if (info?.running) done(true);
+      } catch {
+        // 主进程暂不可达——继续下一轮，不在此处终止
+      }
+    }, ENGINE_POLL_INTERVAL_MS);
+    // 超时兜底：15s 未就绪返回 false（不抛错），降级进主界面（引擎离线态：列表空 + 离线占位）
+    timeoutTimer = setTimeout(() => {
+      engineReadyTimedOut.value = true;
+      done(false);
+    }, ENGINE_READY_TIMEOUT_MS);
+  });
+}
+
 // 新窗口工作区下发监听（多窗口支持）：注销函数存模块作用域，onUnmounted 时清理。
 // AppShell 是单例根组件，onMounted 仅执行一次——不会重复注册
 let stopInitWorkspace: (() => void) | null = null;
@@ -402,20 +459,29 @@ onMounted(async () => {
     unDismissWorkspace(path); // 新窗口明确切到该工作区 → 恢复显示（若之前被手动移除）
     sessionStore.loadSessions(path);
   });
-  // 并行初始化所有持久化数据：会话列表 + settings + 工作区
+  // 串行初始化链（2026-08-09 重构）：本地初始化 → 引擎就绪门禁 → 会话列表 → 解除门禁。
+  // 严禁在引擎就绪前发引擎请求：实测 serve 启动 1s 内并发请求 → ECONNRESET → serve 崩溃（win:2）。
   try {
-    await Promise.all([
-      // cwd 已持久化时按工作区加载会话（会话跟随工作区）；无 cwd 时全量
-      sessionStore.loadSessions(settings.cwd || undefined),
-      settings.initFromDb(),
-      (async () => {
-        if (!settings.cwd) {
-          try { settings.cwd = await getWorkspaceRoot(); } catch {}
-        }
-      })(),
-    ]);
+    // ① 本地初始化（SQLite/配置，快，不碰 serve）
+    await settings.initFromDb();
+    // ② 无 cwd 时兜底取工作区根（本地磁盘，不碰 serve）
+    if (!settings.cwd) {
+      try { settings.cwd = await getWorkspaceRoot(); } catch {}
+    }
+    // ③ 引擎就绪门禁：getEngineStatus 首查 + 轮询 + engine:status 事件，任一先到 running 即放行
+    const engineReady = await waitEngineReady();
+    // ④ 引擎就绪才加载会话列表（串行 await）——serve 未就绪期间绝不下发 session:list
+    if (engineReady) {
+      await sessionStore.loadSessions(settings.cwd || undefined);
+    } else {
+      // 超时降级：引擎 15s 未就绪（崩溃/未启动），展示「引擎未就绪」提示片刻再进主界面，
+      // 避免用户无感知进入离线态（转圈最久 15s + 1s 提示 + 0 列表 ≈ 16s，仍在 20s 上限内）
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+    // ⑤ modelVariants 补拉由 useStreamProcessor 的挂载即查 / engine:status running 分支负责，
+    //    此处不重复（settings watch(model) immediate 已有兜底）
   } catch {
-    // 所有子任务已有独立 catch，此处仅兜底——不会到达，但确保 initializing 必然复位
+    // 各子步骤已有独立 catch，此处仅兜底——不会到达，但确保 initializing 必然复位
   } finally {
     initializing.value = false;
     document.addEventListener("keydown", onGlobalKeydown);
@@ -444,6 +510,8 @@ async function openFilePanelTo(_path: string) {
   <div v-if="initializing" class="h-screen flex flex-col items-center justify-center gap-4" style="background:var(--bg-root)">
     <img src="/logo.svg" alt="分形" class="w-24 h-24" />
     <span class="text-xs animate-pulse" style="color:var(--text-muted)">{{ $t('chat.loading') }}</span>
+    <!-- 引擎就绪超时降级提示：serve 15s 未就绪（崩溃/未启动）时显示，提示用户可稍后重试 -->
+    <span v-if="engineReadyTimedOut" class="text-xs engine-not-ready" style="color:var(--el-color-danger)">{{ $t('chat.engineNotReady') }}</span>
   </div>
 
   <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面 -->

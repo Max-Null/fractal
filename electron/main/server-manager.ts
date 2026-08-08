@@ -452,7 +452,8 @@ async function startServer(): Promise<StartServerResult> {
       state.child = null
       state.failed = true
       state.startPromise = null // 启动缓存失效，允许下次 ready 重建
-      console.log(`[server-manager] serve 退出 code=${code} signal=${signal ?? ''}`)
+      // 诊断：退出时打印 stopping/dump 条件/尾部长度——崩溃 dump 失效排查（2026-08-08：两例 exit 1 无 dump 文件）
+      console.log(`[server-manager] serve 退出 code=${code} signal=${signal ?? ''} stopping=${state.stopping} dump=${code !== 0 && !state.stopping} tail=${serveStderrTail?.length ?? 0}`)
       emitStatus()
     })
 

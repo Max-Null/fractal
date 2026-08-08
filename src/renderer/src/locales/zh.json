@@ -32,6 +32,7 @@
     "completed": "已完成",
     "todos": "工作清单",
     "loading": "加载中...",
+    "engineNotReady": "引擎未就绪，可稍后重试",
     "export": "导出",
     "exportTitle": "导出会话为 Markdown",
     "scrollToBottom": "滚动到底部",

@@ -84,9 +84,9 @@ describe("SessionSidebar", () => {
 
     // Manually add sessions to the store (bypass backend)
     store.sessions.push(
-      { id: "s1", title: "React Project", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 },
-      { id: "s2", title: "Vue Docs", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 },
-      { id: "s3", title: "Python Script", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 },
+      { id: "s1", title: "React Project", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
+      { id: "s2", title: "Vue Docs", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
+      { id: "s3", title: "Python Script", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
     );
 
     await wrapper.vm.$nextTick();
@@ -110,7 +110,7 @@ describe("SessionSidebar", () => {
     const wrapper = mountSidebar();
     const store = useSessionStore();
     store.sessions.push(
-      { id: "s1", title: "Hello", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 },
+      { id: "s1", title: "Hello", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
     );
     await wrapper.vm.$nextTick();
 
@@ -125,7 +125,7 @@ describe("SessionSidebar", () => {
     const wrapper = mountSidebar();
     const store = useSessionStore();
     store.sessions.push(
-      { id: "s1", title: "Hello", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0 },
+      { id: "s1", title: "Hello", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
     );
     await wrapper.vm.$nextTick();
 

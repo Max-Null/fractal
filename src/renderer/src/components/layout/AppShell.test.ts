@@ -1,5 +1,5 @@
 // AppShell 工作区菜单聚合测试：打开菜单时从 serve 全量会话提取 directory（契约字段 cwd），与本地 recentWorkspaces 合并显示
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
@@ -9,8 +9,9 @@ import AppShell from "./AppShell.vue";
 
 // mock electron-bridge：保留原模块（store 链条其他函数有 catch 兜底），仅覆盖 listSessions 返回可控会话
 // vi.hoisted：mock 工厂被提升到文件顶部，mock 变量必须同层提升否则工厂执行时尚未初始化
-const { listSessionsMock, openWorkspaceWindowMock, onInitWorkspaceMock, revealInExplorerMock } = vi.hoisted(() => ({
+const { listSessionsMock, getEngineStatusMock, openWorkspaceWindowMock, onInitWorkspaceMock, revealInExplorerMock } = vi.hoisted(() => ({
   listSessionsMock: vi.fn(),
+  getEngineStatusMock: vi.fn(),
   openWorkspaceWindowMock: vi.fn(),
   onInitWorkspaceMock: vi.fn(),
   revealInExplorerMock: vi.fn(),
@@ -20,6 +21,7 @@ vi.mock("@/lib/electron-bridge", async (importOriginal) => {
   return {
     ...actual,
     listSessions: listSessionsMock,
+    getEngineStatus: getEngineStatusMock,
     openWorkspaceWindow: openWorkspaceWindowMock,
     onInitWorkspace: onInitWorkspaceMock,
     revealInExplorer: revealInExplorerMock,
@@ -55,7 +57,7 @@ const i18n = createI18n({
   messages: {
     zh: {
       app: { title: "分形" },
-      chat: { loading: "加载中" },
+      chat: { loading: "加载中", engineNotReady: "引擎未就绪，可稍后重试" },
       header: {
         cwdTitle: "选择工作区",
         selectWorkspace: "选择工作区",
@@ -126,11 +128,19 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     openWorkspaceWindowMock.mockReset();
     revealInExplorerMock.mockReset();
     onInitWorkspaceMock.mockReset(); // 不 reset 会导致 calls[0] 取到上个用例的旧回调（闭包旧 pinia 实例）
+    // 引擎就绪门禁默认放行：getEngineStatus 首查立即返回 running（串行链等待逻辑见 waitEngineReady）
+    getEngineStatusMock.mockReset();
+    getEngineStatusMock.mockResolvedValue({ running: true });
     // 新窗口打开默认成功（.then 链依赖 Promise 形状；断言失败场景的用例单独 mockRejectedValue）
     openWorkspaceWindowMock.mockResolvedValue(undefined);
     // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
     onInitWorkspaceMock.mockReset();
     onInitWorkspaceMock.mockReturnValue(() => {});
+  });
+
+  afterEach(() => {
+    // 超时用例用 fake timers 推进 15s；断言失败也要恢复，避免遗留 fake timers 影响后续用例
+    vi.useRealTimers();
   });
 
   it("打开菜单时聚合 serve 会话目录，补充本地 recent（local 在前，serve 按出现序）", async () => {
@@ -284,5 +294,27 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
 
     expect(revealInExplorerMock).toHaveBeenCalledWith(LOCAL_A);
     expect(openWorkspaceWindowMock).not.toHaveBeenCalled();
+  });
+
+  it("引擎 15s 未就绪 → 超时降级进主界面（不卡死，且绝不发 session:list）", async () => {
+    getEngineStatusMock.mockResolvedValue({ running: false });
+    vi.useFakeTimers();
+    const wrapper = mountAppShell();
+    await vi.advanceTimersByTimeAsync(0); // 推进 initFromDb 微任务链 + waitEngineReady 首查
+
+    // 首查 running=false → 转圈等待中（门禁未解除，主界面未渲染）
+    expect(wrapper.find(".ws-pill-arrow").exists()).toBe(false);
+    expect(wrapper.find(".engine-not-ready").exists()).toBe(false);
+
+    // 15s 超时 → waitEngineReady 返回 false → 跳过 loadSessions，展示「引擎未就绪」提示
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(wrapper.find(".engine-not-ready").exists()).toBe(true);
+    // 引擎未就绪期间绝不发 session:list（问题根因：serve 未就绪时并发请求会打崩 serve）
+    expect(listSessionsMock).not.toHaveBeenCalled();
+
+    // 提示停留 1s 后进主界面（离线态：列表空 + 引擎离线占位）
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(wrapper.find(".ws-pill-arrow").exists()).toBe(true);
+    expect(wrapper.find(".engine-not-ready").exists()).toBe(false);
   });
 });

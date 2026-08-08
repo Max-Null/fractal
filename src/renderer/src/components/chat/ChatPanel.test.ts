@@ -319,7 +319,7 @@ describe("ChatPanel 弹窗", () => {
     const chat = useChatStore();
     const session = useSessionStore();
     session.setActiveSession("ses-1");
-    session.sessions.push({ id: "ses-1", title: "测试会话", createdAt: 1, updatedAt: 2, messageCount: 0 });
+    session.sessions.push({ id: "ses-1", title: "测试会话", createdAt: 1, updatedAt: 2, messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" });
     chat.setHistoryError(true);
 
     const wrapper = mountChatPanel();
