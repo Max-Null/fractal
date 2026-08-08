@@ -405,7 +405,7 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle(
     'settings:saveProviderConfig',
-    async (_e, args: { providerId: string; apiKey: string; baseUrl: string; model: string }) => {
+    async (_e, args: { providerId: string; apiKey: string; baseUrl: string; model: string; restart?: boolean }) => {
       const file = join(app.getPath('userData'), 'provider-configs.json')
       const cfg = (await readJsonFile(file, {})) as Record<string, unknown>
       const next = { ...cfg, [args.providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model } }
@@ -415,9 +415,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // permissionMode 用 default 兜底（安全默认：敏感工具 ask）；前端模式切换的精确联动后续阶段细化。
       if (args.apiKey && args.apiKey.trim()) {
         await ensureConfig(app.getPath('userData'), { apiKey: args.apiKey.trim(), permissionMode: 'default' })
-        // serve 启动时加载配置（阶段 0 实测）——key 变更后重启 serve 使新配置生效。
-        // 仅对已运行实例重启：首次启动场景（健康检查中）前端会自动保存设置，此时重启会打断 serve 启动（2026-08-06 实测）
-        if (serverManager?.getServerInfo().running) {
+        // 仅用户主动保存（SettingsPanel/Onboarding 传 restart=true）且 key 确实变化时才重启 serve：
+        // 启动时 store watch 自动保存会命中刚起来的 serve——重启会杀掉健康中的 serve 导致
+        // 并发请求 ECONNRESET + 会话列表加载失败（2026-08-09 实测 stopping=true 日志）
+        const prevKey = (cfg as Record<string, { apiKey?: string }>)?.[args.providerId]?.apiKey
+        if (args.restart && prevKey !== args.apiKey.trim() && serverManager?.getServerInfo().running) {
           await serverManager.stopServer()
           await serverManager.ready()
         }

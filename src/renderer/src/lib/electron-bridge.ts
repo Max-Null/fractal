@@ -260,11 +260,11 @@ export async function loadUiSettings(): Promise<string> {
   return invoke("settings:loadUiSettings");
 }
 
-/** 保存单个 provider 配置，切换前调用 */
+/** 保存单个 provider 配置，切换前调用；restart=true 时主进程会重启 serve（用户主动保存，非 watch 自动保存） */
 export async function saveProviderConfig(
-  providerId: string, apiKey: string, baseUrl: string, model: string,
+  providerId: string, apiKey: string, baseUrl: string, model: string, restart = false,
 ): Promise<void> {
-  return invoke("settings:saveProviderConfig", { providerId, apiKey, baseUrl, model });
+  return invoke("settings:saveProviderConfig", { providerId, apiKey, baseUrl, model, restart });
 }
 
 /** 加载所有已保存的 provider 配置 */

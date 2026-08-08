@@ -228,6 +228,8 @@ async function handleTest() {
     if (r.ok) {
       // 模板按 ✓ 前缀判定绿色（成功）；chat 字段展示写入详情
       testResult.value = { cc: "✓ serve 连接成功", chat: "✓ " + r.message };
+      // 用户主动换 key：重启 serve 使新 key 对运行实例生效（主进程对相同 key 跳过重启）
+      try { await settings.saveCurrentConfig(true); } catch { /* 后台静默，防抖 watch 兜底 */ }
     } else {
       testError.value = r.message;
     }

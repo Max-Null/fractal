@@ -59,8 +59,9 @@ async function runTest() {
     const r = await testConnection(settings.apiKey);
     if (r.ok) {
       testSuccess.value = true;
-      // 显式保存配置到 SQLite（settings watch 防抖也会存，此处确保退出引导前已落盘）
-      try { await settings.saveCurrentConfig(); } catch { /* 后台静默，防抖 watch 兜底 */ }
+      // 显式保存配置到 SQLite + 重启 serve（settings watch 防抖也会存，此处确保退出引导前已落盘）
+      // restart=true：首次配置的 key 对运行中的 serve 是新的，不重启则发消息仍用无 key 的旧配置
+      try { await settings.saveCurrentConfig(true); } catch { /* 后台静默，防抖 watch 兜底 */ }
       // 展示成功提示后自动进入完成页
       setTimeout(() => { step.value = 3; }, 700);
     } else {

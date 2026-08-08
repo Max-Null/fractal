@@ -97,12 +97,15 @@ export const useSettingsStore = defineStore("settings", () => {
   }
   const providerConfigs = ref<Record<string, ProviderConfig>>({});
 
-  /** 保存当前配置到 SQLite（DeepSeek 单 provider 下固定写入 deepseek 槽位） */
-  async function saveCurrentConfig() {
+  /** 保存当前配置到 SQLite（DeepSeek 单 provider 下固定写入 deepseek 槽位）
+   *  restart=true 仅用户主动保存时传（SettingsPanel/Onboarding）——主进程据此重启 serve；
+   *  watch 自动保存（启动恢复/输入防抖）不传：serve 刚用最新配置启动，重启会杀掉健康中的
+   *  serve 导致并发请求 ECONNRESET + 会话列表加载失败（2026-08-09 实测 stopping=true 日志） */
+  async function saveCurrentConfig(restart = false) {
     const id = providerId.value;
     if (!id) return;
     providerConfigs.value[id] = { apiKey: apiKey.value, baseUrl: baseUrl.value, model: model.value };
-    try { await saveProviderConfig(id, apiKey.value, baseUrl.value, model.value); } catch { /* 后台静默 */ }
+    try { await saveProviderConfig(id, apiKey.value, baseUrl.value, model.value, restart); } catch { /* 后台静默 */ }
   }
 
   /** 恢复目标 provider 的配置；无记录则清空 apiKey、用默认 baseUrl */
