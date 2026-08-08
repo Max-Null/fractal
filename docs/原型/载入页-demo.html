@@ -300,6 +300,9 @@ function frame(now) {
 requestAnimationFrame(frame);
 }
 
+// 第一帧启动（frame 内已有递归调度；缺此行原子永不绘制——2026-08-09 实测 canvas 空白）
+requestAnimationFrame(frame);
+
 // ═══════════ 终端日志 + 进度条（模拟启动串行链）═══════════
 const STAGES = [
   { text: '载入本地配置…', decor: false, pct: 12 },
