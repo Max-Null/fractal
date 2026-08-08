@@ -44,8 +44,11 @@ const filteredSessions = computed(() => {
   return all.filter(s => s.title.toLowerCase().includes(q));
 });
 
-// 挂载时按当前工作区加载会话（无参=全部，会覆盖工作区过滤结果——断节根源）
-onMounted(async () => { await sessionStore.loadSessions(settings.cwd || undefined); });
+// 挂载时按当前工作区加载会话（无 cwd = 全量）。仅空列表时加载：
+// 折叠时 AppShell 已负责加载（数据在 store），展开挂载再拉会闪转圈、覆盖进行中的流式刷新（2026-08-08）
+onMounted(async () => {
+  if (sessionStore.sessions.length === 0) await sessionStore.loadSessions(settings.cwd || undefined)
+});
 
 async function handleSelect(id: string) {
   await switchByMode(id);

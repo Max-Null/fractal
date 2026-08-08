@@ -110,10 +110,14 @@ function createWindow(workspace?: string): BrowserWindow {
   })
 
   // dev 用 ELECTRON_RENDERER_URL（vite dev server），prod 用打包后的 html
+  // workspace 以 URL query 传给渲染层（渲染层读 location.search 初始化工作区——零时序依赖，
+  // 比 did-finish-load 后 IPC 下发可靠；后者 300ms 竞态下可能丢消息 = 新窗口 cwd 停在旧工作区）
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    if (workspace) url.searchParams.set('workspace', workspace)
+    mainWindow.loadURL(url.toString())
   } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'), { query: workspace ? { workspace } : undefined })
   }
   return mainWindow
 }

@@ -385,9 +385,15 @@ const showOnboarding = computed(() => !settings.apiKey && !settings.onboardingDi
 function dismissOnboarding() { settings.markOnboardingDismissed(); }
 
 onMounted(async () => {
-  // 新窗口初始化链路（多窗口支持）：主进程 createWindow(workspace) 在 did-finish-load 后下发
-  // window:init-workspace → 本窗口 cwd 切到目标工作区 + 会话列表按新工作区过滤。
-  // 注册须在 onMounted 同步段完成（did-finish-load 可能早于下方 async IPC 返回——竞态防护）
+  // 新窗口初始化链路（多窗口支持）：主进程 createWindow(workspace) 把目标工作区放 URL query
+  // （location.search 读取——零时序依赖），IPC window:init-workspace 作为兜底（e2e/兼容路径）。
+  // 先切 cwd 再并行初始化，保证 loadSessions 用目标工作区而非旧值
+  const wsFromUrl = new URLSearchParams(window.location.search).get('workspace')
+  if (wsFromUrl && wsFromUrl !== settings.cwd) {
+    settings.windowInitCwd = wsFromUrl;
+    settings.cwd = wsFromUrl;
+    unDismissWorkspace(wsFromUrl);
+  }
   stopInitWorkspace = onInitWorkspace((path) => {
     // 先写竞态标记再切 cwd：initFromDb 的异步 cwd 恢复可能晚于本回调，标记让恢复逻辑以下发值为准
     settings.windowInitCwd = path;
