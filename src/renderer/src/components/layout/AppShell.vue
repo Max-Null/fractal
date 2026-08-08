@@ -8,6 +8,7 @@ import CommandPalette from "@/components/shared/CommandPalette.vue";
 import ManagePanel from "@/components/shared/ManagePanel.vue";
 import ChangelogDialog from "@/components/shared/ChangelogDialog.vue";
 import Onboarding from "@/components/onboarding/Onboarding.vue";
+import LoadingScreen from "@/components/layout/LoadingScreen.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
