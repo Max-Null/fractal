@@ -7,7 +7,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 
 import { app } from 'electron'
-import { createWriteStream, mkdirSync, renameSync, statSync, appendFileSync, type WriteStream } from 'node:fs'
+import { createWriteStream, mkdirSync, renameSync, statSync, appendFileSync, existsSync, type WriteStream } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
