@@ -400,32 +400,35 @@ async function polishInput() {
 
       <!-- ③ 输入行：textarea + 发送 同一行（cf-left 操作行用 order 显示在其上方） -->
       <div class="composer-inputrow">
-      <!-- ② textarea -->
-      <textarea
-        v-model="input"
-        @keydown="onKeydown"
-        @paste="onPaste"
-        @input="autoResize(); onInputSlash(); updateInputGradient()"
-        @scroll="updateInputGradient"
-        @focus="focused = true"
-        @blur="onBlurSlash"
-        :placeholder="$t('chat.placeholder')"
-        rows="1"
-        class="chat-textarea composer-input"
-        :style="{
-          color: 'var(--text-primary)',
-          caretColor: 'var(--accent)'
-        }"
-      ></textarea>
+        <!-- textarea 包一层：渐变提示的定位参照 = textarea 宽度（此前参照 inputrow 全宽，渐变延伸到发送按钮——用户反馈②） -->
+        <div class="composer-input-wrap">
+        <!-- ② textarea -->
+        <textarea
+          v-model="input"
+          @keydown="onKeydown"
+          @paste="onPaste"
+          @input="autoResize(); onInputSlash(); updateInputGradient()"
+          @scroll="updateInputGradient"
+          @focus="focused = true"
+          @blur="onBlurSlash"
+          :placeholder="$t('chat.placeholder')"
+          rows="1"
+          class="chat-textarea composer-input"
+          :style="{
+            color: 'var(--text-primary)',
+            caretColor: 'var(--accent)'
+          }"
+        ></textarea>
 
-        <!-- 顶部渐变提示：可滚动且未到顶时显示（仿会话列表 rail 双向渐变——用户反馈①） -->
-        <Transition name="grad">
-          <div v-if="showInputGradientTop" class="input-scroll-hint input-scroll-hint--top"></div>
-        </Transition>
-        <!-- 底部渐变提示：可滚动且未到底时显示（贴 textarea 可视底——用户反馈②） -->
-        <Transition name="grad">
-          <div v-if="showInputGradient" class="input-scroll-hint"></div>
-        </Transition>
+          <!-- 顶部渐变提示：可滚动且未到顶时显示（仿会话列表 rail 双向渐变——用户反馈①） -->
+          <Transition name="grad-top">
+            <div v-if="showInputGradientTop" class="input-scroll-hint input-scroll-hint--top"></div>
+          </Transition>
+          <!-- 底部渐变提示：可滚动且未到底时显示（贴 textarea 可视底——用户反馈②） -->
+          <Transition name="grad">
+            <div v-if="showInputGradient" class="input-scroll-hint"></div>
+          </Transition>
+        </div>
 
         <div class="cf-right">
           <!-- ✨ 优化消息（发送按钮左侧，原型有此功能——用户反馈⑤） -->
@@ -751,15 +754,19 @@ async function polishInput() {
   gap: 8px;
   padding: 0 4px 2px;
   order: 3;
-  /* 渐变提示绝对定位参照 */
+}
+/* textarea 包装层：渐变提示的定位参照（= textarea 宽度，不含 cf-right） */
+.composer-input-wrap {
   position: relative;
+  flex: 1;
+  min-width: 0;
 }
 /* 双向渐变提示：0.5em 高（半个字符），accent 蓝渐变，指向可继续滚动的内容 */
 .input-scroll-hint {
   position: absolute;
   left: 10px;
   right: 10px;
-  /* bottom 2px = textarea 可视底（inputrow padding-bottom 2px）——贴底防文字漏出（此前 6px 悬空于 padding 区，滚动中间态裁切文字从条下方露出） */
+  /* bottom 2px = textarea 可视底（wrap 即 textarea 边界）——贴底防文字漏出（此前 6px 悬空于 padding 区，滚动中间态裁切文字从条下方露出） */
   bottom: 2px;
   height: 0.5em;
   border-radius: 2px;
@@ -771,9 +778,14 @@ async function polishInput() {
   bottom: auto;
   background: linear-gradient(to bottom, var(--accent-glow), transparent);
 }
-/* 渐变淡入淡出（Transition name=grad） */
-.grad-enter-active, .grad-leave-active { transition: opacity 150ms ease; }
-.grad-enter-from, .grad-leave-to { opacity: 0; }
+/* 底部渐变淡入淡出 + 微上滑（300ms——用户反馈①） */
+.grad-enter-active, .grad-leave-active { transition: opacity 300ms ease, transform 300ms ease; }
+.grad-enter-from { opacity: 0; transform: translateY(4px); }
+.grad-leave-to { opacity: 0; transform: translateY(4px); }
+/* 顶部渐变淡入淡出 + 微下滑（与底部对称） */
+.grad-top-enter-active, .grad-top-leave-active { transition: opacity 300ms ease, transform 300ms ease; }
+.grad-top-enter-from { opacity: 0; transform: translateY(-4px); }
+.grad-top-leave-to { opacity: 0; transform: translateY(-4px); }
 .composer-inputrow .composer-input {
   flex: 1;
   min-width: 0;

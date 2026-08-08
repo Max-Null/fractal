@@ -603,8 +603,10 @@ async function openFilePanelTo(_path: string) {
 
           <div class="rail-dots" @scroll.passive="updateRailScroll">
             <div class="rail-inner">
-              <!-- 顶部渐变（内容流最前，sticky top 粘住可视区顶部） -->
-              <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
+              <!-- 顶部渐变（内容流最前，sticky top 粘住可视区顶部；淡入淡出——用户反馈①） -->
+              <Transition name="rail-fade">
+                <div v-if="railScrollable && !railAtTop" class="rail-fade rail-fade--top" />
+              </Transition>
               <button
                 v-for="s in railSessions"
                 :key="s.id"
@@ -622,8 +624,10 @@ async function openFilePanelTo(_path: string) {
                   :class="'dot-' + sessionStore.sessionActivity[s.id]"
                 />
               </button>
-              <!-- 底部渐变（内容流末尾，sticky bottom 粘住可视区底部） -->
-              <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
+              <!-- 底部渐变（内容流末尾，sticky bottom 粘住可视区底部；淡入淡出——用户反馈①） -->
+              <Transition name="rail-fade">
+                <div v-if="railScrollable && !railAtBottom" class="rail-fade rail-fade--bottom" />
+              </Transition>
             </div>
           </div>
         </nav>
@@ -1006,6 +1010,9 @@ async function openFilePanelTo(_path: string) {
   top: 0;
   background: linear-gradient(to bottom, color-mix(in srgb, var(--accent) 30%, transparent), transparent);
 }
+/* rail 渐变淡入淡出（300ms——用户反馈①） */
+.rail-fade-enter-active, .rail-fade-leave-active { transition: opacity 300ms ease; }
+.rail-fade-enter-from, .rail-fade-leave-to { opacity: 0; }
 /* 会话圆点：首字符按钮，active 高亮（原型 rail-dot） */
 .rail-dot {
   position: relative;
