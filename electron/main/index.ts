@@ -1,7 +1,7 @@
 // 主进程入口：创建窗口、加载 renderer、串联 IPC 与 serve 生命周期
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join, basename } from 'path'
-import { promises as fsp } from 'node:fs'
+import { promises as fsp, appendFileSync } from 'node:fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers, startEngineEvents } from './ipc'
@@ -89,7 +89,11 @@ function createWindow(workspace?: string): BrowserWindow {
     mainWindow.on('page-title-updated', (e) => e.preventDefault())
     mainWindow.webContents.once('did-finish-load', () => {
       mainWindow.setTitle(windowTitle)
-      mainWindow.webContents.send('window:init-workspace', workspace)
+      // 延时下发：did-finish-load 可能早于渲染层 AppShell onMounted 的监听注册（Vue 挂载时序），
+      // 300ms 冗余确保新窗口必收到 init-workspace（消息丢失 = 新窗口 cwd 停留在旧工作区）
+      setTimeout(() => {
+        mainWindow.webContents.send('window:init-workspace', workspace)
+      }, 300)
     })
   }
 
@@ -140,8 +144,15 @@ app.whenReady().then(async () => {
   // 多窗口支持：渲染进程点最近工作区非当前项 → 新开窗口并切到目标工作区（交互模式变更，用户需求）
   // 校验 path 非空字符串——脏参数直接忽略，避免创建无意义窗口
   ipcMain.handle('window:openWorkspace', (_e, args: { path?: unknown }) => {
+    // 诊断日志：定位「点了没效果」（窗口未创建 vs 创建未显示）
+    appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] path=${JSON.stringify(args?.path)}\n`)
     if (typeof args?.path !== 'string' || args.path.length === 0) return
-    createWindow(args.path)
+    try {
+      const w = createWindow(args.path)
+      appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] created id=${w.id} visible=${w.isVisible()}\n`)
+    } catch (err) {
+      appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] ERROR ${String(err)}\n`)
+    }
   })
 
   const win = createWindow()

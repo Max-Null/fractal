@@ -185,7 +185,14 @@ export const useSettingsStore = defineStore("settings", () => {
     if (next.length > MAX_RECENT_WORKSPACES) next.pop();
     recentWorkspaces.value = next;
     // localStorage 同步备份
-    localStorage.setItem("sb-recent-workspaces", JSON.stringify(next));
+    try { localStorage.setItem("sb-recent-workspaces", JSON.stringify(recentWorkspaces.value)); } catch {}
+  }
+
+  /** 从最近使用移除工作区记录（工作区管理）：仅移除记录，不影响磁盘目录与 serve 会话
+   *  （serve 里有会话的工作区仍会经 serveDirs 聚合出现在菜单——「删除」= 不再记住，非删除数据） */
+  function removeRecentWorkspace(path: string) {
+    recentWorkspaces.value = recentWorkspaces.value.filter(p => p !== path);
+    try { localStorage.setItem("sb-recent-workspaces", JSON.stringify(recentWorkspaces.value)); } catch {}
   }
 
   // 启动时从 SQLite 恢复所有配置（统一入口，供 AppShell await）
@@ -377,5 +384,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd };
 });

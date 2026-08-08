@@ -52,9 +52,14 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   /** 加载会话列表；directory 传入时只加载该工作区的会话（serve ?directory= 过滤） */
+  // 竞态守卫：并发 loadSessions（新窗口 onMounted 与 onInitWorkspace 各发一次）时，
+  // 只有最后一次调用的结果能写入——先发请求若后返回会覆盖新工作区列表（多窗口切换 bug）
+  let loadSeq = 0;
   async function loadSessions(directory?: string) {
+    const seq = ++loadSeq;
     try {
       const list = await listSessions(directory);
+      if (seq !== loadSeq) return; // 已有更新的加载请求，丢弃过期结果
       sessions.value = list.map(toLocalSession);
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {

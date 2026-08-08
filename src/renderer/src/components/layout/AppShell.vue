@@ -11,7 +11,7 @@ import Onboarding from "@/components/onboarding/Onboarding.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer } from "@/lib/electron-bridge";
 import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
@@ -230,6 +230,15 @@ function onWsPickRecent(path: string) {
     alertText.value = "打开新窗口失败，请重试";
   });
 }
+function onWsRemoveRecent(path: string) {
+  // 工作区管理：从最近使用移除记录（不删磁盘/serve 会话；serve 有会话时仍会经聚合显示）
+  settings.removeRecentWorkspace(path);
+  alertText.value = `已从最近使用移除 ${path.split(/[\\/]/).pop()}`;
+}
+function onWsReveal(path: string) {
+  // 工作区管理：在资源管理器中打开该目录（fs:revealInExplorer）
+  revealInExplorer(path).catch(() => {});
+}
 function onBodyClickForWs(e: MouseEvent) {
   // 点击菜单外部区域时收起工作区下拉（ws-pill-wrap 内点击不收起）
   if (!(e.target as HTMLElement).closest(".ws-pill-wrap, .ws-menu")) showWsMenu.value = false;
@@ -435,9 +444,19 @@ async function openFilePanelTo(_path: string) {
           <div v-if="showWsMenu" class="ws-menu">
             <div class="ws-menu-head">{{ $t('header.recentWorkspaces') }}</div>
             <template v-if="mergedWorkspaces.length">
-              <button v-for="p in mergedWorkspaces" :key="p" class="ws-menu-item" :class="{ 'ws-menu-item-active': p === cwd }" @click="onWsPickRecent(p)">
-                <span class="ws-menu-item-path">{{ p }}</span>
-              </button>
+              <div v-for="p in mergedWorkspaces" :key="p" class="ws-menu-item" :class="{ 'ws-menu-item-active': p === cwd }">
+                <!-- 路径文本：点击 = 新开窗口并切到目标工作区（多窗口模式，用户需求） -->
+                <button class="ws-menu-item-path" @click="onWsPickRecent(p)">{{ p }}</button>
+                <!-- hover 操作区：📂 打开位置 / × 从最近使用移除（click.stop 防冒泡触发新开窗口） -->
+                <span class="ws-menu-item-actions">
+                  <button class="ws-menu-item-act" :title="$t('header.revealInExplorer')" @click.stop="onWsReveal(p)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></svg>
+                  </button>
+                  <button class="ws-menu-item-act ws-menu-item-act-danger" :title="$t('header.removeWorkspace')" @click.stop="onWsRemoveRecent(p)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></svg>
+                  </button>
+                </span>
+              </div>
             </template>
             <div v-else class="ws-menu-empty">{{ $t('header.noRecentWorkspaces') }}</div>
           </div>
