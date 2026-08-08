@@ -43,14 +43,10 @@
 
   /* ─────── Si 原子（核=瞳孔 + 2-8-4 电子轨道）─────── */
   .si-atom { position: relative; width: 220px; height: 220px; perspective: 700px; }
-  .si-label {
-    position: absolute; top: 0; right: 2px; font-size: 12px; font-weight: 600;
-    color: var(--accent); text-shadow: 0 0 8px var(--accent-glow); z-index: 3;
-  }
-  .si-orbit { position: absolute; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 50%; transform: rotateX(63deg); }
-  .si-orbit--outer { inset: 0; }
-  .si-orbit--mid { inset: 11%; }
-  .si-orbit--inner { inset: 24%; }
+  .si-orbit { position: absolute; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 50%; }
+  .si-orbit--outer { inset: 0; transform: rotateX(62deg); }
+  .si-orbit--mid { inset: 11%; transform: rotateX(62deg) rotateY(14deg); }
+  .si-orbit--inner { inset: 24%; transform: rotateX(62deg) rotateY(-22deg); }
   .si-spin { position: absolute; inset: 0; animation: si-spin linear infinite; }
   .si-spin--outer { animation-duration: 11s; animation-delay: -2.6s; }
   .si-spin--mid { animation-duration: 6.5s; animation-delay: -1.2s; }
@@ -146,9 +142,8 @@
   <div class="boot-scan" aria-hidden="true"></div>
 
   <div class="boot-center">
-    <!-- Si 原子（核=瞳孔 + 2-8-4 电子轨道 + 眼睛环顾） -->
+    <!-- Si 原子（核=瞳孔 + 2-8-4 电子轨道 + 眼睛环顾 + 3D 错层轨道） -->
     <div class="si-atom" aria-hidden="true">
-      <span class="si-label">Si</span>
       <div class="si-orbit si-orbit--outer"><div class="si-spin si-spin--outer">
         <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:90deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:270deg"><i class="si-e"></i></i>
       </div></div>

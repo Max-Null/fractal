@@ -44,16 +44,15 @@ const stageLines = computed(() => {
     <div class="boot-center">
       <!-- Si 原子模型（硅基之心）：核=瞳孔 + 2-8-4 三层电子轨道公转——呼应 logo 的 Si 原子设计 -->
       <div class="si-atom" aria-hidden="true">
-        <span class="si-label">Si</span>
-        <!-- 外层轨道（4 电子，最慢）：si-e-pos 定起始角，si-spin 层公转 -->
+        <!-- 外层轨道（4 电子，最慢）：倾角 62° 近水平 -->
         <div class="si-orbit si-orbit--outer"><div class="si-spin si-spin--outer">
           <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 90deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 270deg"><i class="si-e" /></i>
         </div></div>
-        <!-- 中层轨道（8 电子，中速） -->
+        <!-- 中层轨道（8 电子，中速）：绕 Y 偏转 14°（轨道平面错开，立体感） -->
         <div class="si-orbit si-orbit--mid"><div class="si-spin si-spin--mid">
           <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 45deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 90deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 135deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 225deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 270deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 315deg"><i class="si-e" /></i>
         </div></div>
-        <!-- 内层轨道（2 电子，最快） -->
+        <!-- 内层轨道（2 电子，最快）：绕 Y 反向偏转 22°（与中层镜像错开） -->
         <div class="si-orbit si-orbit--inner"><div class="si-spin si-spin--inner">
           <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i>
         </div></div>
@@ -147,29 +146,17 @@ const stageLines = computed(() => {
   height: 200px;
   perspective: 700px;
 }
-/* 元素符号角标：右上角 mono 小字（硅 · Si） */
-.si-label {
-  position: absolute;
-  top: 0;
-  right: 4px;
-  font-family: var(--font-mono, monospace);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-  text-shadow: 0 0 8px var(--accent-glow);
-  z-index: 3;
-}
 
-/* ── 轨道环：rotateX 压扁成椭圆投影，inset 决定半径层级 ── */
+/* ── 轨道环：rotateX 压扁成椭圆投影 + rotateY 错开平面（立体原子感——
+   三轨道不在同一平面，绕 Y 轴依次偏转形成 3D 倾斜轨道系）── */
 .si-orbit {
   position: absolute;
   border: 1px solid rgba(14, 165, 233, 0.4);
   border-radius: 50%;
-  transform: rotateX(63deg);
 }
-.si-orbit--outer { inset: 0; }
-.si-orbit--mid { inset: 11%; }
-.si-orbit--inner { inset: 24%; }
+.si-orbit--outer { inset: 0; transform: rotateX(62deg); }
+.si-orbit--mid { inset: 11%; transform: rotateX(62deg) rotateY(14deg); }
+.si-orbit--inner { inset: 24%; transform: rotateX(62deg) rotateY(-22deg); }
 
 /* ── 旋转层：绕 z 公转（不同壳层不同速度 + 错位起始角）── */
 .si-spin {
