@@ -149,12 +149,15 @@ const stageLines = computed(() => {
   z-index: 1;
 }
 
-/* ── Si 原子模型：核=瞳孔 + 2-8-4 三层电子轨道（呼应 logo 硅基设计）── */
+/* ── Si 原子模型 v3：真 3D（preserve-3d）——参考 react-loading-indicator + fresh-portfolio 原子动画方案
+   轨道 rotateX(80°) 近直立 + rotateY(0/120/240°) 三向分布（长轴互成 120°，教科书原子）；
+   核不设 z-index → 参与 3D 深度排序，轨道穿核时前段盖核、后段被核盖（天然遮挡）── */
 .si-atom {
   position: relative;
   width: 200px;
   height: 200px;
   perspective: 700px;
+  transform-style: preserve-3d;
   /* 整体摇摆：观察者视角缓动，错层轨道立刻「活」起来（制图师 P1，2026-08-09） */
   animation: atom-wobble 12s ease-in-out infinite;
 }
@@ -163,28 +166,36 @@ const stageLines = computed(() => {
   50% { transform: rotateY(10deg); }
 }
 
-/* ── 轨道环：rotateX 压扁成椭圆投影 + rotateZ 错轴（制图师 P0 核心修正——
-   主轴互成 60°（0/60/120），投影后椭圆长轴自然指向三个方向，土星环感→原子感；
-   rotateZ 先于 rotateX 应用（CSS 列表先写先应用）── */
+/* ── 轨道环：scale 定半径层级 + 3D 摆放（rotateX 近直立 + rotateY 三向主轴互成 120°）── */
 .si-orbit {
   position: absolute;
+  inset: 0;
   border: 1px solid rgba(14, 165, 233, 0.4);
   border-radius: 50%;
+  transform-style: preserve-3d;
+  animation: orbit-breathe 6s ease-in-out infinite;
 }
-.si-orbit--outer { inset: 0; transform: rotateX(55deg) rotateZ(0deg); }
-.si-orbit--mid { inset: 11%; transform: rotateX(55deg) rotateZ(60deg); }
-.si-orbit--inner { inset: 24%; transform: rotateX(55deg) rotateZ(120deg); }
+.si-orbit--outer { transform: scale(1) rotateX(80deg) rotateY(0deg); }
+.si-orbit--mid { transform: scale(0.78) rotateX(80deg) rotateY(120deg); animation-delay: -2s; }
+.si-orbit--inner { transform: scale(0.52) rotateX(80deg) rotateY(240deg); animation-delay: -4s; }
+@keyframes orbit-breathe {
+  0%, 100% { border-color: rgba(125, 211, 252, 0.22); }
+  50% { border-color: rgba(125, 211, 252, 0.5); }
+}
 
-/* ── 旋转层：绕 z 公转（不同壳层不同速度 + 错位起始角）── */
+/* ── 公转：轨道平面内 rotateZ 0→360（动画覆盖 transform，keyframes 保留静态摆放）── */
 .si-spin {
   position: absolute;
   inset: 0;
   animation: si-spin linear infinite;
+  transform-style: preserve-3d;
 }
-.si-spin--outer { animation-duration: 11s; animation-delay: -2.6s; }
-.si-spin--mid { animation-duration: 6.5s; animation-delay: -1.2s; }
-.si-spin--inner { animation-duration: 3.2s; }
-@keyframes si-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.si-spin--outer { animation-name: si-spin-0; animation-duration: 11s; animation-delay: -2.6s; }
+.si-spin--mid { animation-name: si-spin-120; animation-duration: 6.5s; animation-delay: -1.2s; }
+.si-spin--inner { animation-name: si-spin-240; animation-duration: 3.2s; }
+@keyframes si-spin-0 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
+@keyframes si-spin-120 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
+@keyframes si-spin-240 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
 
 /* ── 电子：位置层定起始角（rotate(--d) 绕轨道中心），电子在位置层顶部 ── */
 .si-e-pos {
@@ -192,23 +203,25 @@ const stageLines = computed(() => {
   inset: 0;
   transform: rotate(var(--d, 0deg));
 }
+/* 电子：反向补偿动画（rotateZ -360 抵消公转 + 静态 rotateY(-N) rotateX(-80) 抵消轨道摆放）——
+   公转全程保持正圆面向屏幕（参考 electronFix 方案，2026-08-09） */
 .si-e {
   position: absolute;
   left: 50%;
-  top: -4px;
+  top: -5px;
   width: 8px;
   height: 8px;
   margin-left: -4px;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
-  /* 抵消轨道变换（矩阵逆：rotateZ(-N) rotateX(-55)，CSS 列表顺序 = 先写先应用）——
-     保持电子正圆且停在轨道原位（制图师 P0，2026-08-09） */
-  transform: rotateZ(calc(-1 * var(--rz, 0deg))) rotateX(-55deg);
 }
-.si-orbit--outer .si-e { --rz: 0deg; width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
-.si-orbit--mid .si-e { --rz: 60deg; opacity: 0.9; }
-.si-orbit--inner .si-e { --rz: 120deg; }
+.si-orbit--outer .si-e { animation: e-fix-0 11s linear infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: 0.85; }
+.si-orbit--mid .si-e { animation: e-fix-120 6.5s linear infinite; opacity: 0.9; }
+.si-orbit--inner .si-e { animation: e-fix-240 3.2s linear infinite; }
+@keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-80deg) rotateZ(-360deg); } }
+@keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(-360deg); } }
+@keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(-360deg); } }
 
 /* ── 原子核 = 眼睛（logo 同款瞳孔）：虹膜容器 + 会「到处看」的瞳孔 ── */
 .si-nucleus {
@@ -224,7 +237,9 @@ const stageLines = computed(() => {
   background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
   box-shadow: 0 0 18px rgba(14, 165, 233, 0.55), inset 0 0 10px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.12);
   overflow: hidden;
-  z-index: 2;
+  /* v3 真 3D：不设 z-index（参与 preserve-3d 深度排序，轨道穿核时天然前后遮挡）；
+     translateZ(0) 锚定核到 z=0 平面（参考 react-loading-indicator 原子方案，2026-08-09） */
+  transform: translateZ(0);
   animation: si-nucleus-breathe 2.6s ease-in-out infinite;
 }
 @keyframes si-nucleus-breathe {
@@ -267,7 +282,7 @@ const stageLines = computed(() => {
   box-shadow: 0 0 5px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.4);
 }
 
-/* ── 全息底座：原子下方淡光晕（投影盘感，锚定空间，制图师 P2）── */
+/* ── 全息底座：原子下方淡光晕（投影盘感，锚定空间，制图师 P2）——translateZ(-40px) 放核后（3D 场景内）── */
 .si-atom::after {
   content: '';
   position: absolute;
@@ -275,7 +290,7 @@ const stageLines = computed(() => {
   bottom: 4px;
   width: 180px;
   height: 26px;
-  transform: translateX(-50%);
+  transform: translateX(-50%) translateZ(-40px);
   border-radius: 50%;
   background: radial-gradient(ellipse, rgba(56, 189, 248, 0.10), transparent 70%);
   filter: blur(2px);
