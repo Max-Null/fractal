@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>分形 · 载入页 Demo（Si 原子 + 眼睛环顾）</title>
+<title>分形 · 载入页 Demo（Si 原子 Canvas 3D）</title>
 <style>
   :root {
     --bg-root: #0e1116;
@@ -17,10 +17,8 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { background: #0a0d12; font-family: var(--font-mono); color: var(--text-muted); }
 
-  /* ─────── 载入页本体（与 LoadingScreen.vue 一致）─────── */
   .boot {
-    position: relative;
-    height: 100vh;
+    position: relative; height: 100vh;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px;
     background: var(--bg-root); overflow: hidden;
   }
@@ -46,99 +44,9 @@
   @keyframes boot-scan-float { from { transform: translateY(-72px); opacity: 0.5; } to { transform: translateY(0); opacity: 1; } }
   .boot-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 1; }
 
-  /* ─────── Si 原子 v3.1：真 3D 修正（用户反馈三轮：轨道不可见/电子消失/核阴影被切）
-     ①轨道 rotateX 80°→60°（投影椭圆更宽可见）+ border 1.5px 加亮
-     ②电子补偿动画 delay 与公转对齐（不同步→电子方向乱→压扁成线几乎不可见）
-     ③核辉光改伪元素（preserve-3d 下 box-shadow 被裁剪，Chromium 已知）─────── */
-  .si-atom {
-    position: relative; width: 220px; height: 220px; perspective: 700px;
-    transform-style: preserve-3d;
-    animation: atom-wobble 12s ease-in-out infinite;
-  }
-  @keyframes atom-wobble { 0%,100% { transform: rotateY(-10deg); } 50% { transform: rotateY(10deg); } }
-  /* 全息底座 */
-  .si-atom::after {
-    content: ''; position: absolute; left: 50%; bottom: 4px; width: 190px; height: 28px;
-    transform: translateX(-50%) translateZ(-40px); border-radius: 50%;
-    background: radial-gradient(ellipse, rgba(56,189,248,.10), transparent 70%);
-    filter: blur(2px);
-  }
-  /* 轨道：scale 定半径层级 + 3D 摆放（rotateX 60° + rotateY 三向主轴互成 120°） */
-  .si-orbit {
-    position: absolute; inset: 0; border: 1.5px solid rgba(14, 165, 233, 0.5); border-radius: 50%;
-    transform-style: preserve-3d;
-    animation: orbit-breathe 6s ease-in-out infinite;
-  }
-  .si-orbit--outer { transform: scale(1) rotateX(60deg) rotateY(0deg); }
-  .si-orbit--mid { transform: scale(0.78) rotateX(60deg) rotateY(120deg); animation-delay: -2s; }
-  .si-orbit--inner { transform: scale(0.52) rotateX(60deg) rotateY(240deg); animation-delay: -4s; }
-  @keyframes orbit-breathe { 0%,100% { border-color: rgba(125,211,252,.3); } 50% { border-color: rgba(125,211,252,.6); } }
-  /* 公转：轨道平面内 rotateZ 0→360 */
-  .si-spin { position: absolute; inset: 0; animation: si-spin linear infinite; transform-style: preserve-3d; }
-  .si-spin--outer { animation-name: si-spin-0; animation-duration: 11s; animation-delay: -2.6s; }
-  .si-spin--mid { animation-name: si-spin-120; animation-duration: 6.5s; animation-delay: -1.2s; }
-  .si-spin--inner { animation-name: si-spin-240; animation-duration: 3.2s; }
-  @keyframes si-spin-0 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-  @keyframes si-spin-120 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-  @keyframes si-spin-240 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-  /* 电子起始角 */
-  .si-e-pos { position: absolute; inset: 0; transform: rotate(var(--d, 0deg)); }
-  /* 电子：反向补偿动画 + delay 与公转严格对齐（同 start 时刻，counter 才成立） */
-  .si-e {
-    position: absolute; left: 50%; top: -5px; width: 8px; height: 8px; margin-left: -4px;
-    border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
-  }
-  .si-orbit--outer .si-e { animation: e-fix-0 11s linear -2.6s infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: .85; }
-  .si-orbit--mid .si-e { animation: e-fix-120 6.5s linear -1.2s infinite; opacity: .9; }
-  .si-orbit--inner .si-e { animation: e-fix-240 3.2s linear 0s infinite; }
-  @keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-60deg) rotateZ(-360deg); } }
-  @keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(-360deg); } }
-  @keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(-360deg); } }
-  /* 原子核 = 眼睛：不设 z-index（3D 深度排序）；去 overflow hidden（瞳孔不越界）+ 去 box-shadow 呼吸（被裁）
-     辉光改用伪元素 radial-gradient（呼吸动画在伪元素上） */
-  .si-nucleus {
-    position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px;
-    border-radius: 50%;
-    transform: translateZ(0);
-    border: 1px solid rgba(56,189,248,.35);
-    background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
-    box-shadow: inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12);
-  }
-  /* 核辉光：独立伪元素（不被 3D 裁剪） */
-  .si-nucleus::after {
-    content: ''; position: absolute; inset: -16px; border-radius: 50%;
-    background: radial-gradient(circle, rgba(14,165,233,.45), transparent 62%);
-    animation: nucleus-glow 2.6s ease-in-out infinite;
-    z-index: -1;
-  }
-  @keyframes nucleus-glow { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
-  @keyframes si-nucleus-breathe {
-    0%, 100% { box-shadow: 0 0 14px rgba(14,165,233,.5), inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12); }
-    50% { box-shadow: 0 0 32px rgba(14,165,233,.9), inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12); }
-  }
-  .si-pupil {
-    position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px;
-    border-radius: 50%;
-    background: radial-gradient(circle at 40% 35%, #38bdf8, #0ea5e9 60%, #0284c7);
-    animation: eye-look 6.5s ease-in-out infinite;
-  }
-  .si-glint {
-    position: absolute; left: 7px; top: 6px; width: 9px; height: 9px; border-radius: 50%;
-    background: rgba(255,255,255,.95);
-    box-shadow: 0 0 5px rgba(255,255,255,.9), 0 0 12px rgba(255,255,255,.4);
-  }
-  @keyframes eye-look {
-    0%   { transform: translate(0, 0); }
-    10%  { transform: translate(-8px, -5px); }
-    22%  { transform: translate(2px, -9px); }
-    34%  { transform: translate(9px, -3px); }
-    46%  { transform: translate(9px, 6px); }
-    58%  { transform: translate(0, 9px); }
-    70%  { transform: translate(-9px, 4px); }
-    82%  { transform: translate(-7px, -6px); }
-    92%, 100% { transform: translate(0, 0); }
-  }
+  /* Canvas 原子容器 */
+  .si-atom { position: relative; width: 230px; height: 230px; }
+  .si-atom canvas { display: block; width: 100%; height: 100%; }
 
   /* ─────── 进度条 ─────── */
   .boot-progress { position: relative; width: 300px; height: 5px; border-radius: 3px; background: var(--bg-elevated); border: 1px solid var(--border-dim); }
@@ -188,19 +96,8 @@
   <div class="boot-scan" aria-hidden="true"></div>
 
   <div class="boot-center">
-    <!-- Si 原子（核=瞳孔 + 2-8-4 电子轨道 + 眼睛环顾 + 60° 错轴 3D 轨道） -->
-    <div class="si-atom" aria-hidden="true">
-      <div class="si-orbit si-orbit--outer"><div class="si-spin si-spin--outer">
-        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:90deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:270deg"><i class="si-e"></i></i>
-      </div></div>
-      <div class="si-orbit si-orbit--mid"><div class="si-spin si-spin--mid">
-        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:45deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:90deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:135deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:225deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:270deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:315deg"><i class="si-e"></i></i>
-      </div></div>
-      <div class="si-orbit si-orbit--inner"><div class="si-spin si-spin--inner">
-        <i class="si-e-pos" style="--d:0deg"><i class="si-e"></i></i><i class="si-e-pos" style="--d:180deg"><i class="si-e"></i></i>
-      </div></div>
-      <div class="si-nucleus"><span class="si-pupil"></span><span class="si-glint"></span></div>
-    </div>
+    <!-- Si 原子：Canvas 3D（电子=真球体径向渐变 + 近大远小 + 深度遮挡 + 眼睛环顾） -->
+    <div class="si-atom" id="atomWrap"><canvas id="atom" width="460" height="460"></canvas></div>
 
     <!-- 进度条 -->
     <div class="boot-progress" role="progressbar">
@@ -219,55 +116,150 @@
 </div>
 
 <script>
-// ── 模拟启动串行链（真实阶段文案 + 装饰代码行交替）──
-const STAGES = [
-  { text: '载入本地配置…', decor: false, pct: 12 },
-  { text: '$ fractal init --core v0.1.0', decor: true, pct: 18 },
-  { text: '配置就绪', decor: false, pct: 30 },
-  { text: '$ opencode serve --port 51888', decor: true, pct: 38 },
-  { text: '启动引擎 serve…', decor: false, pct: 45 },
-  { text: '[ok] 校验引擎完整性 sha256 … 通过', decor: true, pct: 55 },
-  { text: '引擎就绪 · 事件流已连接', decor: false, pct: 70 },
-  { text: '[ok] 建立事件通道 … connected', decor: true, pct: 76 },
-  { text: '加载会话列表…', decor: false, pct: 82 },
-  { text: '[ok] 索引记忆区块 … 42 blocks', decor: true, pct: 88 },
-  { text: '[ok] 恢复工作区 … fractal', decor: true, pct: 94 },
-  { text: '分形核心已就绪', decor: false, pct: 100 },
+// ═══════════ Canvas 3D Si 原子（数学投影渲染）═══════════
+// 轨道 = 3D 空间圆环（绕 Y 主轴 0/120/240° 分布 + 俯视 68°），电子在环上匀速公转；
+// 投影 = 旋转矩阵 + 透视除法（近大远小）；电子画成径向渐变球体——任意角度都是圆（CSS 平面圆做不到）；
+// 分层绘制：轨道后半段 + 后电子 → 核 → 轨道前半段 + 前电子（真 3D 遮挡）
+const W = 460, H = 460, CX = 230, CY = 230;
+const canvas = document.getElementById('atom');
+const ctx = canvas.getContext('2d');
+const DPR = 2; // canvas 460 = 230css × 2
+ctx.scale(DPR, DPR);
+
+const ROT_X = Math.PI * 0.42;   // 俯视角 ≈75.6°（轨道椭圆开口大小——调小=更平更宽）
+const PERSP = 560;              // 透视距离（越小透视越强）
+const WOBBLE_AMP = 0.16;        // 整体摇摆幅度（±9.2°）
+
+// 轨道定义：r 半径 / tiltY 主轴（绕 Y 旋转）/ speed 公转速度(rad/s) / n 电子数 / phase 起始角
+const ORBITS = [
+  { r: 100, tiltY: 0,        speed: 0.50, n: 4, phase: 0.0 },
+  { r: 78,  tiltY: 2.094,    speed: 0.90, n: 8, phase: 0.4 },
+  { r: 52,  tiltY: 4.189,    speed: 1.95, n: 2, phase: 1.2 },
 ];
-const term = document.getElementById('term');
-const pfill = document.getElementById('pfill');
-const ppct = document.getElementById('ppct');
-let timer = null;
+const NUCLEUS_R = 25;          // 核半径（css 50px / 2）
+const PUPIL_R = 12;            // 瞳孔半径
+const GLINT_X = -11, GLINT_Y = -11; // 高光位置（核内左上）
 
-function pushLine(text, decor) {
-  const line = document.createElement('div');
-  line.className = 'boot-line' + (decor ? ' boot-line--decor' : '');
-  const caret = document.createElement('span');
-  caret.className = 'boot-caret' + (decor ? '' : ' boot-caret--accent');
-  caret.textContent = decor ? '›' : '▶';
-  line.appendChild(caret);
-  line.appendChild(document.createTextNode(text));
-  term.insertBefore(line, term.querySelector('.boot-cursor'));
-  const lines = term.querySelectorAll('.boot-line');
-  if (lines.length > 7) term.removeChild(lines[0]);
+// 轨道 3D 点：轨道圆在 XY 平面，先绕 Y 旋转 tiltY（主轴朝向），返回 3D 坐标
+function orbitPoint(r, tiltY, theta) {
+  const x = r * Math.cos(theta);
+  const y = r * Math.sin(theta);
+  const z = 0;
+  // 绕 Y 轴：主轴朝向
+  const x2 = x * Math.cos(tiltY) + z * Math.sin(tiltY);
+  const z2 = -x * Math.sin(tiltY) + z * Math.cos(tiltY);
+  return [x2, y, z2];
 }
 
-function replay() {
-  clearTimeout(timer);
-  term.querySelectorAll('.boot-line').forEach((l) => l.remove());
-  pfill.style.width = '0%';
-  ppct.textContent = '0%';
-  let i = 0;
-  (function next() {
-    if (i >= STAGES.length) return;
-    const s = STAGES[i++];
-    pushLine(s.text, s.decor);
-    pfill.style.width = s.pct + '%';
-    ppct.textContent = s.pct + '%';
-    timer = setTimeout(next, s.decor ? 260 : 520);
-  })();
+// 投影：绕 Y（摇摆）→ 绕 X（俯视）→ 透视
+function project(p, wobble) {
+  const [x, y, z] = p;
+  const x1 = x * Math.cos(wobble) + z * Math.sin(wobble);
+  const z1 = -x * Math.sin(wobble) + z * Math.cos(wobble);
+  const y1 = y * Math.cos(ROT_X) - z1 * Math.sin(ROT_X);
+  const z2 = y * Math.sin(ROT_X) + z1 * Math.cos(ROT_X);
+  const scale = PERSP / (PERSP + z2);
+  return { x: CX + x1 * scale, y: CY + y1 * scale, z: z2, s: scale };
 }
-replay();
+
+// 画轨道（分段：z<0 后半先画在核下，z>0 前半后画在核上）
+function drawOrbit(o, wobble, alpha) {
+  ctx.beginPath();
+  ctx.strokeStyle = `rgba(125, 211, 252, ${alpha})`;
+  ctx.lineWidth = 1.6;
+  const STEPS = 72;
+  let started = false;
+  for (let i = 0; i <= STEPS; i++) {
+    const th = (i / STEPS) * Math.PI * 2;
+    const pr = project(orbitPoint(o.r, o.tiltY, th), wobble);
+    if (pr.z > 0) {
+      if (!started) { ctx.moveTo(pr.x, pr.y); started = true; }
+      else ctx.lineTo(pr.x, pr.y);
+    } else started = false; // 分段：z<=0 断开
+  }
+  ctx.stroke();
+}
+function drawOrbitBack(o, wobble, alpha) {
+  ctx.beginPath();
+  ctx.strokeStyle = `rgba(125, 211, 252, ${alpha * 0.75})`;
+  ctx.lineWidth = 1.6;
+  const STEPS = 72;
+  let started = false;
+  for (let i = 0; i <= STEPS; i++) {
+    const th = (i / STEPS) * Math.PI * 2;
+    const pr = project(orbitPoint(o.r, o.tiltY, th), wobble);
+    if (pr.z <= 0) {
+      if (!started) { ctx.moveTo(pr.x, pr.y); started = true; }
+      else ctx.lineTo(pr.x, pr.y);
+    } else started = false;
+  }
+  ctx.stroke();
+}
+
+// 电子：径向渐变球体（近大远小：大小 × 投影 scale）——传入投影结果（分层已排序）
+function drawElectron(e) {
+  const { o, pr } = e;
+  const baseR = o.r > 90 ? 4.2 : 5;
+  const r = baseR * pr.s;
+  // 球体径向渐变（光源左上）
+  const g = ctx.createRadialGradient(pr.x - r * 0.35, pr.y - r * 0.35, r * 0.15, pr.x, pr.y, r);
+  g.addColorStop(0, '#7dd3fc');
+  g.addColorStop(0.55, '#0ea5e9');
+  g.addColorStop(1, '#075985');
+  ctx.beginPath();
+  ctx.arc(pr.x, pr.y, r, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+  // 辉光
+  ctx.beginPath();
+  ctx.arc(pr.x, pr.y, r * 2.1, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(14, 165, 233, ${0.22 * pr.s})`;
+  ctx.fill();
+}
+
+// 核（眼睛）：虹膜 + 瞳孔（环顾）+ 高光（固定）+ 辉光（呼吸）
+function drawNucleus(s) {
+  const glow = 0.5 + 0.5 * Math.sin(s * 2.4); // 呼吸 0..1
+  // 辉光（径向渐变大圆）
+  const gg = ctx.createRadialGradient(CX, CY, NUCLEUS_R * 0.4, CX, CY, NUCLEUS_R * 2.2);
+  gg.addColorStop(0, `rgba(14, 165, 233, ${0.38 * glow})`);
+  gg.addColorStop(1, 'rgba(14, 165, 233, 0)');
+  ctx.beginPath(); ctx.arc(CX, CY, NUCLEUS_R * 2.2, 0, Math.PI * 2); ctx.fillStyle = gg; ctx.fill();
+
+  // 虹膜（球面渐变 + 描边）
+  const ig = ctx.createRadialGradient(CX - 8, CY - 9, 3, CX, CY, NUCLEUS_R);
+  ig.addColorStop(0, '#0b4a75');
+  ig.addColorStop(0.55, '#0369a1');
+  ig.addColorStop(1, '#075985');
+  ctx.beginPath(); ctx.arc(CX, CY, NUCLEUS_R, 0, Math.PI * 2);
+  ctx.fillStyle = ig; ctx.fill();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)'; ctx.lineWidth = 1; ctx.stroke();
+
+  // 瞳孔（环顾扫视：椭圆轨迹，不同频率的 sin/cos 组合 = 到处看）
+  const px = CX + Math.sin(s * 0.9) * 9;
+  const py = CY + Math.cos(s * 1.3) * 9;
+  const pg = ctx.createRadialGradient(px - 3, py - 3, 2, px, py, PUPIL_R);
+  pg.addColorStop(0, '#38bdf8');
+  pg.addColorStop(0.6, '#0ea5e9');
+  pg.addColorStop(1, '#0284c7');
+  ctx.beginPath(); ctx.arc(px, py, PUPIL_R, 0, Math.PI * 2); ctx.fillStyle = pg; ctx.fill();
+
+  // 高光（固定左上，光源不动）
+  ctx.beginPath(); ctx.arc(CX + GLINT_X, CY + GLINT_Y, 4.5, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'; ctx.fill();
+  ctx.beginPath(); ctx.arc(CX + GLINT_X, CY + GLINT_Y, 7, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.18)'; ctx.fill();
+}
+
+// 底座（全息投影盘）：与核辉光同步闪烁
+function drawBase(s, glow) {
+  const g = ctx.createRadialGradient(CX, CY + 108, 5, CX, CY + 108, 66);
+  g.addColorStop(0, `rgba(56, 189, 248, ${0.14 * (0.6 + 0.4 * glow)})`);
+  g.addColorStop(1, 'rgba(56, 189, 248, 0)');
+  ctx.beginPath(); ctx.ellipse(CX, CY + 108, 66, 13, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+}
+
+requestAnimationFrame(frame);
 </script>
 </body>
 </html>

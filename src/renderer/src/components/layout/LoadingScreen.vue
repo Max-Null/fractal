@@ -3,7 +3,137 @@
  * 启动载入画面（赛博科幻风）：分形 logo 呼吸辉光 + 阶段进度条 + 假终端日志滚动。
  * 数据由 AppShell 串行启动链驱动（bootStage/bootPercent/bootTimedOut），本组件只做渲染与装饰。
  */
-import { computed } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+
+// ── Canvas 3D Si 原子渲染（数学投影，2026-08-09）──
+// CSS 平面圆在 3D 里必然被压扁（用户实测不可见）；Canvas 画径向渐变球体 +
+// 旋转矩阵投影（近大远小）+ z 分层遮挡（后段电子先画在核下/前段后画在核上）——任意角度都是圆
+const ATOM_W = 460 // canvas 物理尺寸（230css × 2 DPR）
+const ATOM_H = 460
+const ATOM_CX = 230
+const ATOM_CY = 230
+const ATOM_ROT_X = Math.PI * 0.42 // 俯视角（轨道椭圆开口）
+const ATOM_PERSP = 560 // 透视距离
+const ATOM_WOBBLE_AMP = 0.16 // 整体摇摆 ±9.2°
+// 轨道：r 半径 / tiltY 主轴（绕 Y 0/120/240°）/ speed 公转速度 / n 电子数 / phase 起始角
+const ATOM_ORBITS = [
+  { r: 100, tiltY: 0, speed: 0.5, n: 4, phase: 0 },
+  { r: 78, tiltY: 2.094, speed: 0.9, n: 8, phase: 0.4 },
+  { r: 52, tiltY: 4.189, speed: 1.95, n: 2, phase: 1.2 },
+]
+const ATOM_NUCLEUS_R = 25
+const ATOM_PUPIL_R = 12
+
+function atomOrbitPoint(r: number, tiltY: number, theta: number): [number, number, number] {
+  // 轨道圆在 XY 平面，绕 Y 轴 tiltY 旋转（主轴朝向）→ 3D 坐标
+  const x = r * Math.cos(theta)
+  const y = r * Math.sin(theta)
+  return [x * Math.cos(tiltY), y, -x * Math.sin(tiltY)]
+}
+function atomProject(p: [number, number, number], wobble: number) {
+  // 绕 Y（摇摆）→ 绕 X（俯视）→ 透视除法（近大远小）
+  const [x, y, z] = p
+  const x1 = x * Math.cos(wobble) + z * Math.sin(wobble)
+  const z1 = -x * Math.sin(wobble) + z * Math.cos(wobble)
+  const y1 = y * Math.cos(ATOM_ROT_X) - z1 * Math.sin(ATOM_ROT_X)
+  const z2 = y * Math.sin(ATOM_ROT_X) + z1 * Math.cos(ATOM_ROT_X)
+  const scale = ATOM_PERSP / (ATOM_PERSP + z2)
+  return { x: ATOM_CX + x1 * scale, y: ATOM_CY + y1 * scale, z: z2, s: scale }
+}
+// 轨道分段绘制（z<=0 后段 / z>0 前段）——核夹在中间形成前后遮挡
+function atomDrawOrbit(ctx: CanvasRenderingContext2D, o: (typeof ATOM_ORBITS)[number], wobble: number, alpha: number, back: boolean) {
+  ctx.beginPath()
+  ctx.strokeStyle = `rgba(125, 211, 252, ${alpha * (back ? 0.75 : 1)})`
+  ctx.lineWidth = 1.6
+  let started = false
+  for (let i = 0; i <= 72; i++) {
+    const pr = atomProject(atomOrbitPoint(o.r, o.tiltY, (i / 72) * Math.PI * 2), wobble)
+    const match = back ? pr.z <= 0 : pr.z > 0
+    if (match) {
+      if (!started) { ctx.moveTo(pr.x, pr.y); started = true }
+      else ctx.lineTo(pr.x, pr.y)
+    } else started = false
+  }
+  ctx.stroke()
+}
+// 电子球体（径向渐变 + 辉光，大小 × 投影 scale = 近大远小）
+function atomDrawElectron(ctx: CanvasRenderingContext2D, o: (typeof ATOM_ORBITS)[number], pr: ReturnType<typeof atomProject>) {
+  const r = (o.r > 90 ? 4.2 : 5) * pr.s
+  const g = ctx.createRadialGradient(pr.x - r * 0.35, pr.y - r * 0.35, r * 0.15, pr.x, pr.y, r)
+  g.addColorStop(0, '#7dd3fc')
+  g.addColorStop(0.55, '#0ea5e9')
+  g.addColorStop(1, '#075985')
+  ctx.beginPath(); ctx.arc(pr.x, pr.y, r, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill()
+  ctx.beginPath(); ctx.arc(pr.x, pr.y, r * 2.1, 0, Math.PI * 2)
+  ctx.fillStyle = `rgba(14, 165, 233, ${0.22 * pr.s})`; ctx.fill()
+}
+// 核（眼睛）：虹膜 + 瞳孔环顾 + 高光固定 + 辉光呼吸
+function atomDrawNucleus(ctx: CanvasRenderingContext2D, s: number) {
+  const glow = 0.5 + 0.5 * Math.sin(s * 2.4)
+  const gg = ctx.createRadialGradient(ATOM_CX, ATOM_CY, ATOM_NUCLEUS_R * 0.4, ATOM_CX, ATOM_CY, ATOM_NUCLEUS_R * 2.2)
+  gg.addColorStop(0, `rgba(14, 165, 233, ${0.38 * glow})`)
+  gg.addColorStop(1, 'rgba(14, 165, 233, 0)')
+  ctx.beginPath(); ctx.arc(ATOM_CX, ATOM_CY, ATOM_NUCLEUS_R * 2.2, 0, Math.PI * 2); ctx.fillStyle = gg; ctx.fill()
+  const ig = ctx.createRadialGradient(ATOM_CX - 8, ATOM_CY - 9, 3, ATOM_CX, ATOM_CY, ATOM_NUCLEUS_R)
+  ig.addColorStop(0, '#0b4a75'); ig.addColorStop(0.55, '#0369a1'); ig.addColorStop(1, '#075985')
+  ctx.beginPath(); ctx.arc(ATOM_CX, ATOM_CY, ATOM_NUCLEUS_R, 0, Math.PI * 2); ctx.fillStyle = ig; ctx.fill()
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)'; ctx.lineWidth = 1; ctx.stroke()
+  // 瞳孔环顾（sin/cos 不同频率组合 = 到处看）
+  const px = ATOM_CX + Math.sin(s * 0.9) * 9
+  const py = ATOM_CY + Math.cos(s * 1.3) * 9
+  const pg = ctx.createRadialGradient(px - 3, py - 3, 2, px, py, ATOM_PUPIL_R)
+  pg.addColorStop(0, '#38bdf8'); pg.addColorStop(0.6, '#0ea5e9'); pg.addColorStop(1, '#0284c7')
+  ctx.beginPath(); ctx.arc(px, py, ATOM_PUPIL_R, 0, Math.PI * 2); ctx.fillStyle = pg; ctx.fill()
+  // 高光固定（光源不动）
+  ctx.beginPath(); ctx.arc(ATOM_CX - 11, ATOM_CY - 11, 4.5, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)'; ctx.fill()
+  ctx.beginPath(); ctx.arc(ATOM_CX - 11, ATOM_CY - 11, 7, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.18)'; ctx.fill()
+}
+// 底座：与核辉光同步闪烁
+function atomDrawBase(ctx: CanvasRenderingContext2D, s: number) {
+  const glow = 0.5 + 0.5 * Math.sin(s * 2.4)
+  const g = ctx.createRadialGradient(ATOM_CX, ATOM_CY + 108, 5, ATOM_CX, ATOM_CY + 108, 66)
+  g.addColorStop(0, `rgba(56, 189, 248, ${0.14 * (0.6 + 0.4 * glow)})`)
+  g.addColorStop(1, 'rgba(56, 189, 248, 0)')
+  ctx.beginPath(); ctx.ellipse(ATOM_CX, ATOM_CY + 108, 66, 13, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill()
+}
+function atomFrame(ctx: CanvasRenderingContext2D, s: number) {
+  ctx.clearRect(0, 0, ATOM_W, ATOM_H)
+  const wobble = Math.sin(s * 0.52) * ATOM_WOBBLE_AMP
+  const glow = 0.5 + 0.5 * Math.sin(s * 2.4)
+  const orbitAlpha = 0.3 + 0.3 * glow
+  atomDrawBase(ctx, s)
+  const backE: Array<{ o: (typeof ATOM_ORBITS)[number]; pr: ReturnType<typeof atomProject> }> = []
+  const frontE: typeof backE = []
+  for (const o of ATOM_ORBITS) {
+    atomDrawOrbit(ctx, o, wobble, orbitAlpha, true)
+    for (let i = 0; i < o.n; i++) {
+      const pr = atomProject(atomOrbitPoint(o.r, o.tiltY, o.phase + s * o.speed + (i / o.n) * Math.PI * 2), wobble)
+      ;(pr.z <= 0 ? backE : frontE).push({ o, pr })
+    }
+  }
+  for (const e of backE) atomDrawElectron(ctx, e.o, e.pr) // 后段电子（核下）
+  atomDrawNucleus(ctx, s) // 核
+  for (const e of frontE) atomDrawElectron(ctx, e.o, e.pr) // 前段电子（核上）
+  for (const o of ATOM_ORBITS) atomDrawOrbit(ctx, o, wobble, orbitAlpha, false) // 轨道前段
+}
+
+const atomCanvasRef = ref<HTMLCanvasElement | null>(null)
+let atomRaf = 0
+let atomStart = 0
+function startAtom() {
+  const canvas = atomCanvasRef.value
+  if (!canvas) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.scale(2, 2) // DPR：460 物理 = 230 css × 2
+  atomStart = performance.now()
+  const loop = (now: number) => { atomFrame(ctx, (now - atomStart) / 1000); atomRaf = requestAnimationFrame(loop) }
+  atomRaf = requestAnimationFrame(loop)
+}
+onMounted(startAtom)
+onUnmounted(() => cancelAnimationFrame(atomRaf))
 
 const props = defineProps<{
   /** 启动阶段（AppShell 串行链维护）：local（本地配置）→ engine（引擎就绪）→ sessions（会话列表）→ done/timeout */
@@ -42,22 +172,10 @@ const stageLines = computed(() => {
     <div class="boot-scan" aria-hidden="true" />
 
     <div class="boot-center">
-      <!-- Si 原子模型（硅基之心）：核=瞳孔 + 2-8-4 三层电子轨道公转——呼应 logo 的 Si 原子设计 -->
+      <!-- Si 原子：Canvas 3D（电子=径向渐变球体 + 近大远小 + z 分层遮挡 + 眼睛环顾）——
+           CSS 平面圆 3D 压扁问题改数学投影渲染（2026-08-09 用户建议） -->
       <div class="si-atom" aria-hidden="true">
-        <!-- 外层轨道（4 电子，最慢）：倾角 62° 近水平 -->
-        <div class="si-orbit si-orbit--outer"><div class="si-spin si-spin--outer">
-          <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 90deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 270deg"><i class="si-e" /></i>
-        </div></div>
-        <!-- 中层轨道（8 电子，中速）：绕 Y 偏转 14°（轨道平面错开，立体感） -->
-        <div class="si-orbit si-orbit--mid"><div class="si-spin si-spin--mid">
-          <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 45deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 90deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 135deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 225deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 270deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 315deg"><i class="si-e" /></i>
-        </div></div>
-        <!-- 内层轨道（2 电子，最快）：绕 Y 反向偏转 22°（与中层镜像错开） -->
-        <div class="si-orbit si-orbit--inner"><div class="si-spin si-spin--inner">
-          <i class="si-e-pos" style="--d: 0deg"><i class="si-e" /></i><i class="si-e-pos" style="--d: 180deg"><i class="si-e" /></i>
-        </div></div>
-        <!-- 原子核 = 瞳孔（logo 同款：虹膜深蓝 + 瞳孔天蓝 + 高光） -->
-        <div class="si-nucleus"><span class="si-pupil" /><span class="si-glint" /></div>
+        <canvas ref="atomCanvasRef" width="460" height="460" />
       </div>
 
       <!-- 进度条：accent 渐变 + 前端光点 -->
@@ -149,173 +267,16 @@ const stageLines = computed(() => {
   z-index: 1;
 }
 
-/* ── Si 原子模型 v3：真 3D（preserve-3d）——参考 react-loading-indicator + fresh-portfolio 原子动画方案
-   轨道 rotateX(80°) 近直立 + rotateY(0/120/240°) 三向分布（长轴互成 120°，教科书原子）；
-   核不设 z-index → 参与 3D 深度排序，轨道穿核时前段盖核、后段被核盖（天然遮挡）── */
+/* ── Si 原子：Canvas 3D 容器（渲染逻辑在 script；物理 460px = 230css × 2 DPR）── */
 .si-atom {
   position: relative;
-  width: 200px;
-  height: 200px;
-  perspective: 700px;
-  transform-style: preserve-3d;
-  /* 整体摇摆：观察者视角缓动，错层轨道立刻「活」起来（制图师 P1，2026-08-09） */
-  animation: atom-wobble 12s ease-in-out infinite;
+  width: 230px;
+  height: 230px;
 }
-@keyframes atom-wobble {
-  0%, 100% { transform: rotateY(-10deg); }
-  50% { transform: rotateY(10deg); }
-}
-
-/* ── 轨道环 v3.1：scale 定半径层级 + 3D 摆放（rotateX 60° + rotateY 三向主轴互成 120°）──
-   用户反馈三轮：rotateX 80° 投影过扁轨道不可见 → 60°；border 1px→1.5px 加亮 */
-.si-orbit {
-  position: absolute;
-  inset: 0;
-  border: 1.5px solid rgba(14, 165, 233, 0.5);
-  border-radius: 50%;
-  transform-style: preserve-3d;
-  animation: orbit-breathe 6s ease-in-out infinite;
-}
-.si-orbit--outer { transform: scale(1) rotateX(60deg) rotateY(0deg); }
-.si-orbit--mid { transform: scale(0.78) rotateX(60deg) rotateY(120deg); animation-delay: -2s; }
-.si-orbit--inner { transform: scale(0.52) rotateX(60deg) rotateY(240deg); animation-delay: -4s; }
-@keyframes orbit-breathe {
-  0%, 100% { border-color: rgba(125, 211, 252, 0.3); }
-  50% { border-color: rgba(125, 211, 252, 0.6); }
-}
-
-/* ── 公转：轨道平面内 rotateZ 0→360（动画覆盖 transform，keyframes 保留静态摆放）── */
-.si-spin {
-  position: absolute;
-  inset: 0;
-  animation: si-spin linear infinite;
-  transform-style: preserve-3d;
-}
-.si-spin--outer { animation-name: si-spin-0; animation-duration: 11s; animation-delay: -2.6s; }
-.si-spin--mid { animation-name: si-spin-120; animation-duration: 6.5s; animation-delay: -1.2s; }
-.si-spin--inner { animation-name: si-spin-240; animation-duration: 3.2s; }
-@keyframes si-spin-0 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-@keyframes si-spin-120 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-@keyframes si-spin-240 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
-
-/* ── 电子：位置层定起始角（rotate(--d) 绕轨道中心），电子在位置层顶部 ── */
-.si-e-pos {
-  position: absolute;
-  inset: 0;
-  transform: rotate(var(--d, 0deg));
-}
-/* 电子：反向补偿动画 + delay 与公转严格对齐（同 start 时刻 counter 才成立——
-   用户反馈「电子几乎不见了」= delay 未对齐，补偿失效电子被压扁成线） */
-.si-e {
-  position: absolute;
-  left: 50%;
-  top: -5px;
-  width: 8px;
-  height: 8px;
-  margin-left: -4px;
-  border-radius: 50%;
-  background: var(--accent);
-  box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
-}
-.si-orbit--outer .si-e { animation: e-fix-0 11s linear -2.6s infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: 0.85; }
-.si-orbit--mid .si-e { animation: e-fix-120 6.5s linear -1.2s infinite; opacity: 0.9; }
-.si-orbit--inner .si-e { animation: e-fix-240 3.2s linear 0s infinite; }
-@keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-60deg) rotateZ(-360deg); } }
-@keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(-360deg); } }
-@keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(-360deg); } }
-
-/* ── 原子核 = 眼睛（logo 同款瞳孔）：虹膜容器 + 会「到处看」的瞳孔 ──
-   v3.1：去 overflow hidden（瞳孔 22px 移动 ±9px 不越界 46px 核——原为防越界，实为多余）；
-   去 box-shadow 呼吸辉光（preserve-3d 下被裁剪，用户反馈「左/上被切掉」）→ 辉光改伪元素 */
-.si-nucleus {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 46px;
-  height: 46px;
-  margin: -23px 0 0 -23px;
-  border-radius: 50%;
-  /* 描边 + 内阴影：球体感而非平面圆（制图师 P1，2026-08-09） */
-  border: 1px solid rgba(56, 189, 248, 0.35);
-  background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
-  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.12);
-  /* v3 真 3D：不设 z-index（参与 preserve-3d 深度排序，轨道穿核时天然前后遮挡）；
-     translateZ(0) 锚定核到 z=0 平面 */
-  transform: translateZ(0);
-}
-/* 核辉光：独立伪元素 radial-gradient（呼吸动画在伪元素上，不被 3D 裁剪） */
-.si-nucleus::after {
-  content: '';
-  position: absolute;
-  inset: -16px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(14, 165, 233, 0.45), transparent 62%);
-  animation: nucleus-glow 2.6s ease-in-out infinite;
-  z-index: -1;
-}
-@keyframes nucleus-glow {
-  0%, 100% { opacity: 0.55; }
-  50% { opacity: 1; }
-}
-/* 瞳孔：天蓝圆点 + 「环顾」扫视动画（8 方向平滑循环 = 到处看） */
-.si-pupil {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 22px;
-  height: 22px;
-  margin: -11px 0 0 -11px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, #38bdf8, #0ea5e9 60%, #0284c7);
-  animation: eye-look 6.5s ease-in-out infinite;
-}
-@keyframes eye-look {
-  0%   { transform: translate(0, 0); }
-  10%  { transform: translate(-8px, -5px); }   /* 左上 */
-  22%  { transform: translate(2px, -9px); }    /* 上 */
-  34%  { transform: translate(9px, -3px); }    /* 右上 */
-  46%  { transform: translate(9px, 6px); }     /* 右下 */
-  58%  { transform: translate(0, 9px); }       /* 下 */
-  70%  { transform: translate(-9px, 4px); }    /* 左下 */
-  82%  { transform: translate(-7px, -6px); }   /* 左 */
-  92%  { transform: translate(0, 0); }
-  100% { transform: translate(0, 0); }
-}
-/* 高光：光源反射固定在虹膜左上（瞳孔移动时高光不动——光源方向不变，用户指正 2026-08-09） */
-.si-glint {
-  position: absolute;
-  left: 7px;
-  top: 6px;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 0 5px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.4);
-}
-
-/* ── 全息底座：原子下方淡光晕（投影盘感，锚定空间，制图师 P2）——translateZ(-40px) 放核后（3D 场景内）── */
-.si-atom::after {
-  content: '';
-  position: absolute;
-  left: 50%;
-  bottom: 4px;
-  width: 180px;
-  height: 26px;
-  transform: translateX(-50%) translateZ(-40px);
-  border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.10), transparent 70%);
-  filter: blur(2px);
-}
-
-/* ── 轨道呼吸：边框亮度缓慢脉动（全息感，制图师 P2）── */
-.si-orbit {
-  animation: orbit-breathe 6s ease-in-out infinite;
-}
-.si-orbit--mid { animation-delay: -2s; }
-.si-orbit--inner { animation-delay: -4s; }
-@keyframes orbit-breathe {
-  0%, 100% { border-color: rgba(125, 211, 252, 0.22); }
-  50% { border-color: rgba(125, 211, 252, 0.5); }
+.si-atom canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 /* ── 进度条：accent 渐变填充 + 前端光点 ── */
