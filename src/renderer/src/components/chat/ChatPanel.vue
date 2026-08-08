@@ -316,6 +316,16 @@ watch(
   { immediate: true }
 );
 
+// 切会话清空预拉缓存与失败标记：子会话归属不同会话，旧数据无意义且避免
+// prefetchedIds 常驻增长（审查项；切回时数据未变会重拉一次，无害）
+watch(
+  () => session.activeSessionId,
+  () => {
+    prefetchedIds.clear();
+    historySummaries.value = {};
+  }
+);
+
 /**
  * 并行预拉：对未尝试过的子会话并发拉摘要（上限 PREFETCH_CONCURRENCY）。
  * 结果写入 historySummaries → subTaskMap 重算注入卡片 summary；失败留空（不重试）。
