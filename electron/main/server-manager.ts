@@ -1,4 +1,4 @@
-﻿// serve 进程管理：spawn `opencode serve` 并隔离 XDG_CONFIG_HOME（阶段 4 实现）
+// serve 进程管理：spawn `opencode serve` 并隔离 XDG_CONFIG_HOME（阶段 4 实现）
 // 关键实测结论（阶段 0，勿重新发明）：
 // - serve v1.15+ 默认要求 Basic 认证：凭据由 env OPENCODE_SERVER_USERNAME/PASSWORD 注入，SDK 带 Basic 头
 // - 配置隔离：env XDG_CONFIG_HOME=<分形数据目录>/config → 全局配置路径变为 <XDG>/opencode/opencode.json
@@ -94,6 +94,8 @@ interface InternalState {
   /** ready() 缓存：并发调用共享同一次启动；失败置空可重试 */  startPromise: Promise<StartServerResult> | null
   /** 主动停止标记：stopServer 置 true，防止退出时误 dump 崩溃日志（正常停止 code!=0 不算崩溃） */
   stopping: boolean
+  /** spawn 时间戳（崩溃 dump 上下文：exit 回调诊断实例寿命用） */
+  startedAt?: number
 }
 
 /** 健康检查：轮询 GET /doc（带 Basic 头），200 即就绪；2s 间隔、30s 超时 */
@@ -271,6 +273,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     startPromise: null,
     /** 主动停止标记：stopServer 置 true，防止退出时误 dump 崩溃日志（正常停止 code!=0 不算崩溃） */
     stopping: false,
+    /** spawn 时间戳（崩溃 dump 上下文：exit 回调诊断实例寿命用） */
+    startedAt: undefined,
   }
   /** 当前实例的 serve.log 路径（spawn 时赋值，stopServer 时 end 流） */
   let serveLogFile = ''
@@ -380,6 +384,7 @@ async function startServer(): Promise<StartServerResult> {
     // 否则首次启动独立模式会读到 DEFAULT 默认值 shared，数据目录注入失效）
     const dataMode = options.dataMode ?? (typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared')
 
+    state.startedAt = Date.now()
     const child = spawn(
       bin,
       // --print-logs：serve 默认日志静默，加此参数后 INFO 日志（loading/listening/插件报错）输出到 stderr——
@@ -429,11 +434,17 @@ async function startServer(): Promise<StartServerResult> {
     child.on('exit', (code, signal) => {
       // 退出时收 serve 日志流（与 stopServer 对称；serve 崩溃时旧文件句柄不残留，下次启动重建）
       if (serveLogFile) void closeServeLog(serveLogFile)
-      // 非零退出且非主动停止 → dump 崩溃 stderr 原文（诊断 serve 崩溃根因——appendServeLog 行级处理可能丢段）
-      if (code !== 0 && !state.stopping && serveStderrTail.trim()) {
+      // 非零退出且非主动停止 → dump 崩溃现场（诊断 serve 崩溃根因；stderr 为空也写——
+      // 实测 serve 崩溃 exit code=1 但 stderr 零输出（2026-08-08 两例），只有时间戳/进程上下文可用）
+      if (code !== 0 && !state.stopping) {
         try {
           const crashFile = join(options.userDataDir, 'logs', `serve-crash-${Date.now()}.log`)
-          appendFileSync(crashFile, `[exit code=${code} signal=${signal ?? ''} @ ${new Date().toISOString()}]\n` + serveStderrTail)
+          const ctx = [
+            `[exit code=${code} signal=${signal ?? ''} @ ${new Date().toISOString()}]`,
+            `[run started @ ${state.startedAt ? new Date(state.startedAt).toISOString() : 'unknown'}]`,
+            `[xdg data dir exists=${existsSync(join(options.userDataDir, 'data'))}]`,
+          ].join('\n')
+          appendFileSync(crashFile, ctx + '\n' + (serveStderrTail || '[stderr empty]'))
         } catch {
           /* dump 失败不阻断退出流程 */
         }
