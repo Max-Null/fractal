@@ -89,7 +89,7 @@ describe("SubTaskDetail 状态头", () => {
 
   // ── 消息区（任务描述 + 角色标签）：首条 user = 主智能体任务描述；assistant = 子智能体执行 ──
 
-  it("首条 user 消息渲染为任务描述区（🎯 + 由主智能体派发 + 描述文本全宽）", async () => {
+  it("首条 user 消息渲染为任务描述区（🎯 + 描述文本全宽）", async () => {
     listMessagesMock.mockResolvedValue([
       { id: "m1", role: "user", content: "请分析项目代码结构", created_at: "2026-01-01T00:00:00" },
       { id: "m2", role: "assistant", content: "开始分析", created_at: "2026-01-01T00:00:01" },
@@ -98,7 +98,6 @@ describe("SubTaskDetail 状态头", () => {
     await flushPromises();
     expect(wrapper.find(".detail-task-desc").exists()).toBe(true);
     expect(wrapper.text()).toContain("🎯 任务描述");
-    expect(wrapper.text()).toContain("由主智能体派发");
     expect(wrapper.text()).toContain("请分析项目代码结构");
   });
 

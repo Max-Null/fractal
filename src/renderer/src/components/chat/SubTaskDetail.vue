@@ -124,7 +124,6 @@ function onBack() {
         <div v-if="index === 0 && msg.role === 'user'" class="detail-task-desc">
           <div class="detail-task-desc-head">
             <span class="detail-task-desc-title">🎯 任务描述</span>
-            <span class="detail-task-desc-tag">由主智能体派发</span>
           </div>
           <p class="detail-task-desc-text">{{ msg.text || '…' }}</p>
         </div>
@@ -232,15 +231,6 @@ function onBack() {
   font-size: 12px;
   font-weight: 600;
   color: var(--accent);
-}
-.detail-task-desc-tag {
-  font-size: 10px;
-  color: var(--accent);
-  background: var(--bg-surface);
-  border: 1px solid var(--accent-dim);
-  border-radius: 4px;
-  padding: 0.05rem 0.35rem;
-  white-space: nowrap;
 }
 .detail-task-desc-text {
   margin: 0;
