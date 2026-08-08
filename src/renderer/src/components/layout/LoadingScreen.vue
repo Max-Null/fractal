@@ -127,7 +127,8 @@ function startAtom() {
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  ctx.scale(2, 2) // DPR：460 物理 = 230 css × 2
+  // 注意：不 scale！坐标系保持 460×460 物理像素（ATOM_CX=230 即画布中心），CSS width:100% 缩到 230css 显示——
+  // scale(2) 会把坐标系压成 0..230，原子画到右下角（2026-08-09 实测）
   atomStart = performance.now()
   const loop = (now: number) => { atomFrame(ctx, (now - atomStart) / 1000); atomRaf = requestAnimationFrame(loop) }
   atomRaf = requestAnimationFrame(loop)

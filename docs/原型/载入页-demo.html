@@ -123,8 +123,8 @@
 const W = 460, H = 460, CX = 230, CY = 230;
 const canvas = document.getElementById('atom');
 const ctx = canvas.getContext('2d');
-const DPR = 2; // canvas 460 = 230css × 2
-ctx.scale(DPR, DPR);
+// 注意：不 scale！坐标系保持 460×460 物理像素（CX=230 即画布中心），
+// CSS width:100% 缩到 230css 显示（2x 细腻度）——scale 会把坐标系压成 0..230 导致原子画到右下角（2026-08-09 实测）
 
 const ROT_X = Math.PI * 0.42;   // 俯视角 ≈75.6°（轨道椭圆开口大小——调小=更平更宽）
 const PERSP = 560;              // 透视距离（越小透视越强）
@@ -288,7 +288,57 @@ function frame(now) {
   // ④ 轨道前半段（z>0，最后画在核上）
   for (const o of ORBITS) drawOrbit(o, wobble, orbitAlpha);
 
-  requestAnimationFrame(frame);
+requestAnimationFrame(frame);
+
+// ═══════════ 终端日志 + 进度条（模拟启动串行链）═══════════
+const STAGES = [
+  { text: '载入本地配置…', decor: false, pct: 12 },
+  { text: '$ fractal init --core v0.1.0', decor: true, pct: 18 },
+  { text: '配置就绪', decor: false, pct: 30 },
+  { text: '$ opencode serve --port 51888', decor: true, pct: 38 },
+  { text: '启动引擎 serve…', decor: false, pct: 45 },
+  { text: '[ok] 校验引擎完整性 sha256 … 通过', decor: true, pct: 55 },
+  { text: '引擎就绪 · 事件流已连接', decor: false, pct: 70 },
+  { text: '[ok] 建立事件通道 … connected', decor: true, pct: 76 },
+  { text: '加载会话列表…', decor: false, pct: 82 },
+  { text: '[ok] 索引记忆区块 … 42 blocks', decor: true, pct: 88 },
+  { text: '[ok] 恢复工作区 … fractal', decor: true, pct: 94 },
+  { text: '分形核心已就绪', decor: false, pct: 100 },
+];
+const term = document.getElementById('term');
+const pfill = document.getElementById('pfill');
+const ppct = document.getElementById('ppct');
+let logTimer = null;
+
+function pushLine(text, decor) {
+  const line = document.createElement('div');
+  line.className = 'boot-line' + (decor ? ' boot-line--decor' : '');
+  const caret = document.createElement('span');
+  caret.className = 'boot-caret' + (decor ? '' : ' boot-caret--accent');
+  caret.textContent = decor ? '›' : '▶';
+  line.appendChild(caret);
+  line.appendChild(document.createTextNode(text));
+  term.insertBefore(line, term.querySelector('.boot-cursor'));
+  const lines = term.querySelectorAll('.boot-line');
+  if (lines.length > 7) term.removeChild(lines[0]);
+}
+
+function replay() {
+  clearTimeout(logTimer);
+  term.querySelectorAll('.boot-line').forEach((l) => l.remove());
+  pfill.style.width = '0%';
+  ppct.textContent = '0%';
+  let i = 0;
+  (function next() {
+    if (i >= STAGES.length) return;
+    const st = STAGES[i++];
+    pushLine(st.text, st.decor);
+    pfill.style.width = st.pct + '%';
+    ppct.textContent = st.pct + '%';
+    logTimer = setTimeout(next, st.decor ? 260 : 520);
+  })();
+}
+replay();
 }
 requestAnimationFrame(frame);
 </script>
