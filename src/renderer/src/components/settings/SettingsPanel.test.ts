@@ -36,6 +36,8 @@ const i18n = createI18n({
         llmApiUrlPlaceholder: "Full URL",
         llmApiUrlLookup: "Lookup",
         changelog: "Changelog",
+        engineVersion: "OC Engine",
+        presetVersion: "Preset",
         contextLimit: "Context Limit",
         contextLimitPlaceholder: "0=auto, accepts 128K / 1M",
       },
@@ -67,9 +69,14 @@ describe("SettingsPanel", () => {
   beforeEach(async () => {
     localStorage.clear();
     // mock electronBridge：默认模型（flash）variants 返回 3 档——
-    // store 的 watch(model, immediate) 经此拉取，effort 下拉显示、触发器计数保持 6
+    // store 的 watch(model, immediate) 经此拉取，effort 下拉显示、触发器计数保持 6；
+    // app:getInfo 返回三版本（关于区 onMounted 异步拉取）
     (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
-      invoke: (channel: string) => (channel === "provider:modelVariants" ? Promise.resolve(["low", "high", "max"]) : Promise.resolve({})),
+      invoke: (channel: string) => {
+        if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+        if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+        return Promise.resolve({});
+      },
       on: () => () => {},
     };
     pinia = createPinia();
@@ -162,11 +169,16 @@ describe("SettingsPanel", () => {
     expect(wrapper.text()).toContain("Interface Settings");
   });
 
-  it("renders about footer", () => {
+  it("renders about footer with three version lines", async () => {
     const wrapper = mountPanel();
+    // flush onMounted 的异步 getAppInfo（invoke mock 返回三版本）
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain("Fractal");
     // 版本号来自 vitest define __APP_VERSION__（package.json version），不写死具体版本
     expect(wrapper.text()).toContain(`v${__APP_VERSION__}`);
+    // v1.1.0 新增：OC 引擎版本 + 预置包版本（标签 + 值）
+    expect(wrapper.text()).toContain("OC Engine 1.18.15");
+    expect(wrapper.text()).toContain("Preset 1.1.0");
   });
 
   // ── Connection test ──

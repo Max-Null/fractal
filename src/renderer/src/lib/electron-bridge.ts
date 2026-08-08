@@ -324,9 +324,18 @@ export async function readServeLog(lines = 500): Promise<string[]> {
   return invoke("logs:readServeLog", { lines });
 }
 
-/** 应用信息（诊断面板「复制诊断信息」打包头：应用名 + 版本） */
-export async function getAppInfo(): Promise<{ name: string; version: string }> {
-  return invoke<{ name: string; version: string }>("app:getInfo");
+/** 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本） */
+export interface AppInfo {
+  name: string;
+  version: string;
+  /** OC 引擎版本（opencode --version 首行，失败 '未知'） */
+  engineVersion: string;
+  /** 预置包版本（preset.json.version，读不到 '—'） */
+  presetVersion: string;
+}
+
+export async function getAppInfo(): Promise<AppInfo> {
+  return invoke<AppInfo>("app:getInfo");
 }
 
 /** 加载会话日志（返回 [debugJson] 或 null；stderr.json 槽位已移除——OC 无 --verbose 输出，CC 遗留机制废除） */

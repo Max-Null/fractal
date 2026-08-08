@@ -11,6 +11,7 @@ import {
   readPresetManifest,
   initPreset,
   ensurePresetConfig,
+  getPresetVersion,
   PRESET_INSTRUCTION_FILE
 } from './preset'
 
@@ -251,7 +252,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     await fsp.rm(userData, { recursive: true, force: true })
   })
 
-  it('首次初始化完整流程：5 agents / 15 skills / 2 plugins+lib 拷贝 + opencode.json 字段 merge', async () => {
+  it('首次初始化完整流程：7 agents / 15 skills / 2 plugins+lib 拷贝 + opencode.json 字段 merge', async () => {
     // presetRoot 用真实交付物（electron/resources/preset，getDefaultPresetRoot 解析）
     const presetRoot = getDefaultPresetRoot()
     const manifest = await readPresetManifest(presetRoot)
@@ -260,10 +261,12 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     expect(init.initialized).toBe(true)
 
     const target = getPresetTarget(userData)
-    // agents：5 个 oc-plus agent md
+    // agents：7 个 oc-plus agent md（双星/工匠/参谋/军师/助理 + v1.1.0 新增 侦查兵/制图师）
     const agents = await fsp.readdir(join(target, 'agents'))
-    expect(agents.length).toBe(5)
+    expect(agents.length).toBe(7)
     expect(agents).toContain('双星.md')
+    expect(agents).toContain('侦查兵.md')
+    expect(agents).toContain('制图师.md')
     // skills：15 个 mxy-*/omo-* 目录（mxy 9 + omo 6）
     const skills = await fsp.readdir(join(target, 'skills'))
     expect(skills.length).toBe(15)
@@ -327,5 +330,31 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
     expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
     expect((cfg.instructions as string[]).filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
+  })
+})
+
+// ── getPresetVersion（设置页「关于」预置包版本；双路径解析复用 getDefaultPresetRoot）──
+describe('getPresetVersion', () => {
+  it('源码路径：读取真实交付物 preset.json 的 version（v1.1.0，升级后新增 侦查兵/制图师 agent）', async () => {
+    expect(await getPresetVersion()).toBe('1.1.0')
+  })
+
+  it('preset.json 缺失 → 返回 占位符 —（不抛错）', async () => {
+    const emptyRoot = await fsp.mkdtemp(join(tmpdir(), 'preset-empty-'))
+    try {
+      expect(await getPresetVersion(emptyRoot)).toBe('—')
+    } finally {
+      await fsp.rm(emptyRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('preset.json version 非字符串/空 → 返回 占位符 —', async () => {
+    const brokenRoot = await fsp.mkdtemp(join(tmpdir(), 'preset-broken-'))
+    try {
+      await fsp.writeFile(join(brokenRoot, 'preset.json'), JSON.stringify({ version: 42 }), 'utf-8')
+      expect(await getPresetVersion(brokenRoot)).toBe('—')
+    } finally {
+      await fsp.rm(brokenRoot, { recursive: true, force: true })
+    }
   })
 })

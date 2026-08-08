@@ -258,11 +258,11 @@ describe("readServeLog / getAppInfo（诊断面板引擎日志数据源，方案
     expect(invokeMock).toHaveBeenCalledWith("logs:readServeLog", { lines: 100 });
   });
 
-  it("getAppInfo → app:getInfo 返回 { name, version }（无参数时 invoke 第二参数为 undefined，桥约定）", async () => {
-    invokeMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
+  it("getAppInfo → app:getInfo 返回分形/OC 引擎/预置包三版本（无参数时 invoke 第二参数为 undefined，桥约定）", async () => {
+    invokeMock.mockResolvedValue({ name: "分形", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
     const r = await getAppInfo();
     expect(invokeMock).toHaveBeenCalledWith("app:getInfo", undefined);
-    expect(r).toEqual({ name: "分形", version: "1.2.3" });
+    expect(r).toEqual({ name: "分形", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
   });
 });
 

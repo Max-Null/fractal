@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
-import { testConnection, sendMessage, openDialog, type ConnectionTestResult } from "@/lib/electron-bridge";
+import { testConnection, sendMessage, openDialog, getAppInfo, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { useSessionStore } from "@/stores/session";
 
@@ -145,6 +145,19 @@ function onBodyClick(e: MouseEvent) {
 }
 onMounted(() => document.addEventListener("click", onBodyClick));
 onUnmounted(() => document.removeEventListener("click", onBodyClick));
+
+// ── 关于区版本信息：OC 引擎版本 + 预置包版本（app:getInfo 异步获取；失败兜底占位符，不影响渲染）──
+const engineVersion = ref("—");
+const presetVersion = ref("—");
+onMounted(async () => {
+  try {
+    const info = await getAppInfo();
+    engineVersion.value = info.engineVersion || "—";
+    presetVersion.value = info.presetVersion || "—";
+  } catch {
+    // 桥未就绪/主进程异常 → 保持兜底 '—'，关于区仍显示分形版本
+  }
+});
 
 // ── 权限模式选项（对齐操作行 4 模式：全部询问/自动编辑/完全放行/计划；auto/dontAsk 为 CC 遗留已移除——
 // 全自动语义由 bypassPermissions 承担（OC --auto 映射）；旧 autoMode 配置兼容读取）──
@@ -592,6 +605,11 @@ const showAdvanced = ref(false);
             >{{ $t('settings.changelog') }}</button>
             <span class="font-mono">v{{ appVersion }}</span>
           </div>
+        </div>
+        <!-- 关于第二行：OC 引擎版本 + 预置包版本（对齐上行样式） -->
+        <div class="mt-1 flex items-center justify-end gap-3 text-[10px]" :style="{ color: 'var(--text-muted)' }">
+          <span class="font-mono">{{ $t('settings.engineVersion') }} {{ engineVersion }}</span>
+          <span class="font-mono">{{ $t('settings.presetVersion') }} {{ presetVersion }}</span>
         </div>
       </footer>
     </div>

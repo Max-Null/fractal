@@ -104,6 +104,20 @@ async function copyDir(src: string, dest: string): Promise<void> {
 }
 
 /**
+ * 读取预置包版本（设置页「关于」三行版本之一；路径解析复用 getDefaultPresetRoot 双路径）。
+ * 读不到/损坏 → 返回 '—'（展示兜底，不抛错——版本信息缺失不应影响设置页渲染）。
+ */
+export async function getPresetVersion(presetRoot = getDefaultPresetRoot()): Promise<string> {
+  try {
+    const raw = await fsp.readFile(join(presetRoot, 'preset.json'), 'utf-8')
+    const manifest = JSON.parse(raw) as Partial<PresetManifest>
+    return typeof manifest?.version === 'string' && manifest.version ? manifest.version : '—'
+  } catch {
+    return '—'
+  }
+}
+
+/**
  * merge 预置字段进 opencode.json：default_agent / plugin 声明 / instructions 指令文件路径。
  * 不覆盖用户已有配置——三个字段都只补缺：已有值保留，数组项去重追加。
  */

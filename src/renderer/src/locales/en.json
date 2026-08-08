@@ -154,6 +154,8 @@
     "llmApiUrlLookup": "Lookup",
     "about": "About Fractal",
     "aboutDesc": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · DeepSeek API",
+    "engineVersion": "OC Engine",
+    "presetVersion": "Preset",
     "changelog": "Changelog",
     "reopenOnboarding": "Reopen onboarding",
     "advanced": "Advanced Settings (settings.json)",

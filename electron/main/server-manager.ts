@@ -173,6 +173,40 @@ async function resolveOpencodeBin(): Promise<string> {
   throw new Error('未安装 OC，sidecar 待阶段 7')
 }
 
+// ══════════════════════════════════════════════════════════════════
+// 引擎版本查询（设置页「关于」三行版本之一）
+// ══════════════════════════════════════════════════════════════════
+
+/** 引擎版本缓存：`opencode --version` 执行 ~100ms，首次调用后固定；引擎升级场景重启 app 即刷新 */
+let cachedEngineVersion: string | null = null
+
+/** 测试辅助：重置引擎版本缓存（vitest 多用例注入不同 execFile 结果时隔离状态） */
+export function resetEngineVersionCache(): void {
+  cachedEngineVersion = null
+}
+
+/**
+ * 查询 OC 引擎版本（内置 sidecar `opencode --version`）。
+ * 执行失败（bin 缺失/解析错误）→ 返回 '未知'（展示兜底，不抛错——版本信息缺失不影响设置页渲染）。
+ */
+export async function getEngineVersion(): Promise<string> {
+  if (cachedEngineVersion !== null) return cachedEngineVersion
+  cachedEngineVersion = await resolveEngineVersion().catch(() => '未知')
+  return cachedEngineVersion
+}
+
+/** 实际执行 `opencode --version` 并取首行（如 "1.18.15"）；解析失败抛错由 getEngineVersion 兜底 */
+async function resolveEngineVersion(): Promise<string> {
+  const bin = await resolveOpencodeBin()
+  const stdout = await new Promise<string>((resolve, reject) => {
+    execFile(bin, ['--version'], { encoding: 'utf-8', timeout: 10_000 }, (err, out) => {
+      if (err) reject(err)
+      else resolve(out)
+    })
+  })
+  return stdout.trim().split(/\r?\n/)[0] || '未知'
+}
+
 /** 工厂：创建 server manager（userDataDir 注入便于集成测试；生产传 app.getPath('userData')） */
 export function createServerManager(options: ServerManagerOptions): ServerManager {
   const state: InternalState = {

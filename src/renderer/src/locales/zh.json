@@ -154,6 +154,8 @@
     "llmApiUrlLookup": "查询",
     "about": "关于分形",
     "aboutDesc": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · DeepSeek API",
+    "engineVersion": "OC 引擎",
+    "presetVersion": "预置包",
     "changelog": "更新日志",
     "reopenOnboarding": "重新显示引导页",
     "advanced": "高级设置（settings.json）",

@@ -31,6 +31,16 @@ vi.mock('electron', () => ({
   BrowserWindow: class {},
 }))
 
+// ipc.ts v1.1.0 起 app:getInfo 值导入引擎/预置版本查询——mock 注入固定值，避免真执行 opencode --version（~100ms）
+vi.mock('./server-manager', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./server-manager')>()
+  return { ...actual, getEngineVersion: vi.fn(async () => '1.18.15'), resetEngineVersionCache: vi.fn() }
+})
+vi.mock('./preset', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./preset')>()
+  return { ...actual, getPresetVersion: vi.fn(async () => '1.1.0') }
+})
+
 describe('assertValidFsPath（路径校验）', () => {
   it('接受正常绝对路径', () => {
     expect(() => assertValidFsPath('C:\\work\\fractal\\src')).not.toThrow()
@@ -448,12 +458,17 @@ describe('logs:readServeLog / app:getInfo handler', () => {
     expect(r).toEqual([])
   })
 
-  it('app:getInfo：返回应用名与版本（复制诊断信息打包头）', async () => {
+  it('app:getInfo：返回分形/OC 引擎/预置包三版本（设置页「关于」+ 诊断打包头）', async () => {
     registerIpcHandlers()
     const h = electronMock.handleCalls.find((x) => x.channel === 'app:getInfo')
     expect(h).toBeDefined()
-    const r = (await h!.handler({})) as { name: string; version: string }
-    expect(r).toEqual({ name: '分形', version: '1.2.3' })
+    const r = (await h!.handler({})) as {
+      name: string
+      version: string
+      engineVersion: string
+      presetVersion: string
+    }
+    expect(r).toEqual({ name: '分形', version: '1.2.3', engineVersion: '1.18.15', presetVersion: '1.1.0' })
   })
 
   it('loadSessionLogs：返回单元素 [debugJson]（stderr 槽位已移除，旧 stderr.json 不再读取）', async () => {

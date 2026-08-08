@@ -6,7 +6,8 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { type ServerManager } from './server-manager'
+import { type ServerManager, getEngineVersion } from './server-manager'
+import { getPresetVersion } from './preset'
 import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
 import type { Session } from '@opencode-ai/sdk'
@@ -489,9 +490,10 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return [debug] as [string | null]
   })
 
-  // 应用信息（诊断面板「复制诊断信息」打包头：应用名 + 版本；测试环境 mock electron app）
-  ipcMain.handle('app:getInfo', () => {
-    return { name: app.getName(), version: app.getVersion() }
+  // 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本：分形/OC 引擎/预置包）
+  ipcMain.handle('app:getInfo', async () => {
+    const [engineVersion, presetVersion] = await Promise.all([getEngineVersion(), getPresetVersion()])
+    return { name: app.getName(), version: app.getVersion(), engineVersion, presetVersion }
   })
 
   // ── 文件对话框（替代 @tauri-apps/plugin-dialog）──
