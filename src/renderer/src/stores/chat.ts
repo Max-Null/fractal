@@ -455,12 +455,13 @@ export const useChatStore = defineStore("chat", () => {
           liveTask.summary = undefined; // #9：无 assistant 文本 → 「无摘要」
           liveTask.summaryFailed = false;
         }
-      } catch {
-        // #9 摘要获取失败（与「无文本」区分）：显「摘要获取失败」
+      } catch (err) {
+        // #9 摘要获取失败（与「无文本」区分）：显「摘要获取失败」；日志带 subId 上下文（排查弹窗/卡片异常用）
         const liveTask = findTask();
         if (!liveTask) return;
         liveTask.summary = undefined;
         liveTask.summaryFailed = true;
+        console.error("[subtask] 摘要获取失败", subId, err);
       }
     }
   }

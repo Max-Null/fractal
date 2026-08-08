@@ -120,6 +120,9 @@ export const useSessionStore = defineStore("session", () => {
   }
 
   function setActiveSession(id: string) {
+    // 幂等去重：active 未变化时跳过 IPC 通知——子会话识别只需知道「当前活跃会话」，
+    // 重复广播是纯噪音（fire-and-forget 无校验），未来若高频调用（列表刷新等）也不会放大
+    if (activeSessionId.value === id) return;
     activeSessionId.value = id;
     // 通知主进程活跃会话变化（子会话识别依赖；fire-and-forget，失败静默）
     setActiveSessionBridge(id);
