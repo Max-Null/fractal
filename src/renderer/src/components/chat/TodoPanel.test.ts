@@ -38,6 +38,7 @@ function mountPanel(): VueWrapper {
 
 describe("TodoPanel（折叠态 D1）", () => {
   it("折叠态显示当前任务：第一个 in_progress 序号 = visibleTodos 中 index+1", async () => {
+    vi.useFakeTimers();
     const chat = useChatStore();
     // 4 项，第 2 项 in_progress（序号 ②，总数 ④）
     chat.setTodos([
@@ -47,6 +48,8 @@ describe("TodoPanel（折叠态 D1）", () => {
       { content: "收尾", status: "pending" },
     ]);
     const wrapper = mountPanel();
+    // 挂载即有 todos → immediate 自动展开；15s 无变化收起后回到折叠态
+    vi.advanceTimersByTime(15_000);
     await nextTick();
     expect(wrapper.find(".todo-panel-collapsed").exists()).toBe(true);
     expect(wrapper.find(".todo-current").text()).toContain("②");
@@ -55,12 +58,14 @@ describe("TodoPanel（折叠态 D1）", () => {
   });
 
   it("无 in_progress → 第一 pending 作为当前项", async () => {
+    vi.useFakeTimers();
     const chat = useChatStore();
     chat.setTodos([
       { content: "甲", status: "pending" },
       { content: "乙", status: "pending" },
     ]);
     const wrapper = mountPanel();
+    vi.advanceTimersByTime(15_000);
     await nextTick();
     expect(wrapper.find(".todo-current").text()).toContain("①");
     expect(wrapper.find(".todo-current-text").text()).toBe("甲");
@@ -73,10 +78,15 @@ describe("TodoPanel（折叠态 D1）", () => {
     expect(wrapper.find(".todo-current").exists()).toBe(false);
   });
 
-  it("默认折叠：列表不渲染（todos 在 mount 前已设 → 不触发自动展开）", async () => {
+  it("挂载即有 todos（immediate）→ 自动展开；15s 无变化 → 收起列表不渲染", async () => {
+    vi.useFakeTimers();
     const chat = useChatStore();
     chat.setTodos([{ content: "a", status: "pending" }]);
     const wrapper = mountPanel();
+    await nextTick();
+    // immediate watch 捕捉「建立待办」这一下：挂载即展开（用户反馈场景）
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
+    vi.advanceTimersByTime(15_000);
     await nextTick();
     expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
   });
@@ -84,9 +94,12 @@ describe("TodoPanel（折叠态 D1）", () => {
 
 describe("TodoPanel（hover 展开/收起 D4）", () => {
   it("mouseenter 展开 / mouseleave 收起（删除点击 toggle）", async () => {
+    vi.useFakeTimers();
     const chat = useChatStore();
     chat.setTodos([{ content: "a", status: "pending" }]);
     const wrapper = mountPanel();
+    // 先等 immediate 自动展开过期（挂载即有 todo），回到初始折叠态
+    vi.advanceTimersByTime(15_000);
     await nextTick();
     expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
 
@@ -208,12 +221,15 @@ describe("TodoPanel（面板隐藏 D10）", () => {
   });
 
   it("部分完成 → 面板显示折叠态（不隐藏、不生成记录卡逻辑在 chat store）", async () => {
+    vi.useFakeTimers();
     const chat = useChatStore();
     chat.setTodos([
       { content: "做完的", status: "completed" },
       { content: "没做完的", status: "pending" },
     ]);
     const wrapper = mountPanel();
+    // 挂载自动展开过期后回到折叠态
+    vi.advanceTimersByTime(15_000);
     await nextTick();
     expect(wrapper.find(".todo-panel").exists()).toBe(true);
     expect(wrapper.find(".todo-panel-collapsed").exists()).toBe(true);

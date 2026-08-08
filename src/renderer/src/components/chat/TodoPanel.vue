@@ -45,7 +45,8 @@ watch(
       autoExpanded.value = false;
     }, AUTO_EXPAND_MS);
   },
-  { deep: true },
+  // immediate：首建 todo 时组件才挂载（v-if），watch 注册晚于变化——立即触发才能捕捉「建立待办列表」这一下
+  { deep: true, immediate: true },
 );
 onUnmounted(() => {
   // 组件卸载后清理计时器（防止泄漏：chat.todos 后续变化不再触发本组件）
@@ -94,9 +95,11 @@ const hidePanel = computed(() => {
     @mouseleave="hoverExpanded = false"
   >
     <template v-if="hasTodos">
-      <!-- 折叠态：一行「📋 ②/ ④ 内容」+ 完成计数（hover 展开；无点击切换） -->
+      <!-- 折叠态：一行「📋 ● ②/ ④ 内容」+ 完成计数（hover 展开；无点击切换） -->
       <div v-if="!expanded" class="todo-panel-collapsed">
         <span class="todo-panel-title">📋</span>
+        <!-- 进行中任务带呼吸蓝点（当前项强调，pending 时不显示） -->
+        <span v-if="currentTodo?.status === 'in_progress'" class="todo-current-dot">●</span>
         <span v-if="currentTodo" class="todo-current">
           {{ toCircled(currentTodoIndex) }}<span class="todo-current-sep">/</span>{{ toCircled(visibleTodos.length) }}
         </span>
@@ -157,6 +160,18 @@ const hidePanel = computed(() => {
   gap: 0.4rem;
   min-height: 1.1rem;
   cursor: default;
+  /* 淡蓝底增强存在感：收起时当前任务一眼可见（用户反馈「进行中的任务很不明显」） */
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border-radius: 0.25rem;
+  padding: 0.15rem 0.4rem;
+}
+
+/* 折叠态进行中呼吸蓝点（当前项状态提示，pending 时不渲染） */
+.todo-current-dot {
+  font-size: 8px;
+  color: var(--accent);
+  flex-shrink: 0;
+  animation: todo-pulse 1.5s ease-in-out infinite;
 }
 
 .todo-panel-header {
@@ -185,11 +200,12 @@ const hidePanel = computed(() => {
   color: var(--accent);
 }
 
+/* 进度数字：主题蓝 + 700（用户反馈「1/4 用灰色不明显」——完成进度是正向反馈，用 accent 强调） */
 .todo-count {
   font-size: 10px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: var(--text-muted);
-  opacity: 0.7;
+  color: var(--accent);
 }
 
 /* 折叠态序号「②/ ④」：accent 强调当前项位置 */
@@ -205,10 +221,11 @@ const hidePanel = computed(() => {
   opacity: 0.5;
 }
 
-/* 折叠态当前任务文案：超长省略（单行不换行，保持面板高度稳定） */
+/* 折叠态当前任务文案：主题蓝 + 600（用户反馈「收起时进行中的任务很不明显」——用 accent 强调当前项） */
 .todo-current-text {
   font-size: 10px;
-  color: var(--text-primary);
+  font-weight: 600;
+  color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
