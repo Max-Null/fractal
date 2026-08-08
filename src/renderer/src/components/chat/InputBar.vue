@@ -890,7 +890,7 @@ async function polishInput() {
   color: var(--text-muted);
 }
 
-/* ── 发送 / 停止按钮（30x30 正方形，与优化按钮一致；accent 实底白字）── */
+/* ── 发送 / 停止按钮（30x30 正方形，与优化按钮同风格：accent 实底 + 边框）── */
 .send {
   display: flex;
   align-items: center;
@@ -903,7 +903,7 @@ async function polishInput() {
   color: #fff;
   font-weight: 600;
   font-size: 12.5px;
-  border: none;
+  border: 1px solid var(--accent-line);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -912,10 +912,11 @@ async function polishInput() {
   transform: translateY(-1px);
 }
 .send:active:not(:disabled) { transform: none; }
-/* disabled：透明底灰字（原型规格） */
+/* disabled：视觉不变（用户反馈：空输入不该半透明），仅禁用交互 */
 .send:disabled {
-  background: transparent;
-  color: var(--text-muted);
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-line);
   cursor: default;
 }
 .send--stop {
@@ -923,6 +924,7 @@ async function polishInput() {
   width: 30px;
   height: 30px;
   padding: 0;
+  border: 1px solid color-mix(in srgb, var(--coral) 55%, transparent);
 }
 .send--stop:hover:not(:disabled) { filter: brightness(1.12); }
 
@@ -956,13 +958,12 @@ async function polishInput() {
   border-color: var(--accent);
 }
 .polish-btn:active:not(:disabled) { transform: none; }
-/* 禁用态：保留主题蓝（半透明表达不可用）——用户反馈禁用时全灰看不见按钮 */
+/* 禁用态：视觉不变（用户反馈：空输入不该半透明），仅禁用交互 */
 .polish-btn:disabled {
   color: var(--accent);
   background: var(--accent-glow);
   border-color: var(--accent-line);
   cursor: default;
-  opacity: 0.55;
 }
 .polish-btn--busy {
   animation: polish-spin 1s linear infinite;
