@@ -421,14 +421,16 @@ async function polishInput() {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
           </button>
-          <!-- Send button（带文字「发送 ↑」，空输入时透明底灰字禁用） -->
+          <!-- Send button（纸飞机图标，title 保留 Send——测试定位依赖） -->
           <button
             v-else
             class="send"
             :disabled="!canSend"
             :title="$t('chat.send')"
             @click="send"
-          >{{ $t('chat.send') }} ↑</button>
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
         </div>
       </div>
 
@@ -891,12 +893,13 @@ async function polishInput() {
   color: var(--text-muted);
 }
 
-/* ── 发送 / 停止按钮（对齐原型 .send：accent 底白字 12.5px 600 weight 圆角 9px）── */
+/* ── 发送 / 停止按钮（对齐原型 .send：accent 底白字；纯图标布局后内边距收紧）── */
 .send {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 7px 16px;
+  padding: 8px 12px;
   border-radius: 9px;
   background: var(--accent);
   color: #fff;
@@ -931,7 +934,7 @@ async function polishInput() {
   white-space: nowrap;
 }
 
-/* ✨ 优化消息按钮（发送左侧，原型 .polish：小图标 + hover accent） */
+/* ✨ 优化消息按钮（发送左侧）：accent 强调色（用户反馈：原浅色不明显） */
 .polish-btn {
   display: flex;
   align-items: center;
@@ -940,20 +943,22 @@ async function polishInput() {
   height: 28px;
   padding: 0;
   border-radius: 8px;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid var(--border-dim);
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-line);
   cursor: pointer;
   flex-shrink: 0;
   transition: all 150ms ease;
 }
 .polish-btn:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--accent-glow);
-  border-color: var(--accent-line);
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .polish-btn:disabled {
   color: var(--text-muted);
+  background: transparent;
+  border-color: var(--border-dim);
   cursor: default;
   opacity: 0.5;
 }
