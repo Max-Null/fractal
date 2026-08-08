@@ -99,6 +99,10 @@ export interface SessionData {
   message_count: number;
   total_tokens: number | null;
   total_cost: number | null;
+  /** 子会话归属的主会话 id（serve Session.parentID；主会话无此字段）——历史子任务归属数据源 */
+  parentId?: string;
+  /** 子会话 agent 名（serve 会话列表实测返回；SDK 类型未生成） */
+  agent?: string;
 }
 
 export interface MessageData {

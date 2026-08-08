@@ -757,9 +757,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   ipcMain.handle('session:list', async (_e, args: { directory?: string } = {}) => {
     // directory 透传 serve 过滤：会话跟随工作区（OC session 绑定 project/directory）
     const list = await (await requireClient()).session.list(args.directory)
-    // 隐藏子智能体会话（用户拍板方案 A）：parentID 非空 = task 工具派生的子会话（主会话的执行载体），
-    // 列表只显示主会话；子会话内容保留在 serve（主会话工具调用记录可见），需要时可随时打开
-    return list.filter((s) => !s.parentID).map(toSessionData)
+    // 返回全量（含子会话）：子智能体会话不在侧边栏显示（用户拍板方案 A），但历史子任务归属需要其
+    // parentId/agent/title/time——拆分职责移交前端 session store（sessions=主会话，childSessions=子会话）
+    return list.map(toSessionData)
   })
 
   ipcMain.handle('session:get', async (_e, args: { id: string }) => {
@@ -954,7 +954,12 @@ export function toSessionData(s: Session): {
   message_count: number
   total_tokens: number | null
   total_cost: number | null
+  parentId?: string
+  agent?: string
 } {
+  // agent 字段不在 SDK Session 类型（types.gen 未生成），但 serve v1.18.15 会话列表实测返回 agent——
+  // oc-sdk list 用 Record 强转保留原字段，此处用宽类型读取兜底 undefined
+  const raw = s as unknown as { agent?: unknown }
   return {
     id: s.id,
     title: s.title,
@@ -971,6 +976,9 @@ export function toSessionData(s: Session): {
     message_count: 0,
     total_tokens: null,
     total_cost: null,
+    // 子会话归属：serve parentID（主会话为 undefined）——历史子任务归属数据源
+    parentId: s.parentID ?? undefined,
+    agent: typeof raw.agent === 'string' ? raw.agent : undefined,
   }
 }
 

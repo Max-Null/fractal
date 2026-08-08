@@ -136,6 +136,89 @@ export interface SubTask {
   summaryFailed?: boolean;
 }
 
+// ── 历史子任务提取（D1-D6：重启后/切回旧会话时已完成子会话在消息级可见）──
+
+/** 历史子任务条目（buildSubTaskMap 返回值元素；详情取自 serve 子会话列表） */
+export interface HistorySubTask {
+  id: string;
+  agent: string;
+  title: string;
+  createdAt: number;
+  endedAt?: number;
+}
+
+/** buildSubTaskMap 的子会话来源项（session store childSessions 的结构化子集——避免 chat↔session 循环依赖） */
+export interface SubTaskChildRef {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  agent?: string;
+}
+
+/**
+ * 从 task 工具输出文本提取全部子会话 id。
+ * serve 在 task tool part 的 output 动态注入 `<task id="ses_xxx" state="completed">`，可含多个。
+ */
+export function extractSubTaskIds(text: string): string[] {
+  const ids: string[] = [];
+  const re = /<task id="(ses_[^"]+)"[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    ids.push(m[1]);
+  }
+  return ids;
+}
+
+/**
+ * 构建「消息 → 历史子任务」映射。
+ * 数据源：assistant 消息的 toolUses（name==='task' 的 result 含 serve 注入的 `<task id>` 输出）
+ * + contentBlocks 的 tool_use/tool_result 块（G2 还原后的同一份数据，Set 去重防双计）。
+ * children 按 id 补详情（agent/标题/时间）；children 找不到的 task id 跳过（子会话已删除/超限）。
+ */
+export function buildSubTaskMap(
+  messages: Message[],
+  children: SubTaskChildRef[]
+): Map<string, HistorySubTask[]> {
+  const childById = new Map(children.map((c) => [c.id, c]));
+  const map = new Map<string, HistorySubTask[]>();
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    const ids = new Set<string>();
+    // 主数据源：toolUses（task 工具的 result 即 serve 输出）
+    for (const tu of msg.toolUses) {
+      if (tu.name === "task" && tu.result) {
+        for (const id of extractSubTaskIds(tu.result)) ids.add(id);
+      }
+    }
+    // 兜底：contentBlocks 时间线块（与 toolUses 同源冗余，但旧存档可能只有 contentBlocks）
+    for (const block of msg.contentBlocks ?? []) {
+      if (block.type === "tool_use" && block.toolUse?.name === "task" && block.toolUse.result) {
+        for (const id of extractSubTaskIds(block.toolUse.result)) ids.add(id);
+      }
+      if (block.type === "tool_result" && block.toolResult?.content) {
+        for (const id of extractSubTaskIds(block.toolResult.content)) ids.add(id);
+      }
+    }
+    if (ids.size === 0) continue;
+    const list: HistorySubTask[] = [];
+    for (const id of ids) {
+      const child = childById.get(id);
+      if (!child) continue; // children 缺失跳过（D6 容错）
+      list.push({
+        id,
+        agent: child.agent ?? "",
+        title: child.title,
+        createdAt: child.createdAt,
+        // 子会话无独立结束时间，用会话列表最后更新时间近似（完成后不再更新 ≈ 结束时刻）
+        endedAt: child.updatedAt,
+      });
+    }
+    if (list.length > 0) map.set(msg.id, list);
+  }
+  return map;
+}
+
 export const useChatStore = defineStore("chat", () => {
   const messages = ref<Message[]>([]);
   /** 全量历史缓存（进入会话一次拉取 ≤FULL_HISTORY_LIMIT，不渲染 DOM，供滚动到顶切片与时间线索引） */

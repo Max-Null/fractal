@@ -68,6 +68,8 @@
     "subTaskThinking": "Thinking",
     "subTaskNoContent": "No content",
     "subTaskLoading": "Loading sub-session messages…",
+    "subTaskHistoryCount": "{n} sub-task(s)",
+    "subTaskHistoryUnit": "s",
     "toolsExecuted": "{n} tool(s) executed",
     "exportPreviewTitle": "Export Preview — {name}",
     "exportSave": "Choose Directory & Export",

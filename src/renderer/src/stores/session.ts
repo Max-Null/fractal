@@ -26,10 +26,17 @@ export interface Session {
   mode: string;
   /** 会话绑定的工作区目录（serve directory；前端过滤用） */
   cwd?: string;
+  /** 子会话归属的主会话 id（serve parentID；主会话无此字段） */
+  parentId?: string;
+  /** 子会话 agent 名（serve 会话列表实测返回） */
+  agent?: string;
 }
 
 export const useSessionStore = defineStore("session", () => {
   const sessions = ref<Session[]>([]);
+  /** 子会话列表（parentId 非空，主会话的 task 派生子智能体会话）——历史子任务归属数据源，
+   *  与 sessions 同源拆分：主进程 session:list 返回全量，此处按 parentId 分桶（2026-08-09） */
+  const childSessions = ref<Session[]>([]);
   const activeSessionId = ref<string>("");
   /** 当前 CC 会话已连接的 MCP 服务器名称列表 */
   const connectedMcpServers = ref<string[]>([]);
@@ -73,7 +80,10 @@ export const useSessionStore = defineStore("session", () => {
       const filtered = directory
         ? list.filter((s) => normalizeDir(s.directory || s.cwd) === normalizeDir(directory))
         : list;
-      sessions.value = filtered.map(toLocalSession);
+      const all = filtered.map(toLocalSession);
+      // 主/子会话拆分：侧边栏/rail 只用主会话（方案 A），子会话供历史子任务归属（parentId 匹配）
+      sessions.value = all.filter((s) => !s.parentId);
+      childSessions.value = all.filter((s) => s.parentId);
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {
       console.error("Failed to load sessions:", err);
@@ -174,6 +184,7 @@ export const useSessionStore = defineStore("session", () => {
 
   return {
     sessions,
+    childSessions,
     activeSessionId,
     serving,
     setServing,
@@ -202,5 +213,7 @@ function toLocalSession(s: SessionData): Session {
     totalCost: s.total_cost,
     mode: s.mode || "cc",
     cwd: s.directory || s.cwd,
+    parentId: s.parentId,
+    agent: s.agent,
   };
 }

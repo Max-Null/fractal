@@ -68,6 +68,8 @@
     "subTaskThinking": "思考中",
     "subTaskNoContent": "暂无内容",
     "subTaskLoading": "正在加载子会话消息…",
+    "subTaskHistoryCount": "{n} 个子任务",
+    "subTaskHistoryUnit": "s",
     "toolsExecuted": "已执行 {n} 个工具调用",
     "exportPreviewTitle": "导出预览 — {name}",
     "exportSave": "选择目录并导出",

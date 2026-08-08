@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
-import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX } from "./chat";
+import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, type Message, type SubTaskChildRef } from "./chat";
 
 // mock electron-bridge：仅覆盖 listMessages（子任务 idle 拉摘要用），其余保留原模块
 const { listMessagesMock } = vi.hoisted(() => ({ listMessagesMock: vi.fn() }));
@@ -967,5 +967,154 @@ describe("chat store", () => {
     expect(chat.subTasks["sub-1"].agent).toBe("工匠");
     expect(chat.subTasks["sub-1"].status).toBe("done");
     expect(chat.subTasks["sub-1"].deltaText).toBe("进行中");
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 历史子任务提取（D1-D6）：extractSubTaskIds / buildSubTaskMap 纯函数
+// task part 经主进程 toMessageData 还原后落在 Message.toolUses（name==='task' 的 result）
+// 与 contentBlocks（tool_use 块 toolUse.result / tool_result 块 toolResult.content）
+// ══════════════════════════════════════════════════════════════════
+
+describe("extractSubTaskIds", () => {
+  it("提取单个 task id", () => {
+    const out = '<task id="ses_0a89" state="completed">\n<task_result>结果</task_result>';
+    expect(extractSubTaskIds(out)).toEqual(["ses_0a89"]);
+  });
+
+  it("输出含多个 task id → 全部提取（顺序保持）", () => {
+    const out = [
+      '<task id="ses_a" state="completed">',
+      '<task id="ses_b" state="completed">',
+      '<task id="ses_c" state="completed">',
+    ].join("\n");
+    expect(extractSubTaskIds(out)).toEqual(["ses_a", "ses_b", "ses_c"]);
+  });
+
+  it("无匹配 → 返回空数组", () => {
+    expect(extractSubTaskIds("普通文本没有 task id")).toEqual([]);
+    expect(extractSubTaskIds("")).toEqual([]);
+  });
+
+  it("非 task 工具输出不误匹配（task 工具名 vs 其他标签）", () => {
+    const out = '<task_result>这是结果</task_result><task id="ses_x" state="completed">';
+    expect(extractSubTaskIds(out)).toEqual(["ses_x"]);
+  });
+});
+
+describe("buildSubTaskMap", () => {
+  /** 构造 assistant 消息（可指定 toolUses/contentBlocks） */
+  function makeAssistantMsg(id: string, over: Partial<Message> = {}): Message {
+    return {
+      id,
+      role: "assistant",
+      content: "",
+      thinking: "",
+      toolUses: [],
+      timestamp: 1786029594660,
+      isStreaming: false,
+      ...over,
+    };
+  }
+
+  const children: SubTaskChildRef[] = [
+    { id: "ses_a", title: "查看项目文档 (@general subagent)", createdAt: 1786029594660, updatedAt: 1786029599000, agent: "工匠" },
+    { id: "ses_b", title: "生成测试 (@craftsman subagent)", createdAt: 1786029600000, updatedAt: 1786029605000, agent: "军师" },
+  ];
+
+  it("toolUses 中 task 工具 result → 正确归属到该消息（agent/标题/时间补全）", () => {
+    const msgs = [
+      makeAssistantMsg("m1", {
+        toolUses: [
+          { id: "call_1", name: "task", input: {}, result: '<task id="ses_a" state="completed">\n<task_result>ok</task_result>' },
+        ],
+      }),
+      makeAssistantMsg("m2"), // 无 task 工具
+    ];
+    const map = buildSubTaskMap(msgs, children);
+
+    expect(map.has("m1")).toBe(true);
+    expect(map.has("m2")).toBe(false);
+    const list = map.get("m1")!;
+    expect(list).toHaveLength(1);
+    expect(list[0]).toMatchObject({
+      id: "ses_a",
+      agent: "工匠",
+      title: "查看项目文档 (@general subagent)",
+      createdAt: 1786029594660,
+      endedAt: 1786029599000,
+    });
+  });
+
+  it("一条消息多个 task → 全部挂载；contentBlocks 冗余数据不重复计数", () => {
+    const msgs = [
+      makeAssistantMsg("m1", {
+        toolUses: [
+          { id: "call_1", name: "task", input: {}, result: '<task id="ses_a" state="completed">' },
+          { id: "call_2", name: "task", input: {}, result: '<task id="ses_b" state="completed">' },
+        ],
+        contentBlocks: [
+          { type: "tool_use", toolUse: { id: "call_1", name: "task", input: {}, result: '<task id="ses_a" state="completed">' } },
+          { type: "tool_result", toolResult: { toolUseId: "call_1", content: '<task id="ses_a" state="completed">' } },
+        ],
+      }),
+    ];
+    const map = buildSubTaskMap(msgs, children);
+    const list = map.get("m1")!;
+    // 去重：ses_a 在 toolUses + contentBlocks 三处出现，只挂一次；ses_b 一次
+    expect(list.map((s) => s.id).sort()).toEqual(["ses_a", "ses_b"]);
+  });
+
+  it("contentBlocks-only 消息也能提取（旧存档只有 contentBlocks）", () => {
+    const msgs = [
+      makeAssistantMsg("m1", {
+        contentBlocks: [
+          { type: "tool_use", toolUse: { id: "call_1", name: "task", input: {}, result: '<task id="ses_b" state="completed">' } },
+        ],
+      }),
+    ];
+    const map = buildSubTaskMap(msgs, children);
+    expect(map.get("m1")?.[0].id).toBe("ses_b");
+  });
+
+  it("children 找不到的 task id → 跳过（子会话已删除/列表超限）", () => {
+    const msgs = [
+      makeAssistantMsg("m1", {
+        toolUses: [
+          { id: "call_1", name: "task", input: {}, result: '<task id="ses_ghost" state="completed">' },
+          { id: "call_2", name: "task", input: {}, result: '<task id="ses_a" state="completed">' },
+        ],
+      }),
+    ];
+    const map = buildSubTaskMap(msgs, children);
+    const list = map.get("m1")!;
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe("ses_a");
+  });
+
+  it("user 消息不参与提取", () => {
+    const userMsg: Message = {
+      id: "u1",
+      role: "user",
+      content: "普通用户消息",
+      thinking: "",
+      toolUses: [],
+      timestamp: 1786029594000,
+      isStreaming: false,
+    };
+    const map = buildSubTaskMap([userMsg], children);
+    expect(map.size).toBe(0);
+  });
+
+  it("children 为空（子会话列表未加载）→ 空 map 不崩溃", () => {
+    const msgs = [
+      makeAssistantMsg("m1", {
+        toolUses: [
+          { id: "call_1", name: "task", input: {}, result: '<task id="ses_a" state="completed">' },
+        ],
+      }),
+    ];
+    const map = buildSubTaskMap(msgs, []);
+    expect(map.size).toBe(0);
   });
 });

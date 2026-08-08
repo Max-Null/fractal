@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, inject } from "vue";
-import { useChatStore, FULL_HISTORY_LIMIT, type AttachedFile } from "@/stores/chat";
+import { useChatStore, FULL_HISTORY_LIMIT, buildSubTaskMap, type AttachedFile } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
 import {
@@ -37,6 +37,7 @@ import TodoPanel from "./TodoPanel.vue";
 import SubTaskCard from "./SubTaskCard.vue";
 import SubTaskMonitor from "./SubTaskMonitor.vue";
 import SubTaskDetail from "./SubTaskDetail.vue";
+import SubTaskHistoryList from "./SubTaskHistoryList.vue";
 import { useI18n } from "vue-i18n";
 const { t } = useI18n();
 import { useCommandRegistry } from "@/composables/useCommandRegistry";
@@ -242,6 +243,30 @@ const detailSubTaskId = ref<string | null>(null);
 const sortedSubTasks = computed(() =>
   Object.values(chat.subTasks).sort((a, b) => a.startedAt - b.startedAt)
 );
+
+// ── 历史子任务（D1-D6）：已完成子会话在消息级可见 ──
+/** 当前活跃会话的子会话列表（serve 会话列表 parentId 匹配；历史子任务归属的 children 数据源） */
+const childSessions = computed(() =>
+  session.childSessions.filter((s) => s.parentId === session.activeSessionId)
+);
+
+/**
+ * 消息 → 历史子任务映射。
+ * 互斥过滤（D3）：只保留「已完成且不在实时 subTasks」的任务——运行中/本 app 内已见由 SubTaskCard 管理，
+ * 避免同一子会话双入口重复显示（实时卡片 + 历史入口）。
+ */
+const subTaskMap = computed(() => {
+  const map = buildSubTaskMap(chat.messages, childSessions.value);
+  // 实时 subTasks 仍存在的 id（running 或本 app 已见）从历史入口剔除
+  for (const [msgId, list] of map) {
+    const filtered = list.filter((s) => !chat.subTasks[s.id]);
+    if (filtered.length !== list.length) {
+      if (filtered.length === 0) map.delete(msgId);
+      else map.set(msgId, filtered);
+    }
+  }
+  return map;
+});
 
 function toggleExpandSubTask(id: string) {
   expandSubTaskId.value = expandSubTaskId.value === id ? null : id;
@@ -1026,15 +1051,22 @@ watch(
         </div>
         <!-- 加载更早为同步内存切片（瞬时无感），不再需要顶部加载提示 -->
         <TransitionGroup name="msg">
-          <MessageBubble
-            v-for="msg in chat.messages"
-            :key="msg.id"
-            :message="msg"
-            @edit-save="handleEditSave"
-            @resend="handleResend"
-            @fork="handleFork"
-            @preview-file="(f) => openFileInPanel(f)"
-          />
+          <!-- 消息 + 历史子任务入口包在单一根 div（TransitionGroup 子元素需唯一 key；data-message-id 仍在内部可定位） -->
+          <div v-for="msg in chat.messages" :key="msg.id" class="msg-entry">
+            <MessageBubble
+              :message="msg"
+              @edit-save="handleEditSave"
+              @resend="handleResend"
+              @fork="handleFork"
+              @preview-file="(f) => openFileInPanel(f)"
+            />
+            <!-- 历史子任务入口（D1-D6）：assistant 消息块下方；点击项 → 复用 SubTaskDetail 详情弹窗 -->
+            <SubTaskHistoryList
+              v-if="subTaskMap.get(msg.id)?.length"
+              :sub-tasks="subTaskMap.get(msg.id)!"
+              @open="(subId) => (detailSubTaskId = subId)"
+            />
+          </div>
         </TransitionGroup>
 
         <!-- 子任务卡片（消息流内，参与滚动）：运行中点击→实时监视；已完成点击→展开摘要 -->
