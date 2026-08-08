@@ -73,6 +73,10 @@ function createWindow(workspace?: string): BrowserWindow {
   const mainWindow = new BrowserWindow({
     width: 1280,
     height: 800,
+    // 最小尺寸：四栏布局（rail/侧栏/聊天/面板）在窄窗口下组件挤压变形、圆点折叠异常，
+    // 过扁时聊天区高度不可用（2026-08-09 用户要求「不能无限窄和扁」）
+    minWidth: 960,
+    minHeight: 640,
     show: false,
     title: windowTitle,
     autoHideMenuBar: true,

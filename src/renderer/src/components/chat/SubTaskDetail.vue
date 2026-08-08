@@ -99,7 +99,7 @@ function onBack() {
 </script>
 
 <template>
-  <ModalShell :open="true" size="xl" position="top" @close="emit('close')">
+  <ModalShell :open="true" size="xl" position="top" width="min(60vw, 960px)" @close="emit('close')">
     <template #header>
       <span class="detail-header">
         <span class="detail-badge">{{ badge }}</span>
@@ -119,11 +119,20 @@ function onBack() {
     <div v-else-if="loadError" class="detail-placeholder">{{ $t('chat.subTaskNoContent') }}</div>
 
     <div v-else class="detail-body">
-      <template v-for="msg in messages" :key="msg.id">
-        <!-- user 消息：灰色块 -->
-        <div v-if="msg.role === 'user'" class="detail-msg detail-msg--user">{{ msg.text || '…' }}</div>
-        <!-- assistant 消息：thinking 折叠 + tool 卡片 + 文本 -->
+      <template v-for="(msg, index) in messages" :key="msg.id">
+        <!-- 首条 user 消息 = 主智能体的任务描述（task description）：顶部独立区块，与下方执行流视觉分区 -->
+        <div v-if="index === 0 && msg.role === 'user'" class="detail-task-desc">
+          <div class="detail-task-desc-head">
+            <span class="detail-task-desc-title">🎯 任务描述</span>
+            <span class="detail-task-desc-tag">由主智能体派发</span>
+          </div>
+          <p class="detail-task-desc-text">{{ msg.text || '…' }}</p>
+        </div>
+        <!-- 后续 user 消息：工具结果，归入执行流（不重复标角色标签） -->
+        <div v-else-if="msg.role === 'user'" class="detail-msg detail-msg--user">{{ msg.text || '…' }}</div>
+        <!-- assistant 消息：子智能体执行（角色标签）+ thinking 折叠 + tool 卡片 + 文本 -->
         <div v-else class="detail-msg detail-msg--assistant">
+          <div class="detail-role-tag">🤖 子智能体执行</div>
           <details v-if="msg.thinking" class="detail-thinking" open>
             <summary class="detail-thinking-summary">💭 {{ $t('chat.subTaskThinking') }}</summary>
             <div class="detail-thinking-body">{{ msg.thinking }}</div>
@@ -198,10 +207,58 @@ function onBack() {
 .detail-msg--user {
   background: var(--bg-elevated);
   border: 1px solid var(--border-dim);
+  /* 长文本不撑出 X 轴滚动条：pre-wrap 保留换行 + anywhere 任意断行兜底 */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .detail-msg--assistant {
   background: var(--bg-surface);
   border: 1px solid var(--border-dim);
+}
+/* 任务描述区（首条 user 消息 = 主智能体派发）：accent 浅底与下方执行流（surface/elevated 灰底）视觉分区 */
+.detail-task-desc {
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-dim);
+  border-radius: 6px;
+  padding: 0.6rem 0.75rem;
+}
+.detail-task-desc-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.detail-task-desc-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.detail-task-desc-tag {
+  font-size: 10px;
+  color: var(--accent);
+  background: var(--bg-surface);
+  border: 1px solid var(--accent-dim);
+  border-radius: 4px;
+  padding: 0.05rem 0.35rem;
+  white-space: nowrap;
+}
+.detail-task-desc-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-primary);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* 子智能体执行角色标签（assistant 消息前小标签；user 工具结果归入执行流不重复标） */
+.detail-role-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  padding: 0.05rem 0.4rem;
+  display: inline-block;
+  margin-bottom: 0.35rem;
 }
 .detail-thinking {
   border-bottom: 1px solid var(--border-dim);
@@ -218,6 +275,7 @@ function onBack() {
   font-size: 11px;
   color: var(--text-secondary);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   padding-bottom: 0.4rem;
 }
 .detail-tool {
@@ -225,6 +283,7 @@ function onBack() {
   font-weight: 600;
   color: var(--violet);
   margin: 0.2rem 0;
+  overflow-wrap: anywhere;
 }
 .detail-tool-name {
   font-weight: 600;
@@ -236,6 +295,7 @@ function onBack() {
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
+  overflow-wrap: anywhere;
   margin-top: 0.15rem;
 }
 .detail-text {
@@ -245,6 +305,7 @@ function onBack() {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
 }
 .detail-text--empty {
   color: var(--text-muted);

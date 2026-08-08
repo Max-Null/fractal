@@ -134,18 +134,30 @@ describe("SubTaskCard", () => {
     expect(wrapper.emitted("expand")).toBeFalsy();
   });
 
-  it("summaryFailed：显示「（摘要获取失败）」（军师 #9）", () => {
+  it("summaryFailed + 展开：显示「（摘要获取失败）」（军师 #9）", () => {
     const wrapper = mountCard(
-      makeSubTask({ status: "done", endedAt: Date.now(), summaryFailed: true })
+      makeSubTask({ status: "done", endedAt: Date.now(), summaryFailed: true }),
+      true
     );
     expect(wrapper.text()).toContain("（摘要获取失败）");
   });
 
-  it("无 summary 且未失败：显示「（无摘要）」（军师 #9）", () => {
+  it("无 summary 且未失败 + 展开：显示「（无摘要）」（军师 #9）", () => {
     const wrapper = mountCard(
-      makeSubTask({ status: "done", endedAt: Date.now(), summaryFailed: false })
+      makeSubTask({ status: "done", endedAt: Date.now(), summaryFailed: false }),
+      true
     );
     expect(wrapper.text()).toContain("（无摘要）");
+  });
+
+  it("收起态 summary 空：无预览行（只显示头部徽标行，用户反馈：收起态无提示文案）", () => {
+    const wrapper = mountCard(
+      makeSubTask({ status: "done", endedAt: Date.now(), summary: "" })
+    );
+    expect(wrapper.find(".subtask-summary").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("（无摘要）");
+    expect(wrapper.text()).not.toContain("点击查看子任务结果");
+    expect(wrapper.text()).toContain("✅ 已完成");
   });
 
   // ── summaryLoader 懒加载（历史场景 D1-D6：已完成子会话摘要为空，展开时拉取）──
@@ -184,10 +196,11 @@ describe("SubTaskCard", () => {
     expect(wrapper.text()).toContain("（摘要获取失败）");
   });
 
-  it("未展开 + summary 空 + loader：预览显「点击查看子任务结果…」，不调 loader", () => {
+  it("未展开 + summary 空 + loader：无预览行（无提示文案），不调 loader", () => {
     const loader = vi.fn();
     const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), false, loader);
-    expect(wrapper.text()).toContain("点击查看子任务结果…");
+    expect(wrapper.find(".subtask-summary").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("点击查看子任务结果");
     expect(loader).not.toHaveBeenCalled();
   });
 

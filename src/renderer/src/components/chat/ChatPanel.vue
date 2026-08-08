@@ -1,6 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, inject } from "vue";
-import { useChatStore, FULL_HISTORY_LIMIT, buildSubTaskMap, type AttachedFile, type SubTask } from "@/stores/chat";
+import {
+  useChatStore,
+  FULL_HISTORY_LIMIT,
+  buildSubTaskMap,
+  SUBTASK_SUMMARY_MAX,
+  type AttachedFile,
+  type SubTask,
+} from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
 import {
@@ -251,7 +258,8 @@ const childSessions = computed(() =>
 
 /**
  * 消息 → 历史子任务卡片映射（平铺渲染，复用 SubTaskCard）。
- * 历史条目映射为 SubTask 形状：status 恒 'done'（已完成），summary 留空 → 展开时 summaryLoader 懒加载。
+ * 历史条目映射为 SubTask 形状：status 恒 'done'（已完成），summary 取预拉结果（historySummaries 注入；
+ * 未预拉/预拉失败为空 → SubTaskCard 展开时经 summaryLoader 兜底懒加载）。
  * 互斥过滤（D3）：只保留「不在实时 subTasks」的任务——运行中/本 app 内已见由实时 SubTaskCard 管理，
  * 避免同一子会话双卡片重复显示。
  */
@@ -272,16 +280,64 @@ const subTaskMap = computed(() => {
         endedAt: s.endedAt,
         deltaText: "",
         parts: [],
-        // summary 留空 → SubTaskCard 展开时经 summaryLoader 懒加载（瞬态，不写 store）
-        summary: "",
+        // 预拉摘要注入；空 → 展开时 summaryLoader 兜底（瞬态，不写 store）
+        summary: historySummaries.value[s.id] ?? "",
       }))
     );
   }
   return result;
 });
 
+// ── 历史摘要预拉（用户反馈：完成时卡片直接显示结果梗概，替代展开懒加载）──
+/** 子会话摘要缓存（本地瞬态；预拉失败留空不重试——消息数据不变，防抖防重复拉取） */
+const historySummaries = ref<Record<string, string>>({});
+/** 已尝试预拉的子会话 id（含失败——失败不重试，避免 watch 反复触发空跑） */
+const prefetchedIds = new Set<string>();
+/** 预拉并发上限：serve 子会话消息随时可查，但避免切回旧会话时瞬间打爆 */
+const PREFETCH_CONCURRENCY = 4;
+
+/** 预拉调度：防抖 300ms（消息流式期间跳过中间态），只对 subTaskMap 中「已完成且不在实时」的子会话并行拉摘要 */
+let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+watch(
+  subTaskMap,
+  () => {
+    if (prefetchTimer) clearTimeout(prefetchTimer);
+    prefetchTimer = setTimeout(() => {
+      void prefetchHistorySummaries();
+    }, 300);
+  },
+  { immediate: true }
+);
+
 /**
- * 历史子任务摘要懒加载：拉取子会话消息，取最后一条 assistant 文本（子会话最终产出）。
+ * 并行预拉：对未尝试过的子会话并发拉摘要（上限 PREFETCH_CONCURRENCY）。
+ * 结果写入 historySummaries → subTaskMap 重算注入卡片 summary；失败留空（不重试）。
+ */
+async function prefetchHistorySummaries(): Promise<void> {
+  // Set 去重：同一子会话 id 可能跨消息重复出现（防抖窗口内消息重排/测试构造），避免并发池重复拉取
+  const pendingSet = new Set<string>();
+  for (const list of subTaskMap.value.values()) {
+    for (const sub of list) {
+      if (!prefetchedIds.has(sub.id)) pendingSet.add(sub.id);
+    }
+  }
+  const pending = [...pendingSet];
+  if (pending.length === 0) return;
+  let cursor = 0;
+  // 并发池：固定 worker 数逐个取任务，任一失败不影响其他（loadSubTaskSummary 内部已 catch）
+  const workers = Array.from({ length: Math.min(PREFETCH_CONCURRENCY, pending.length) }, async () => {
+    while (cursor < pending.length) {
+      const id = pending[cursor++];
+      const text = await loadSubTaskSummary(id);
+      historySummaries.value[id] = text ?? "";
+      prefetchedIds.add(id);
+    }
+  });
+  await Promise.all(workers);
+}
+
+/**
+ * 历史子任务摘要拉取：子会话消息取最后一条 assistant 文本（截断 SUBTASK_SUMMARY_MAX，与实时 idle 摘要一致）。
  * 返回 undefined = 无 assistant 文本产出；异常同样返回 undefined（降级，不阻塞交互）。
  */
 async function loadSubTaskSummary(subId: string): Promise<string | undefined> {
@@ -291,7 +347,7 @@ async function loadSubTaskSummary(subId: string): Promise<string | undefined> {
       const m = msgs[i];
       if (m.role !== "assistant") continue;
       const text = extractAssistantText(m.content);
-      if (text) return text;
+      if (text) return text.slice(0, SUBTASK_SUMMARY_MAX);
     }
     return undefined;
   } catch (e) {
@@ -394,6 +450,8 @@ onUnmounted(() => {
   window.removeEventListener("session-switched", scrollToBottomInstant);
   window.removeEventListener("keydown", onTestKey);
   window.removeEventListener("attach-files", onAttachFiles);
+  // 清理历史摘要预拉防抖定时器（卸载后不再触发空跑）
+  if (prefetchTimer) clearTimeout(prefetchTimer);
 });
 function onTestKey(e: KeyboardEvent) {
   if (e.ctrlKey && e.shiftKey && e.key === "T") { e.preventDefault(); showTestPanel.value = !showTestPanel.value; }

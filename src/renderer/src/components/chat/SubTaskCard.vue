@@ -115,14 +115,14 @@ watch(
 );
 
 /**
- * 未展开预览：实时 summary 前 3 行；历史懒加载场景（summary 空 + 有 loader）显中性提示
- * （点击展开才拉取，避免误导性「无摘要」）；无 summary 无 loader 走兜底三态
+ * 未展开预览（用户反馈：收起态无提示文案）：summary 有 → 前 3 行梗概；
+ * summary 空（历史场景未预拉成功/实时无产出）→ 空字符串 → 模板不渲染预览行
+ * （只显示头部徽标行；点击展开才加载或显示兜底）
  */
 const summaryPreview = computed(() => {
   const s = props.subtask.summary || "";
   if (s) return s.split("\n").slice(0, 3).join("\n");
-  if (props.summaryLoader) return "点击查看子任务结果…";
-  return summaryFallback.value;
+  return "";
 });
 
 /** 展开区最终文案：懒加载中 → 提示；loader 失败 → 失败文案；loader 结果 → 结果；实时 summary → 全文；否则兜底 */
@@ -178,8 +178,13 @@ const expandedText = computed(() => {
     <!-- 运行中：动态行（deltaText 尾部，单行省略） -->
     <div v-else-if="subtask.status === 'running'" class="subtask-live" :title="subtask.deltaText">{{ liveText }}</div>
 
-    <!-- 已完成：未展开显预览（前 3 行/历史懒加载提示/三态兜底）；展开态显全文（loader 结果或实时 summary） -->
-    <div v-else-if="!subtask.failed" class="subtask-summary" :class="{ 'subtask-summary--expanded': expanded }">
+    <!-- 已完成：未展开显预览（summary 前 3 行；summary 空 → 无预览行，只显示头部徽标行）；
+         展开态显全文（loader 结果或实时 summary 或兜底）——收起且无预览时不渲染该 div -->
+    <div
+      v-else-if="!subtask.failed && (expanded || summaryPreview)"
+      class="subtask-summary"
+      :class="{ 'subtask-summary--expanded': expanded }"
+    >
       {{ expanded ? expandedText : summaryPreview }}
     </div>
   </div>

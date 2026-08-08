@@ -127,7 +127,8 @@ function mountChatPanel(): VueWrapper {
         ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
         TodoPanel: { template: "<div />" },
         // 子任务可视化：测试聚焦弹窗/审批交互，子任务卡片/弹窗 stub（真实组件在 ChatPanel 专项测试覆盖）
-        SubTaskCard: { props: ["subtask", "expanded"], template: "<div class='subtask-card-stub' />" },
+        // stub 渲染 subtask.summary：预拉摘要注入卡片后可在文本中断言
+        SubTaskCard: { props: ["subtask", "expanded"], template: "<div class='subtask-card-stub'>{{ subtask.summary }}</div>" },
         SubTaskMonitor: { props: ["subId"], template: "<div class='subtask-monitor-stub' />" },
         SubTaskDetail: { props: ["subId"], template: "<div class='subtask-detail-stub' />" },
       },
@@ -609,6 +610,117 @@ describe("ChatPanel 弹窗", () => {
       expect(captured[0]).toContain("[12:00:00] engine boot");
     } finally {
       document.execCommand = origExec;
+    }
+  });
+
+  // ── 历史子任务摘要预拉（用户反馈：完成时卡片直接显示结果梗概，替代展开懒加载）──
+  // 数据链路：childSessions(parentId 匹配) + assistant 消息 toolUses(task part) → subTaskMap → 防抖 300ms 并发预拉 → summary 注入卡片
+
+  /** 构造含 task tool part 的 assistant 消息（serve 注入 `<task id>` 输出） */
+  function makeAssistantWithTask(msgId: string, subId: string) {
+    return {
+      id: msgId,
+      role: "assistant" as const,
+      content: "",
+      thinking: "",
+      toolUses: [{ id: `t-${msgId}`, name: "task", input: {}, result: `<task id="${subId}" state="completed">\n<task_result>ok</task_result>` }],
+      contentBlocks: [],
+      timestamp: Date.now(),
+      isStreaming: false,
+    };
+  }
+
+  /** 构造子会话（parentId 匹配活跃会话） */
+  function makeChildSession(id: string, parentId: string) {
+    return {
+      id,
+      parentId,
+      agent: "工匠",
+      title: "分析项目",
+      createdAt: Date.now() - 60000,
+      updatedAt: Date.now() - 10000,
+      messageCount: 0,
+      totalTokens: null,
+      totalCost: null,
+      mode: "",
+    };
+  }
+
+  it("历史子任务：防抖 300ms 后预拉摘要，注入卡片 summary（收起态直接显示梗概）", async () => {
+    vi.useFakeTimers();
+    try {
+      const chat = useChatStore();
+      const session = useSessionStore();
+      session.setActiveSession("ses-1");
+      chat.messages.push(makeAssistantWithTask("m-assist-1", "ses_hist_1"));
+      session.childSessions.push(makeChildSession("ses_hist_1", "ses-1"));
+      listMessagesMock.mockResolvedValue([
+        { id: "sub-m1", role: "assistant", content: "子会话最终产出摘要文本", created_at: "2026-01-01T00:00:00" },
+      ]);
+
+      const wrapper = mountChatPanel();
+      // 防抖 300ms 内不触发
+      await vi.advanceTimersByTimeAsync(200);
+      expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(false);
+      // 超过防抖 → 预拉
+      await vi.advanceTimersByTimeAsync(200);
+      expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(true);
+      // 摘要注入卡片（stub 渲染 subtask.summary）
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.text()).toContain("子会话最终产出摘要文本");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("历史子任务：预拉失败 summary 留空（卡片无梗概），且不重试", async () => {
+    vi.useFakeTimers();
+    try {
+      const chat = useChatStore();
+      const session = useSessionStore();
+      session.setActiveSession("ses-1");
+      chat.messages.push(makeAssistantWithTask("m-assist-1", "ses_hist_1"));
+      session.childSessions.push(makeChildSession("ses_hist_1", "ses-1"));
+      listMessagesMock.mockRejectedValue(new Error("boom"));
+
+      const wrapper = mountChatPanel();
+      await vi.advanceTimersByTimeAsync(400);
+      expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(true);
+      // 卡片 summary 为空（stub 渲染空字符串）
+      expect(wrapper.find(".subtask-card-stub").text()).toBe("");
+      // 失败不重试：消息再变化触发新防抖周期，也不再拉同一子会话
+      chat.messages.push(makeAssistantWithTask("m-assist-2", "ses_hist_1"));
+      await vi.advanceTimersByTimeAsync(400);
+      const histCalls = listMessagesMock.mock.calls.filter((c) => c[0] === "ses_hist_1");
+      expect(histCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("历史子任务：连续消息变化重置防抖定时器，只取最后一次变化后 300ms 触发一次", async () => {
+    vi.useFakeTimers();
+    try {
+      const chat = useChatStore();
+      const session = useSessionStore();
+      session.setActiveSession("ses-1");
+      session.childSessions.push(makeChildSession("ses_hist_1", "ses-1"));
+      listMessagesMock.mockResolvedValue([
+        { id: "sub-m1", role: "assistant", content: "产出", created_at: "2026-01-01T00:00:00" },
+      ]);
+
+      const wrapper = mountChatPanel();
+      await vi.advanceTimersByTimeAsync(300); // 初始无消息 → 空跑
+      chat.messages.push(makeAssistantWithTask("m-a", "ses_hist_1"));
+      await vi.advanceTimersByTimeAsync(200); // 防抖中
+      chat.messages.push(makeAssistantWithTask("m-b", "ses_hist_1"));
+      await vi.advanceTimersByTimeAsync(200); // 第二次变化后 200ms（仍 <300）
+      expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(false);
+      await vi.advanceTimersByTimeAsync(200); // 第二次变化后 400ms → 触发一次
+      const histCalls = listMessagesMock.mock.calls.filter((c) => c[0] === "ses_hist_1");
+      expect(histCalls).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
     }
   });
 });

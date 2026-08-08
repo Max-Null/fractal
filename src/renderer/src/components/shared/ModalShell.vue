@@ -7,6 +7,8 @@ const props = defineProps<{
   position?: "center" | "top";
   /** 宽度预设 */
   size?: "sm" | "md" | "lg" | "xl";
+  /** 自定义宽度（CSS 值，如 "60vw"）——覆盖 size 预设（size 保留为回退） */
+  width?: string;
 }>();
 const emit = defineEmits<{ close: [] }>();
 
@@ -36,6 +38,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
             'modal-shell-panel--xl': size === 'xl',
           },
         ]"
+        :style="width ? { width } : undefined"
       >
         <div class="modal-shell-header">
           <slot name="header" />

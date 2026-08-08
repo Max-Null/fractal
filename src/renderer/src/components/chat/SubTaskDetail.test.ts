@@ -86,4 +86,41 @@ describe("SubTaskDetail 状态头", () => {
     expect(wrapper.text()).toContain("🔄 运行中");
     expect(wrapper.text()).not.toContain("历史记录");
   });
+
+  // ── 消息区（任务描述 + 角色标签）：首条 user = 主智能体任务描述；assistant = 子智能体执行 ──
+
+  it("首条 user 消息渲染为任务描述区（🎯 + 由主智能体派发 + 描述文本全宽）", async () => {
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "user", content: "请分析项目代码结构", created_at: "2026-01-01T00:00:00" },
+      { id: "m2", role: "assistant", content: "开始分析", created_at: "2026-01-01T00:00:01" },
+    ]);
+    const wrapper = mountDetail("ses_hist_1");
+    await flushPromises();
+    expect(wrapper.find(".detail-task-desc").exists()).toBe(true);
+    expect(wrapper.text()).toContain("🎯 任务描述");
+    expect(wrapper.text()).toContain("由主智能体派发");
+    expect(wrapper.text()).toContain("请分析项目代码结构");
+  });
+
+  it("assistant 消息带「🤖 子智能体执行」角色标签；后续 user 工具结果不标（归入执行流）", async () => {
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "user", content: "任务描述", created_at: "2026-01-01T00:00:00" },
+      { id: "m2", role: "assistant", content: "执行中…", created_at: "2026-01-01T00:00:01" },
+      { id: "m3", role: "user", content: "工具结果数据", created_at: "2026-01-01T00:00:02" },
+    ]);
+    const wrapper = mountDetail("ses_hist_2");
+    await flushPromises();
+    // 角色标签只出现在 assistant 消息（1 个），文本含子智能体执行
+    expect(wrapper.findAll(".detail-role-tag").length).toBe(1);
+    expect(wrapper.text()).toContain("🤖 子智能体执行");
+    // 后续 user 消息仍渲染为普通 user 块（工具结果），且无角色标签
+    expect(wrapper.text()).toContain("工具结果数据");
+    expect(wrapper.find(".detail-msg--user .detail-role-tag").exists()).toBe(false);
+  });
+
+  it("无消息：显示 No content 兜底", async () => {
+    const wrapper = mountDetail("ses_empty");
+    await flushPromises();
+    expect(wrapper.text()).toContain("No content");
+  });
 });
