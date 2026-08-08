@@ -26,16 +26,17 @@ afterEach(() => {
 describe("ModalShell width prop", () => {
   it("传 width 时面板 style.width 生效（覆盖 size 预设）", () => {
     mountShell({ size: "xl", width: "min(60vw, 960px)" });
-    const panel = document.querySelector(".modal-shell-panel");
+    const panel = document.querySelector(".modal-shell-panel") as HTMLElement | null;
     expect(panel).toBeTruthy();
-    expect(panel?.getAttribute("style")).toContain("width: min(60vw, 960px)");
+    // Vue 用 CSSOM 设置内联样式（setProperty）——jsdom 下读 style.width，不用 getAttribute
+    expect(panel?.style.width).toBe("min(60vw, 960px)");
   });
 
   it("不传 width 时不附加 style（回退 size 类宽）", () => {
     mountShell({ size: "xl" });
-    const panel = document.querySelector(".modal-shell-panel");
+    const panel = document.querySelector(".modal-shell-panel") as HTMLElement | null;
     expect(panel).toBeTruthy();
-    expect(panel?.getAttribute("style")).toBeNull();
+    expect(panel?.style.width).toBe("");
     expect(panel?.classList.contains("modal-shell-panel--xl")).toBe(true);
   });
 });
