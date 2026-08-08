@@ -384,6 +384,8 @@ async function polishInput() {
 
       <!-- ③ 输入行：textarea + hint/发送 同一行（cf-left 操作行用 order 显示在其上方） -->
       <div class="composer-inputrow">
+        <!-- Shift+Enter 换行提示：与输入消息同排（用户反馈：不属工具栏） -->
+        <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
       <!-- ② textarea -->
       <textarea
         v-model="input"
@@ -476,9 +478,6 @@ async function polishInput() {
           <button class="composer-icon-btn" :title="$t('toolbar.commandsTitle')" @click="emit('openCommandMenu')">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           </button>
-
-          <!-- Shift+Enter 换行提示（用户反馈⑥：与提示信息同放左侧） -->
-          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
         </div>
 
         <div class="cf-right-pills">
@@ -725,6 +724,12 @@ async function polishInput() {
 .composer-inputrow .composer-input {
   flex: 1;
   min-width: 0;
+}
+/* 输入行内的 hint：贴底对齐发送按钮（inputrow 是 flex-end） */
+.composer-inputrow .composer-hint {
+  padding-bottom: 7px;
+  margin-right: 2px;
+  flex-shrink: 0;
 }
 .cf-right {
   display: flex;
