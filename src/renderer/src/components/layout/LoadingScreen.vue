@@ -100,6 +100,16 @@ const stageLines = computed(() => {
   overflow: hidden;
 }
 
+/* ── CRT 扫描线微噪：2.5% 透明度水平细线（制图师 P2——3% 上限，再高就脏）── */
+.boot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(148, 163, 184, 0.025) 2px 3px);
+  z-index: 2;
+}
+
 /* ── 赛博网格背景：细线十字格缓慢向下滚动（视差感）── */
 .boot-grid {
   position: absolute;
@@ -145,19 +155,25 @@ const stageLines = computed(() => {
   width: 200px;
   height: 200px;
   perspective: 700px;
+  /* 整体摇摆：观察者视角缓动，错层轨道立刻「活」起来（制图师 P1，2026-08-09） */
+  animation: atom-wobble 12s ease-in-out infinite;
+}
+@keyframes atom-wobble {
+  0%, 100% { transform: rotateY(-10deg); }
+  50% { transform: rotateY(10deg); }
 }
 
-/* ── 轨道环：rotateX 压扁成椭圆投影 + rotateY 错开平面（立体原子感——
-   三轨道不在同一平面，绕 Y 轴依次偏转形成 3D 倾斜轨道系；55° 为自然斜率，
-   62° 实测过于扁平（用户指正 2026-08-09）── */
+/* ── 轨道环：rotateX 压扁成椭圆投影 + rotateZ 错轴（制图师 P0 核心修正——
+   主轴互成 60°（0/60/120），投影后椭圆长轴自然指向三个方向，土星环感→原子感；
+   rotateZ 先于 rotateX 应用（CSS 列表先写先应用）── */
 .si-orbit {
   position: absolute;
   border: 1px solid rgba(14, 165, 233, 0.4);
   border-radius: 50%;
 }
-.si-orbit--outer { inset: 0; transform: rotateX(55deg); }
-.si-orbit--mid { inset: 11%; transform: rotateX(55deg) rotateY(14deg); }
-.si-orbit--inner { inset: 24%; transform: rotateX(55deg) rotateY(-22deg); }
+.si-orbit--outer { inset: 0; transform: rotateX(55deg) rotateZ(0deg); }
+.si-orbit--mid { inset: 11%; transform: rotateX(55deg) rotateZ(60deg); }
+.si-orbit--inner { inset: 24%; transform: rotateX(55deg) rotateZ(120deg); }
 
 /* ── 旋转层：绕 z 公转（不同壳层不同速度 + 错位起始角）── */
 .si-spin {
@@ -186,11 +202,13 @@ const stageLines = computed(() => {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
-  /* 抵消轨道 rotateX(55°) 压扁：电子保持正圆（球形感，用户指正 2026-08-09） */
-  transform: rotateX(-55deg);
+  /* 抵消轨道变换（矩阵逆：rotateZ(-N) rotateX(-55)，CSS 列表顺序 = 先写先应用）——
+     保持电子正圆且停在轨道原位（制图师 P0，2026-08-09） */
+  transform: rotateZ(calc(-1 * var(--rz, 0deg))) rotateX(-55deg);
 }
-.si-orbit--outer .si-e { width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
-.si-orbit--mid .si-e { opacity: 0.9; }
+.si-orbit--outer .si-e { --rz: 0deg; width: 6px; height: 6px; margin-left: -3px; top: -3px; opacity: 0.85; }
+.si-orbit--mid .si-e { --rz: 60deg; opacity: 0.9; }
+.si-orbit--inner .si-e { --rz: 120deg; }
 
 /* ── 原子核 = 眼睛（logo 同款瞳孔）：虹膜容器 + 会「到处看」的瞳孔 ── */
 .si-nucleus {
@@ -201,8 +219,10 @@ const stageLines = computed(() => {
   height: 46px;
   margin: -23px 0 0 -23px;
   border-radius: 50%;
+  /* 描边 + 内阴影：球体感而非平面圆（制图师 P1，2026-08-09） */
+  border: 1px solid rgba(56, 189, 248, 0.35);
   background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
-  box-shadow: 0 0 18px rgba(14, 165, 233, 0.55), inset 0 0 8px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 18px rgba(14, 165, 233, 0.55), inset 0 0 10px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.12);
   overflow: hidden;
   z-index: 2;
   animation: si-nucleus-breathe 2.6s ease-in-out infinite;
@@ -238,13 +258,38 @@ const stageLines = computed(() => {
 /* 高光：光源反射固定在虹膜左上（瞳孔移动时高光不动——光源方向不变，用户指正 2026-08-09） */
 .si-glint {
   position: absolute;
-  left: 6px;
-  top: 5px;
-  width: 7px;
-  height: 7px;
+  left: 7px;
+  top: 6px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+  box-shadow: 0 0 5px rgba(255, 255, 255, 0.9), 0 0 12px rgba(255, 255, 255, 0.4);
+}
+
+/* ── 全息底座：原子下方淡光晕（投影盘感，锚定空间，制图师 P2）── */
+.si-atom::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: 4px;
+  width: 180px;
+  height: 26px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.10), transparent 70%);
+  filter: blur(2px);
+}
+
+/* ── 轨道呼吸：边框亮度缓慢脉动（全息感，制图师 P2）── */
+.si-orbit {
+  animation: orbit-breathe 6s ease-in-out infinite;
+}
+.si-orbit--mid { animation-delay: -2s; }
+.si-orbit--inner { animation-delay: -4s; }
+@keyframes orbit-breathe {
+  0%, 100% { border-color: rgba(125, 211, 252, 0.22); }
+  50% { border-color: rgba(125, 211, 252, 0.5); }
 }
 
 /* ── 进度条：accent 渐变填充 + 前端光点 ── */
