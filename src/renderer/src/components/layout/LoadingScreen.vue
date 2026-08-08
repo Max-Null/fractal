@@ -3,7 +3,7 @@
  * 启动载入画面（赛博科幻风）：分形 logo 呼吸辉光 + 阶段进度条 + 假终端日志滚动。
  * 数据由 AppShell 串行启动链驱动（bootStage/bootPercent/bootTimedOut），本组件只做渲染与装饰。
  */
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
 // ── Canvas 3D Si 原子渲染（数学投影，2026-08-09）──
 // CSS 平面圆在 3D 里必然被压扁（用户实测不可见）；Canvas 画径向渐变球体 +
@@ -164,6 +164,14 @@ const stageLines = computed(() => {
   const decorCount = Math.max(0, Math.min(props.logs.length - 1, DECOR_LINES.length))
   return [...props.logs, ...DECOR_LINES.slice(0, decorCount).map((t) => ({ text: t, decor: true }))]
 })
+
+// 终端自动滚动到底部：日志行数增长时新行在显示范围外（用户实测——后出现的信息看不到）
+const bootTerminalRef = ref<HTMLDivElement | null>(null)
+watch(stageLines, async () => {
+  await nextTick() // DOM 更新后滚（行渲染有 220ms 动画，滚动位置以最终高度为准）
+  const el = bootTerminalRef.value
+  if (el) el.scrollTop = el.scrollHeight
+})
 </script>
 
 <template>
@@ -186,8 +194,8 @@ const stageLines = computed(() => {
         <span class="boot-progress-pct">{{ percent }}%</span>
       </div>
 
-      <!-- 假终端日志区：真实阶段文案 + 装饰代码行 -->
-      <div class="boot-terminal" aria-label="启动日志">
+      <!-- 假终端日志区：真实阶段文案 + 装饰代码行（自动滚动到底部，2026-08-09 用户反馈） -->
+      <div ref="bootTerminalRef" class="boot-terminal" aria-label="启动日志">
         <div v-for="(l, i) in stageLines" :key="i" class="boot-line" :class="{ 'boot-line--decor': l.decor }">
           <span v-if="l.decor" class="boot-caret">›</span>
           <span v-else class="boot-caret boot-caret--accent">▶</span>
@@ -334,8 +342,12 @@ const stageLines = computed(() => {
   font-size: 10.5px;
   line-height: 1.75;
   color: var(--text-muted);
-  overflow: hidden;
+  /* 可滚动但隐藏滚动条（对齐 rail 风格）：日志超出 150px 时自动滚动到底部 */
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   text-align: left;
+  &::-webkit-scrollbar { display: none; }
   /* 内阴影跟随主题：暗色黑内阴影 / 亮色浅灰内阴影（硬编码黑在亮色下刺眼，2026-08-09） */
   box-shadow: inset 0 0 24px color-mix(in srgb, var(--bg-root) 55%, transparent);
 }

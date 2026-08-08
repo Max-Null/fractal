@@ -12,7 +12,7 @@ import LoadingScreen from "@/components/layout/LoadingScreen.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer, getEngineStatus } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer, getEngineStatus, registerWorkspace } from "@/lib/electron-bridge";
 import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
@@ -479,6 +479,9 @@ onMounted(async () => {
     if (!settings.cwd) {
       try { settings.cwd = await getWorkspaceRoot(); } catch {}
     }
+    // 上报当前窗口工作区（窗口去重需要）：主窗口创建时未登记 winWorkspaces，不报则切回初始
+    // 工作区会新开窗口（2026-08-09 用户实测）；URL 窗口的 cwd 已在 L460 切换，此处统一覆盖
+    try { await registerWorkspace(settings.cwd || ''); } catch { /* 主进程暂不可达：去重降级为开新窗口 */ }
     bootPercent.value = 30; pushBootLog(t('boot.localOk'));
     // ③ 引擎就绪门禁：getEngineStatus 首查 + 轮询 + engine:status 事件，任一先到 running 即放行
     bootStage.value = 'engine'; bootPercent.value = 45; pushBootLog(t('boot.engine'));

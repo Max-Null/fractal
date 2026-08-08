@@ -201,6 +201,14 @@ app.whenReady().then(async () => {
     }
   })
 
+  // 渲染层上报当前工作区（窗口去重需要）：主窗口创建时 workspace 未传（登记为 ''），
+  // 切回初始工作区会新开窗口——AppShell 串行链拿到 cwd 后调本通道登记（2026-08-09 用户实测）
+  ipcMain.handle('window:registerWorkspace', (e, args: { cwd?: unknown }) => {
+    if (typeof args?.cwd !== 'string' || args.cwd.length === 0) return
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (win) winWorkspaces.set(win.id, args.cwd)
+  })
+
   const win = createWindow()
 
   // 配置监听（阶段 6，方案 3.8.3）：settings.json 变更 → config-changed 广播（GUI 表单/JSON 编辑器/agent 工具三路统一走文件）

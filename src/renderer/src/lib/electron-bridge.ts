@@ -690,6 +690,11 @@ export async function openWorkspaceWindow(path: string): Promise<void> {
   return invoke("window:openWorkspace", { path });
 }
 
+/** 上报当前窗口的工作区（窗口去重需要）：主窗口创建时未登记，串行链拿到 cwd 后调用 */
+export async function registerWorkspace(cwd: string): Promise<void> {
+  return invoke("window:registerWorkspace", { cwd });
+}
+
 /** 订阅新窗口工作区下发（主进程 createWindow(workspace) 后主动推送），返回取消订阅函数 */
 export function onInitWorkspace(cb: (path: string) => void): () => void {
   return window.electronBridge.onInitWorkspace(cb);

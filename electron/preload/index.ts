@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+﻿import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
@@ -35,7 +35,8 @@ const ALLOWED_INVOKE = [
   'memory:list', 'memory:confirm', 'memory:remove',
   'plans:list',
   'status:get',
-  'window:openWorkspace'
+  'window:openWorkspace',
+  'window:registerWorkspace'
 ] as const
 
 /** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */
