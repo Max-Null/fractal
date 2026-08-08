@@ -1,5 +1,5 @@
 // ModalShell 宽度自定义 prop 测试：width 覆盖 size 预设、缺省回退 size 类
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import ModalShell from "./ModalShell.vue";
@@ -11,24 +11,31 @@ const i18n = createI18n({
   messages: { en: { modal: { close: "Close" } } },
 });
 
+// 真实 Teleport 渲染到 body：用 document 查询面板（stub teleport 会让 find 拿不到子内容）
 function mountShell(props: Record<string, unknown> = {}) {
   return mount(ModalShell, {
     props: { open: true, ...props },
-    global: { stubs: { teleport: true }, plugins: [i18n] },
+    global: { plugins: [i18n] },
   });
 }
 
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
 describe("ModalShell width prop", () => {
   it("传 width 时面板 style.width 生效（覆盖 size 预设）", () => {
-    const wrapper = mountShell({ size: "xl", width: "min(60vw, 960px)" });
-    const panel = wrapper.find(".modal-shell-panel");
-    expect(panel.attributes("style")).toContain("width: min(60vw, 960px)");
+    mountShell({ size: "xl", width: "min(60vw, 960px)" });
+    const panel = document.querySelector(".modal-shell-panel");
+    expect(panel).toBeTruthy();
+    expect(panel?.getAttribute("style")).toContain("width: min(60vw, 960px)");
   });
 
   it("不传 width 时不附加 style（回退 size 类宽）", () => {
-    const wrapper = mountShell({ size: "xl" });
-    const panel = wrapper.find(".modal-shell-panel");
-    expect(panel.attributes("style")).toBeUndefined();
-    expect(panel.classes()).toContain("modal-shell-panel--xl");
+    mountShell({ size: "xl" });
+    const panel = document.querySelector(".modal-shell-panel");
+    expect(panel).toBeTruthy();
+    expect(panel?.getAttribute("style")).toBeNull();
+    expect(panel?.classList.contains("modal-shell-panel--xl")).toBe(true);
   });
 });
