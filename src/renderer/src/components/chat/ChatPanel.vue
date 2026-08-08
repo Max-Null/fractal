@@ -1291,7 +1291,8 @@ watch(
         <button @click="handleAllow" class="btn-primary">{{ $t('chat.allow') }}</button>
         <button @click="handleDeny" class="btn-ghost" style="color:var(--coral); border-color:var(--coral)">{{ $t('chat.deny') }}</button>
       </div>
-      <TodoPanel />
+      <!-- 工作清单按需显示（方案 A）：无 todo 时零空间——v-if 只控制「存在与否」，折叠态由 TodoPanel 内部 localStorage 持久化管理，todos 变化不会强制重新展开 -->
+      <TodoPanel v-if="chat.todos.length > 0" />
     </div>
 
     <!-- ═══ 底部区域：滚动按钮 + 状态消息 + 工具栏 + 输入框（语义类 composer-area：不收缩 + 定位参照）═══ -->

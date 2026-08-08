@@ -1,5 +1,5 @@
-// TodoPanel 组件测试：serve 原生 todo.updated → chat.todos 渲染（pending/in_progress/completed/cancelled + 空态）
-import { describe, it, expect, beforeEach } from "vitest";
+// TodoPanel 组件测试：serve 原生 todo.updated → chat.todos 渲染（pending/in_progress/completed/cancelled + 空态）+ 折叠（B 方案）
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createI18n } from "vue-i18n";
@@ -14,6 +14,8 @@ const i18n = createI18n({
       chat: {
         todos: "Task List",
         noTodos: "No tasks yet",
+        todoExpand: "Expand task list",
+        todoCollapse: "Collapse task list",
       },
     },
   },
@@ -75,5 +77,76 @@ describe("TodoPanel", () => {
 
     expect(wrapper.text()).toContain("No tasks yet");
     expect(wrapper.text()).not.toContain("hidden");
+  });
+
+  // ── 折叠（方案 B）：默认展开 / 点击折叠持久化 / 折叠态恢复 / 计数徽标 ──
+
+  it("默认展开：列表可见 + 总数徽标显示全部 todo 数（不区分状态）", () => {
+    const chat = useChatStore();
+    chat.setTodos([
+      { content: "A", status: "pending" },
+      { content: "B", status: "completed" },
+      { content: "C", status: "cancelled" },
+    ]);
+    const wrapper = mount(TodoPanel, { global: { plugins: [i18n] } });
+
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
+    expect(wrapper.find(".todo-panel-header").attributes("aria-expanded")).toBe("true");
+    // 徽标 = 可见总数 3（cancelled 保留显示）
+    expect(wrapper.find(".todo-count-badge").text()).toBe("3");
+    // 展开态保留完成计数 1/3（原有功能）
+    expect(wrapper.text()).toContain("1/3");
+  });
+
+  it("点击标题栏折叠 → 列表收起 + localStorage 写入 sb-todo-collapsed=1；再点展开恢复=0", async () => {
+    const chat = useChatStore();
+    chat.setTodos([{ content: "A", status: "pending" }]);
+    const wrapper = mount(TodoPanel, { global: { plugins: [i18n] } });
+
+    await wrapper.find(".todo-panel-header").trigger("click");
+    // leave 动画（max-height 0.2s）结束后列表从 DOM 移除——waitFor 轮询避免依赖动画时序
+    await vi.waitFor(() => {
+      expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+    });
+    expect(wrapper.find(".todo-panel-header").attributes("aria-expanded")).toBe("false");
+    expect(localStorage.getItem("sb-todo-collapsed")).toBe("1");
+    // 折叠态标题栏仍显示（标题 + 徽标 + 箭头）
+    expect(wrapper.find(".todo-panel-title").exists()).toBe(true);
+    expect(wrapper.find(".todo-count-badge").text()).toBe("1");
+
+    await wrapper.find(".todo-panel-header").trigger("click");
+    await vi.waitFor(() => {
+      expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
+    });
+    expect(localStorage.getItem("sb-todo-collapsed")).toBe("0");
+  });
+
+  it("折叠态持久化：localStorage 预置 sb-todo-collapsed=1 → 挂载后默认折叠", () => {
+    localStorage.setItem("sb-todo-collapsed", "1");
+    const chat = useChatStore();
+    chat.setTodos([{ content: "A", status: "pending" }]);
+    const wrapper = mount(TodoPanel, { global: { plugins: [i18n] } });
+
+    expect(wrapper.find(".todo-panel-header").attributes("aria-expanded")).toBe("false");
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+    // 标题栏（含总数徽标）仍显示，仅列表收起
+    expect(wrapper.find(".todo-count-badge").text()).toBe("1");
+  });
+
+  it("折叠态下 todos 新增/更新不强制重新展开（列表保持收起）", async () => {
+    localStorage.setItem("sb-todo-collapsed", "1");
+    const chat = useChatStore();
+    chat.setTodos([{ content: "A", status: "pending" }]);
+    const wrapper = mount(TodoPanel, { global: { plugins: [i18n] } });
+
+    // todos 更新（新增一条）→ 列表仍收起，仅徽标数字变化
+    chat.setTodos([
+      { content: "A", status: "pending" },
+      { content: "B", status: "in_progress" },
+    ]);
+    await vi.waitFor(() => {
+      expect(wrapper.find(".todo-count-badge").text()).toBe("2");
+    });
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
   });
 });

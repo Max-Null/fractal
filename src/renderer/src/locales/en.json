@@ -31,6 +31,8 @@
     "stopped": "Stopped",
     "completed": "Completed",
     "todos": "Task List",
+    "todoExpand": "Expand task list",
+    "todoCollapse": "Collapse task list",
     "loading": "Loading...",
     "engineNotReady": "Engine not ready, try again later",
     "export": "Export",

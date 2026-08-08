@@ -31,6 +31,8 @@
     "stopped": "已停止",
     "completed": "已完成",
     "todos": "工作清单",
+    "todoExpand": "展开工作清单",
+    "todoCollapse": "收起工作清单",
     "loading": "加载中...",
     "engineNotReady": "引擎未就绪，可稍后重试",
     "export": "导出",

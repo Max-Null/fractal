@@ -125,7 +125,8 @@ function mountChatPanel(): VueWrapper {
         ModalShell: ModalShellStub,
         MarkdownRenderer: { template: "<div />" },
         ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
-        TodoPanel: { template: "<div />" },
+        // stub 渲染 data-todo-panel 标记：方案 A「按需显示」测试断言 TodoPanel 是否被渲染（v-if 控制存在性）
+        TodoPanel: { template: "<div class='todo-panel-stub' />" },
         // 子任务可视化：测试聚焦弹窗/审批交互，子任务卡片/弹窗 stub（真实组件在 ChatPanel 专项测试覆盖）
         // stub 渲染 subtask.summary：预拉摘要注入卡片后可在文本中断言
         SubTaskCard: { props: ["subtask", "expanded"], template: "<div class='subtask-card-stub'>{{ subtask.summary }}</div>" },
@@ -722,6 +723,45 @@ describe("ChatPanel 弹窗", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── 工作清单按需显示（方案 A）：无 todo 零空间，有 todo 才渲染 TodoPanel ──
+
+  it("A: 无 todos → 不渲染 TodoPanel（零空间，空态文案不再占用）", async () => {
+    const chat = useChatStore();
+    expect(chat.todos).toHaveLength(0);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.find(".todo-panel-stub").exists()).toBe(false);
+  });
+
+  it("A: 有 todos → 渲染 TodoPanel", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.setTodos([{ content: "写 README", status: "pending" }]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    expect(wrapper.find(".todo-panel-stub").exists()).toBe(true);
+  });
+
+  it("A: todos 清空 → TodoPanel 随 v-if 移除（显示条件只看存在性）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.setTodos([{ content: "写 README", status: "pending" }]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+    expect(wrapper.find(".todo-panel-stub").exists()).toBe(true);
+
+    chat.setTodos([]);
+    await flush();
+    expect(wrapper.find(".todo-panel-stub").exists()).toBe(false);
   });
 });
 
