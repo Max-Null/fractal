@@ -65,9 +65,10 @@ const serverManager = createServerManager({
 
 // createWindow：创建主窗口。workspace 有值时新窗口启动后切到目标工作区（多窗口支持，
 // 交互模式变更——渲染进程点最近工作区非当前项 → 新开窗口，不再当前窗口内切换）
+// 窗口去重：winWorkspaces 记录 win.id → workspace，openWorkspace 前查重——同工作区已有窗口直接聚焦
+//（避免同工作区多窗口同时用一个会话造成数据混乱，2026-08-09 用户要求）
+const winWorkspaces = new Map<number, string>()
 function createWindow(workspace?: string): BrowserWindow {
-  // 窗口标题：指定工作区显示「分形 — 目录名」便于多窗口识别。
-  // 注意：页面 <title>分形</title> 会在 load 完成后覆盖构造 title → did-finish-load 里 setTitle 兜底
   const windowTitle = workspace ? `分形 — ${basename(workspace)}` : '分形'
   const mainWindow = new BrowserWindow({
     width: 1280,
@@ -75,13 +76,13 @@ function createWindow(workspace?: string): BrowserWindow {
     show: false,
     title: windowTitle,
     autoHideMenuBar: true,
-    // Windows/Linux 设置窗口图标（macOS 用 dock 图标，此字段无效）；resources/icon.png 由 scripts/gen-icons.js 生成
     ...(process.platform !== 'darwin' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
     }
   })
+  winWorkspaces.set(mainWindow.id, workspace ?? '')
 
   mainWindow.on('ready-to-show', () => {
     mainWindow.show()
@@ -181,7 +182,19 @@ app.whenReady().then(async () => {
     appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] path=${JSON.stringify(args?.path)}\n`)
     if (typeof args?.path !== 'string' || args.path.length === 0) return
     try {
-      const w = createWindow(args.path)
+      const target = args.path
+      // 同工作区已有窗口：直接聚焦（restore/show/focus），不再开新窗口——避免同工作区双窗口共用会话（2026-08-09）
+      const normKey = (p: string) => p.replace(/\\+$/, '').toLowerCase()
+      const deduped = BrowserWindow.getAllWindows().find(
+        (win) => normKey(winWorkspaces.get(win.id) ?? '') === normKey(target),
+      )
+      if (deduped) {
+        if (deduped.isMinimized()) deduped.restore()
+        deduped.show(); deduped.focus()
+        appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] focus existing win=${deduped.id}\n`)
+        return
+      }
+      const w = createWindow(target)
       appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] created id=${w.id} visible=${w.isVisible()}\n`)
     } catch (err) {
       appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] ERROR ${String(err)}\n`)

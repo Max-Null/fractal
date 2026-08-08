@@ -500,6 +500,8 @@ onMounted(async () => {
     // 各子步骤已有独立 catch，此处仅兜底——不会到达，但确保 initializing 必然复位
   } finally {
     bootStage.value = 'done'; bootPercent.value = 100; pushBootLog(t('boot.done'));
+    // 让用户看到 100% + 淡出动画：解除前停留片刻（否则同帧切换，进度停在 92% 一闪而过，2026-08-09）
+    await new Promise((r) => setTimeout(r, 400));
     initializing.value = false;
     document.addEventListener("keydown", onGlobalKeydown);
     panelLayout.setupObserver(); // ResizeObserver 监听容器宽度变化，自动 clamp 右侧面板

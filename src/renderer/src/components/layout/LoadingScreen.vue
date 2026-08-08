@@ -328,7 +328,7 @@ const stageLines = computed(() => {
   height: 150px;
   padding: 10px 12px;
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-dim);
   font-family: var(--font-mono, monospace);
   font-size: 10.5px;
@@ -336,13 +336,14 @@ const stageLines = computed(() => {
   color: var(--text-muted);
   overflow: hidden;
   text-align: left;
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.5);
+  /* 内阴影跟随主题：暗色黑内阴影 / 亮色浅灰内阴影（硬编码黑在亮色下刺眼，2026-08-09） */
+  box-shadow: inset 0 0 24px color-mix(in srgb, var(--bg-root) 55%, transparent);
 }
 .boot-line {
   animation: boot-line-in 220ms ease-out both;
   white-space: nowrap;
 }
-.boot-line--decor { color: rgba(148, 163, 184, 0.55); }
+.boot-line--decor { color: var(--text-faint); }
 .boot-caret { margin-right: 6px; color: var(--text-muted); }
 .boot-caret--accent { color: var(--accent); text-shadow: 0 0 6px var(--accent-glow); }
 @keyframes boot-line-in {
