@@ -412,7 +412,7 @@ async function polishInput() {
             :title="$t('composer.polishTitle')"
             @click="polishInput"
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.7L19.6 10l-5.7 1.3L12 17l-1.9-5.7L4.4 10l5.7-1.3L12 3z"/><path d="M19 15l.9 2.6L22.5 18l-2.6.9L19 21.5l-.9-2.6-2.6-.9 2.6-.9L19 15z"/></svg>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>
           </button>
           <!-- Stop button（处理中显示红色方块，替代发送） -->
           <button
@@ -939,7 +939,7 @@ async function polishInput() {
   white-space: nowrap;
 }
 
-/* ✨ 优化消息按钮（发送左侧）：accent 实底白字（与发送同风格，最明显——用户两次反馈浅色不明显） */
+/* ✨ 优化消息按钮（发送左侧）：实心主题蓝图标 + 浅底蓝边（用户反馈：空心描边不明显 → 实心蓝） */
 .polish-btn {
   display: flex;
   align-items: center;
@@ -948,22 +948,23 @@ async function polishInput() {
   height: 30px;
   padding: 0;
   border-radius: 9px;
-  color: #fff;
-  background: var(--accent);
-  border: none;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid var(--accent-line);
   cursor: pointer;
   flex-shrink: 0;
   transition: all 150ms ease;
 }
 .polish-btn:hover:not(:disabled) {
-  filter: brightness(1.15);
-  transform: translateY(-1px);
+  color: #fff;
+  background: var(--accent);
+  border-color: var(--accent);
 }
 .polish-btn:active:not(:disabled) { transform: none; }
 .polish-btn:disabled {
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--border-dim);
+  border-color: var(--border-dim);
   cursor: default;
   opacity: 0.5;
 }
