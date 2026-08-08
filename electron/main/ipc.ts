@@ -707,11 +707,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   })
 
   ipcMain.handle('engine:refresh', async () => {
-    // 右上角刷新按钮：重启 serve（配置/预置变更立即生效）；stopServer 幂等，startServer 内部有 ready 缓存
-    if (!serverManager) throw new Error('引擎未初始化：server-manager 未注入')
-    await serverManager.stopServer().catch(() => {})
-    await serverManager.startServer()
-    return { ok: true }
+    // 重启 serve（右上角刷新按钮 / 数据模式切换：配置/预置变更立即生效）；stopServer 幂等，startServer 内部有 ready 缓存。
+    // 返回 {ok, error?} 而非抛错：数据模式切换需失败回滚再重试（settings store setDataMode），
+    // 抛给渲染层会中断回滚链（D8 P0 防引擎停摆）；未注入 serverManager 同样以 error 形式返回。
+    if (!serverManager) return { ok: false, error: '引擎未初始化：server-manager 未注入' }
+    try {
+      await serverManager.stopServer().catch(() => {})
+      await serverManager.startServer()
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
   })
 
   ipcMain.handle('chat:stopSession', async (_e, args: { sessionId: string }) => {

@@ -242,6 +242,17 @@ const showChangelog = ref(false);
 // ── 高级设置（settings.json JSONC 编辑器，阶段 6）──
 // 默认折叠：面向高级用户/agent 协作，避免小白误改配置（方案 3.8：高级配置类 VSCode settings.json）
 const showAdvanced = ref(false);
+
+// ── 数据模式开关（高级设置：独立会话数据）──
+// 切换 → settings store setDataMode（写 settings.json + 重启 serve + 清会话缓存；失败自动回滚）
+// 提示条复用 alertText 模式（三种状态：切换中/成功/失败），isRestarting 时开关禁用（防连点）
+const dataModeMsg = ref<{ type: "info" | "ok" | "err"; text: string } | null>(null);
+async function handleDataModeToggle(v: "shared" | "isolated") {
+  dataModeMsg.value = { type: "info", text: t("settings.dataModeRestarting") };
+  const r = await settings.setDataMode(v);
+  if (r.ok) dataModeMsg.value = { type: "ok", text: t("settings.dataModeDone") };
+  else dataModeMsg.value = { type: "err", text: t("settings.dataModeFail") };
+}
 </script>
 
 <template>
@@ -586,6 +597,43 @@ const showAdvanced = ref(false);
           </button>
           <div v-if="showAdvanced" class="mt-2 p-3 rounded-lg" style="background: var(--bg-elevated); border: 1px solid var(--border-default)">
             <p class="mb-2 text-[10px]" style="color: var(--text-muted)">{{ $t('settings.advancedDesc') }}</p>
+
+            <!-- 独立会话数据开关：切换 dataMode（写 settings.json → 重启 serve 生效）；isRestarting 时禁用 -->
+            <div
+              class="data-mode-row flex items-center justify-between gap-3 mb-2"
+              :class="{ 'data-mode-row--disabled': settings.isRestarting }"
+            >
+              <div class="min-w-0">
+                <div class="text-xs font-medium" style="color: var(--text-primary)">{{ $t('settings.dataModeLabel') }}</div>
+                <div class="text-[10px] mt-0.5" style="color: var(--text-muted)">{{ $t('settings.dataModeDesc') }}</div>
+              </div>
+              <button
+                class="data-mode-switch shrink-0"
+                :class="{ 'data-mode-switch--on': settings.dataMode === 'isolated' }"
+                :disabled="settings.isRestarting"
+                :aria-pressed="settings.dataMode === 'isolated'"
+                :title="settings.isRestarting ? $t('settings.dataModeRestarting') : ''"
+                @click="handleDataModeToggle(settings.dataMode === 'isolated' ? 'shared' : 'isolated')"
+              >
+                <span class="data-mode-switch__knob"></span>
+              </button>
+            </div>
+
+            <!-- 切换状态提示条：切换中 / 成功 / 失败（失败含回滚成功场景，文案统一 dataModeFail） -->
+            <div
+              v-if="dataModeMsg"
+              class="data-mode-msg mb-2 px-3 py-1.5 rounded-lg text-[10px]"
+              :style="{
+                color: dataModeMsg.type === 'ok' ? 'var(--accent)' : dataModeMsg.type === 'err' ? 'var(--coral)' : 'var(--text-secondary)',
+                background: dataModeMsg.type === 'ok' ? 'var(--accent-glow)' : dataModeMsg.type === 'err' ? 'var(--coral-glow)' : 'var(--bg-hover)',
+                border: '1px solid ' + (dataModeMsg.type === 'ok' ? 'var(--accent-line)' : dataModeMsg.type === 'err' ? 'var(--coral)' : 'var(--border-default)'),
+              }"
+            >
+              <template v-if="dataModeMsg.type === 'ok'">✓ </template>
+              <template v-else-if="dataModeMsg.type === 'err'">✕ </template>
+              {{ dataModeMsg.text }}
+            </div>
+
             <SettingsJsonEditor />
           </div>
         </section>
@@ -641,4 +689,45 @@ const showAdvanced = ref(false);
 .drop-settings-leave-active { transition: all 100ms ease-in; }
 .drop-settings-enter-from { opacity: 0; transform: translateY(4px) scale(0.96); }
 .drop-settings-leave-to { opacity: 0; transform: translateY(2px) scale(0.98); }
+
+/* ── 数据模式开关（accent 开启态；禁用时半透明 + 禁指针）── */
+.data-mode-row--disabled {
+  opacity: 0.55;
+  pointer-events: none; /* 重启期间不可再点（防连点锁的第二道防线） */
+}
+.data-mode-switch {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--bg-active);
+  border: 1px solid var(--border-default);
+  cursor: pointer;
+  transition: background 150ms, border-color 150ms;
+  padding: 0;
+}
+/* 轨道：关闭态灰色；开启态 accent（accent 是唯一「成功/开启」语义色，与全局一致） */
+.data-mode-switch--on {
+  background: var(--accent-dim);
+  border-color: var(--accent-line);
+}
+/* 滑块：关闭态靠左，开启态右移 */
+.data-mode-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--text-secondary);
+  transition: transform 150ms, background 150ms;
+}
+.data-mode-switch--on .data-mode-switch__knob {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+.data-mode-switch:disabled {
+  cursor: default;
+}
+
 </style>

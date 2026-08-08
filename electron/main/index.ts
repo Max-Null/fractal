@@ -8,7 +8,7 @@ import { registerIpcHandlers, startEngineEvents } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
 import { initPreset, ensurePresetConfig } from './preset'
-import { watchSettings } from './settings'
+import { watchSettings, loadSettings } from './settings'
 import { startPanelWatchers, setPanelWatchers } from './panel'
 
 // ── 单实例锁：SQLite 用户数据（settings/session 缓存）不支持双实例并发——第二个实例直接退出并聚焦已有窗口
@@ -173,6 +173,11 @@ win.on('closed', () => {
   // 未安装 OC 时抛错（sidecar 待阶段 7），应用仍可启动，前端经 engine:status 感知未连接。
   try {
     console.log('[engine] ready 开始')
+    // P0 数据模式时序：startServer 前必须加载 settings.json（dataMode 隔离判定依赖内存态）。
+    // watchSettings 内部是 void loadSettings（异步不等待）——若不在此 await，首次启动
+    // 独立模式（上一轮设置 dataMode=isolated）会读到 DEFAULT 默认值 shared，XDG_DATA_HOME 注入失效。
+    // loadSettings 幂等（读盘 + 同步内存态），与 watchSettings 的异步加载重复执行无副作用。
+    await loadSettings(app.getPath('userData'))
     // 启动时同步引擎配置（必须在 startServer 之前：serve 启动时加载配置——阶段 0 实测）。
     // 读 GUI 保存的 provider key（provider-configs.json）；apiKey 空也写入 model/双星 agent 受管字段
     let savedApiKey = ''

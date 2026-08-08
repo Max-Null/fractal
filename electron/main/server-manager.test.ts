@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createServerManager, appendServeLog, closeServeLog, type ServerInfo } from './server-manager'
+import { createServerManager, appendServeLog, closeServeLog, buildServeEnv, type ServerInfo } from './server-manager'
 
 // CI 或无 DEEPSEEK_API_KEY 时不跑真 spawn（serve 冷启动 + 健康检查较慢，且 CI 无 OC）
 const isCi = !!process.env.CI
@@ -24,6 +24,23 @@ describe('createServerManager（接口形态）', () => {
   it('getClient 未启动时抛错', () => {
     const manager = createServerManager({ userDataDir: tmpdir() })
     expect(() => manager.getClient()).toThrow('serve 未启动')
+  })
+})
+
+describe('buildServeEnv（spawn env 注入，纯函数不 spawn）', () => {
+  it('shared（默认）→ 注入凭据 + XDG_CONFIG_HOME，无 XDG_DATA_HOME', () => {
+    const env = buildServeEnv('C:\\oc-gui', 'user1', 'pass1', 'shared')
+    expect(env.OPENCODE_SERVER_USERNAME).toBe('user1')
+    expect(env.OPENCODE_SERVER_PASSWORD).toBe('pass1')
+    expect(env.XDG_CONFIG_HOME).toBe('C:\\oc-gui\\config')
+    expect(env.XDG_DATA_HOME).toBeUndefined()
+  })
+
+  it('isolated → 追加 XDG_DATA_HOME = <userData>/data', () => {
+    const env = buildServeEnv('C:\\oc-gui', 'user1', 'pass1', 'isolated')
+    expect(env.XDG_DATA_HOME).toBe('C:\\oc-gui\\data')
+    // 配置隔离保留（D17 与数据隔离互不覆盖）
+    expect(env.XDG_CONFIG_HOME).toBe('C:\\oc-gui\\config')
   })
 })
 

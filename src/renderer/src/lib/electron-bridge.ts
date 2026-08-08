@@ -473,9 +473,9 @@ export async function testConnection(apiKey: string): Promise<{ ok: boolean; mes
   return invoke<{ ok: boolean; message: string }>("engine:testConnection", { apiKey });
 }
 
-/** 刷新引擎：重启 serve 进程（右上角刷新按钮；配置/预置包变更立即生效） */
-export async function refreshEngine(): Promise<{ ok: boolean }> {
-  return invoke<{ ok: boolean }>("engine:refresh");
+/** 刷新引擎：重启 serve 进程（右上角刷新按钮 / 数据模式切换；配置/预置包变更立即生效）。error 存在 = 重启失败（不抛） */
+export async function refreshEngine(): Promise<{ ok: boolean; error?: string }> {
+  return invoke<{ ok: boolean; error?: string }>("engine:refresh");
 }
 
 /** ✨ 优化输入消息：引擎临时会话润色，返回 {ok, text}（失败 ok=false，无文本） */

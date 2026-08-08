@@ -13,6 +13,7 @@ import net from 'node:net'
 import crypto from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { createOcClient, type OcClient } from './oc-sdk'
+import { getConfig } from './settings'
 
 /** serve 运行状态（供 getServerInfo / onStatusChange / engine:status 转发） */
 export interface ServerInfo {
@@ -34,6 +35,26 @@ export interface StartServerResult {
 export interface ServerManagerOptions {
   /** 分形数据目录：XDG_CONFIG_HOME = <userDataDir>/config（生产传 app.getPath('userData')，测试传 tmpdir） */
   userDataDir: string
+}
+
+/**
+ * 构建 serve spawn env（纯函数，便于单测 env 注入断言，不 spawn）：
+ * 基础继承 process.env + 随机 Basic 凭据 + XDG_CONFIG_HOME 配置隔离（D17）。
+ * dataMode='isolated' 时追加 XDG_DATA_HOME=<userDataDir>/data——serve 数据目录
+ * （会话/SQLite 等）跟随 XDG_DATA_HOME（实测 serve 数据目录 = <XDG_DATA_HOME>/opencode/），
+ * 与其他工具完全隔离；'shared'（默认）不注入 → 与其他工具共享系统数据目录。
+ */
+export function buildServeEnv(userDataDir: string, username: string, password: string, dataMode: string): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    OPENCODE_SERVER_USERNAME: username,
+    OPENCODE_SERVER_PASSWORD: password,
+    XDG_CONFIG_HOME: join(userDataDir, 'config'),
+  }
+  if (dataMode === 'isolated') {
+    env.XDG_DATA_HOME = join(userDataDir, 'data')
+  }
+  return env
 }
 
 export interface ServerManager {
@@ -300,8 +321,10 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     // 本地回环 + 随机凭据：serve 默认 Basic 认证（阶段 0 踩坑 #5），随机防探测
     const username = 'oc-' + crypto.randomBytes(6).toString('hex')
     const password = crypto.randomBytes(16).toString('hex')
-    // D17 配置隔离：XDG_CONFIG_HOME 指向分形数据目录，serve 全局配置不再读用户 ~/.config
-    const xdg = join(options.userDataDir, 'config')
+    // D17 配置隔离：XDG_CONFIG_HOME 指向分形数据目录（buildServeEnv 内 join），serve 全局配置不再读用户 ~/.config
+    // 数据隔离（dataMode）：读 settings 模块内存态（index.ts 启动链已 await loadSettings 保证已加载——
+    // 否则首次启动独立模式会读到 DEFAULT 默认值 shared，数据目录注入失效）
+    const dataMode = typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared'
 
     const child = spawn(
       bin,
@@ -309,12 +332,7 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
       // 诊断面板引擎日志页的数据源（方案 D1/D3；实测 2026-08-08：不加则 stderr 平时无数据，面板恒空）
       ['serve', '--port', String(port), '--hostname', '127.0.0.1', '--print-logs'],
       {
-        env: {
-          ...process.env,
-          OPENCODE_SERVER_USERNAME: username,
-          OPENCODE_SERVER_PASSWORD: password,
-          XDG_CONFIG_HOME: xdg,
-        },
+        env: buildServeEnv(options.userDataDir, username, password, dataMode),
         stdio: ['ignore', 'pipe', 'pipe'],
       }
     )

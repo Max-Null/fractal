@@ -18,6 +18,7 @@
     "preset.skills.enabled": { "type": "boolean", "default": true, "description": "预置技能包开关" },
     "preset.mcp.filesystem": { "type": "boolean", "default": true, "description": "预置文件系统 MCP 开关" },
     "engine.opencodePath": { "type": "string", "default": "", "description": "OC 可执行文件路径：空 = 使用内置 sidecar" },
-    "engine.logLevel": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"], "default": "INFO", "description": "引擎日志级别" }
+    "engine.logLevel": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"], "default": "INFO", "description": "引擎日志级别" },
+    "dataMode": { "type": "string", "enum": ["shared", "isolated"], "default": "shared", "description": "会话数据隔离：shared=与其他工具共享 XDG_DATA_HOME / isolated=独立数据目录（切换后重启 serve 生效）" }
   }
 }

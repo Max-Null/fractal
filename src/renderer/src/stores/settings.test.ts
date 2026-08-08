@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
 import { nextTick } from "vue";
 import { useSettingsStore } from "./settings";
+import { useSessionStore } from "./session";
+import { useChatStore } from "./chat";
 
 describe("settings store", () => {
   beforeEach(() => {
@@ -13,6 +15,10 @@ describe("settings store", () => {
     (window as unknown as { electronBridge: unknown }).electronBridge = {
       invoke: vi.fn().mockImplementation((channel: string) => {
         if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+        // session:list：setDataMode 成功链路会重拉会话列表，必须返回数组（否则 .map 抛错）
+        if (channel === "session:list") return Promise.resolve([]);
+        // engine:refresh：默认成功（setDataMode 成功后走清缓存/重拉分支；失败场景测试单独覆盖）
+        if (channel === "engine:refresh") return Promise.resolve({ ok: true });
         return Promise.resolve({});
       }),
       on: vi.fn().mockReturnValue(() => {}),
@@ -267,5 +273,109 @@ describe("settings store", () => {
     expect(settings.effort).toBe("max");
     settings.applySettingsJson({ "agent.effort": "high" });
     expect(settings.effort).toBe("high");
+  });
+
+  // ── 数据模式（dataMode 开关，方案 D1-D9 军师 P0）──
+
+  it("dataMode 默认 shared；isRestarting 默认 false", () => {
+    const settings = useSettingsStore();
+    expect(settings.dataMode).toBe("shared");
+    expect(settings.isRestarting).toBe(false);
+  });
+
+  it("applySettingsJson 同步 dataMode（非法/缺失保持当前值）", () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ dataMode: "isolated" });
+    expect(settings.dataMode).toBe("isolated");
+    settings.applySettingsJson({ dataMode: "shared" });
+    expect(settings.dataMode).toBe("shared");
+    // 非法值不覆盖（config-changed 广播可能带脏值）
+    settings.applySettingsJson({ dataMode: "weird" });
+    expect(settings.dataMode).toBe("shared");
+  });
+
+  it("setDataMode 成功：写 settings.json（合并 dataMode）→ 停止活跃会话 → 刷新引擎 → 清缓存 → 重拉会话列表", async () => {
+    const settings = useSettingsStore();
+    const sessionStore = useSessionStore();
+    sessionStore.setActiveSession("ses-1");
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.saveSessionCache("ses-1");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+
+    const r = await settings.setDataMode("isolated");
+    expect(r).toEqual({ ok: true, mode: "isolated" });
+    expect(settings.dataMode).toBe("isolated");
+    expect(settings.isRestarting).toBe(false);
+
+    // 写 settings.json：合并 dataMode（getSettingsConfig 返回空 config → {dataMode}）
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
+    expect(jsonc.dataMode).toBe("isolated");
+    // 停止活跃流（防 isStreaming 悬挂）
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "chat:stopSession" && c[1]?.sessionId === "ses-1")).toBe(true);
+    // 刷新引擎
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "engine:refresh")).toBe(true);
+    // 会话缓存清空 + 活跃会话重置
+    expect(chat.sessionCache.size).toBe(0);
+    expect(sessionStore.activeSessionId).toBe("");
+    // 重新拉会话列表（serve 数据目录已切换）
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "session:list")).toBe(true);
+  });
+
+  it("setDataMode 失败：回滚旧值 → 二次刷新成功 → 返回 error（引擎未停摆）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    // 第一次 engine:refresh 失败、第二次成功（回滚后恢复）
+    let refreshCount = 0;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "session:list") return Promise.resolve([]);
+      if (channel === "engine:refresh") {
+        refreshCount++;
+        return Promise.resolve(refreshCount === 1 ? { ok: false, error: "serve 连续 3 次启动失败" } : { ok: true });
+      }
+      return Promise.resolve({});
+    });
+
+    const r = await settings.setDataMode("isolated");
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("已恢复原模式");
+    expect(settings.dataMode).toBe("shared"); // 已还原旧值
+    expect(settings.isRestarting).toBe(false);
+    // 写回两次：isolated（尝试）→ shared（回滚）
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls).toHaveLength(2);
+    expect(JSON.parse(saveCalls[0]![1].jsoncText).dataMode).toBe("isolated");
+    expect(JSON.parse(saveCalls[1]![1].jsoncText).dataMode).toBe("shared");
+    expect(refreshCount).toBe(2);
+  });
+
+  it("setDataMode 二次刷新也失败 → 返回引擎错误（引擎停摆风险提示）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "session:list") return Promise.resolve([]);
+      if (channel === "engine:refresh") return Promise.resolve({ ok: false, error: "serve 连续 3 次启动失败" });
+      return Promise.resolve({});
+    });
+
+    const r = await settings.setDataMode("isolated");
+    expect(r.ok).toBe(false);
+    expect(r.error).toContain("serve 连续 3 次启动失败");
+    expect(settings.dataMode).toBe("shared");
+    expect(settings.isRestarting).toBe(false);
+  });
+
+  it("setDataMode 同值/切换中 → 直接返回不重复执行", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    // 同值
+    const r = await settings.setDataMode("shared");
+    expect(r.ok).toBe(true);
+    const refreshCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "engine:refresh");
+    expect(refreshCalls).toHaveLength(0);
   });
 });

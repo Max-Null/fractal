@@ -164,7 +164,12 @@
     "loading": "加载中…",
     "jsonUnsaved": "有未保存的更改",
     "jsonSavedAt": "已保存于",
-    "jsonHint": "支持 JSONC 注释；保存时主进程校验，非法值自动回退默认并提示。引擎项（模型/权限模式/思考深度）变更会自动同步到 opencode.json。"
+    "jsonHint": "支持 JSONC 注释；保存时主进程校验，非法值自动回退默认并提示。引擎项（模型/权限模式/思考深度）变更会自动同步到 opencode.json。",
+    "dataModeLabel": "独立会话数据",
+    "dataModeDesc": "开启后会话只保存在本应用的数据目录，与其他工具隔离",
+    "dataModeRestarting": "正在重启引擎…",
+    "dataModeDone": "引擎已重启：独立会话数据模式",
+    "dataModeFail": "引擎重启失败，已恢复原模式"
   },
   "session": {
     "new": "新会话",

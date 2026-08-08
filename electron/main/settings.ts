@@ -25,6 +25,9 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   'preset.mcp.filesystem': true,
   'engine.opencodePath': '',
   'engine.logLevel': 'INFO',
+  // 会话数据隔离：shared=共享系统 XDG_DATA_HOME（与其他工具同库）/ isolated=独立到 <userData>/data
+  // （serve 数据目录跟随 XDG_DATA_HOME；startServer 注入 env 时读此值，见 server-manager.ts）
+  'dataMode': 'shared',
 }
 
 /** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置） */

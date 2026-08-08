@@ -1,6 +1,8 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson, loadModelVariants } from "@/lib/electron-bridge";
+import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson, loadModelVariants, stopSession, refreshEngine } from "@/lib/electron-bridge";
+import { useChatStore } from "./chat";
+import { useSessionStore } from "./session";
 
 const STORAGE_KEY = "sb-ui-settings";
 
@@ -148,6 +150,76 @@ export const useSettingsStore = defineStore("settings", () => {
   // 上下文窗口大小（tokens）：0 = 自动检测，>0 = 手动指定
   const contextLimit = ref(0);
 
+  // ── 数据模式（settings.json dataMode：会话数据隔离开关）──
+  // 不进任何 UI 偏好 watch 数组：主题/语言 800ms 防抖写盘会用「当前文件字段 + 主题/语言」重建对象，
+  // dataMode 一旦混入防抖链，切换主题会带着旧值写回，覆盖用户最新选择（军师 P0）
+  const dataMode = ref<"shared" | "isolated">("shared");
+  /** 数据模式切换中（防连点锁；SettingsPanel 开关禁用 + 提示条） */
+  const isRestarting = ref(false);
+
+  /** 合并 dataMode 写 settings.json（读当前显式字段 + 新值，不覆盖文件其他字段） */
+  async function persistDataMode(v: "shared" | "isolated") {
+    const r = await getSettingsConfig();
+    const next: Record<string, unknown> = { ...r.config, dataMode: v };
+    await saveSettingsJson(JSON.stringify(next, null, 2));
+  }
+
+  /**
+   * 切换数据模式：写 settings.json → 重启 serve（数据目录变更生效）→ 清理旧数据目录的会话缓存。
+   * 失败回滚（D8 P0 防引擎停摆）：还原旧值再重启一次，二次失败才报错。
+   * 返回 { ok, mode, error? }：ok=true 切换成功；ok=false 且 error 含「已恢复」= 回滚成功（引擎未停摆）。
+   */
+  async function setDataMode(v: "shared" | "isolated"): Promise<{ ok: boolean; mode: "shared" | "isolated"; error?: string }> {
+    // 切换中防连点；目标值 = 当前值直接返回（无副作用）
+    if (isRestarting.value || v === dataMode.value) return { ok: true, mode: dataMode.value };
+    const prev = dataMode.value;
+    isRestarting.value = true;
+    dataMode.value = v; // 先更新 UI 立即反映（saveSettings 广播回来自动同步）
+    try {
+      // ① 收尾活跃流：abort 当前会话（防 isStreaming 悬挂——缓存清理前不中止会残留进行中状态）
+      const sessionStore = useSessionStore();
+      if (sessionStore.activeSessionId) {
+        try {
+          await stopSession(sessionStore.activeSessionId);
+        } catch {
+          // 引擎未就绪/会话已结束：忽略（abort 端点 500 容错在 IPC 层已处理）
+        }
+      }
+      // ② 合并写 settings.json
+      await persistDataMode(v);
+      // ③ 重启引擎（XDG_DATA_HOME 注入在 startServer 时读取新值）
+      const r = await refreshEngine();
+      if (!r.ok) {
+        // ④ 回滚：还原旧值 → 再重启 → 二次失败才报错（防引擎停摆）
+        dataMode.value = prev;
+        await persistDataMode(prev);
+        const rb = await refreshEngine();
+        if (!rb.ok) {
+          return { ok: false, mode: prev, error: rb.error ?? "引擎重启失败" };
+        }
+        return { ok: false, mode: prev, error: "引擎重启失败，已恢复原模式" };
+      }
+      // ⑤ 成功：清空旧数据目录的会话缓存 + 活跃会话，重新拉列表（serve 数据目录已切换）
+      const chatStore = useChatStore();
+      chatStore.clearSessionCache();
+      chatStore.clearMessages();
+      sessionStore.setActiveSession("");
+      await sessionStore.loadSessions(cwd.value || undefined);
+      return { ok: true, mode: v };
+    } catch (err) {
+      // 写盘等异常：引擎未重启，仅还原 UI + 配置值
+      dataMode.value = prev;
+      try {
+        await persistDataMode(prev);
+      } catch {
+        // 还原写盘失败不阻断（settings.json 不可写仍可运行，仅模式不恢复）
+      }
+      return { ok: false, mode: prev, error: err instanceof Error ? err.message : String(err) };
+    } finally {
+      isRestarting.value = false;
+    }
+  }
+
   // ── Onboarding 首屏引导状态 ──
   // 完成/跳过标记持久化到 localStorage，避免每次启动都弹引导；设置面板可重置重新触发
   const ONBOARDING_KEY = "sb-onboarding-dismissed";
@@ -271,6 +343,8 @@ export const useSettingsStore = defineStore("settings", () => {
     const ef = config["agent.effort"];
     if (typeof ef === "string") effort.value = normalizeEffort(ef);
     if (typeof config["agent.contextLimit"] === "number") contextLimit.value = config["agent.contextLimit"];
+    // 数据模式（settings.json 显式字段；非法/缺失保持当前值——agent 工具/GUI 保存三路统一生效）
+    if (config["dataMode"] === "isolated" || config["dataMode"] === "shared") dataMode.value = config["dataMode"];
   }
 
   // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
@@ -384,5 +458,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode };
 });

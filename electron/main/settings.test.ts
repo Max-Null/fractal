@@ -17,7 +17,7 @@ import {
 import { getConfigPath } from './oc-config'
 
 describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
-  it('包含全部 13 个字段与默认值', () => {
+  it('包含全部 14 个字段与默认值', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'ui.theme': 'dark',
       'ui.language': 'zh',
@@ -32,6 +32,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'preset.mcp.filesystem': true,
       'engine.opencodePath': '',
       'engine.logLevel': 'INFO',
+      'dataMode': 'shared',
     })
   })
 
@@ -42,6 +43,14 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['ui.theme'].enum).toEqual(['dark', 'light'])
     expect(props['ui.theme'].default).toBe('dark')
     expect(schema.additionalProperties).toBe(true)
+  })
+
+  it('getSchema 含 dataMode（enum shared/isolated，default shared）', () => {
+    const schema = getSchema()
+    const props = schema.properties as Record<string, { enum?: string[]; default?: unknown }>
+    expect(props['dataMode']).toBeDefined()
+    expect(props['dataMode'].enum).toEqual(['shared', 'isolated'])
+    expect(props['dataMode'].default).toBe('shared')
   })
 })
 
@@ -80,6 +89,21 @@ describe('parseAndValidate（JSONC 解析 + schema 校验）', () => {
     expect(warnings[0]).toContain('ui.theme')
     expect(warnings[0]).toContain('red')
     expect(warnings[0]).toContain('dark')
+  })
+
+  it('dataMode 合法值保留（isolated/shared）', () => {
+    const { config, warnings } = parseAndValidate('{ "dataMode": "isolated" }')
+    expect(config['dataMode']).toBe('isolated')
+    expect(warnings).toEqual([])
+    const r2 = parseAndValidate('{ "dataMode": "shared" }')
+    expect(r2.config['dataMode']).toBe('shared')
+    expect(r2.warnings).toEqual([])
+  })
+
+  it('dataMode 非法值 → 回退默认 shared + warning', () => {
+    const { config, warnings } = parseAndValidate('{ "dataMode": "public" }')
+    expect(config['dataMode']).toBe('shared')
+    expect(warnings.some((w) => w.includes('dataMode'))).toBe(true)
   })
 
   it('类型错误 → 回退默认 + warning（agent.contextLimit: "abc"）', () => {

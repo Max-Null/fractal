@@ -40,6 +40,13 @@ const i18n = createI18n({
         presetVersion: "Preset",
         contextLimit: "Context Limit",
         contextLimitPlaceholder: "0=auto, accepts 128K / 1M",
+        advanced: "Advanced Settings",
+        advancedDesc: "VSCode-style JSONC config",
+        dataModeLabel: "Isolated session data",
+        dataModeDesc: "When enabled, sessions are stored only in this app's data directory, isolated from other tools",
+        dataModeRestarting: "Restarting engine…",
+        dataModeDone: "Engine restarted: isolated session data mode",
+        dataModeFail: "Engine restart failed, restored original mode",
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -75,6 +82,9 @@ describe("SettingsPanel", () => {
       invoke: (channel: string) => {
         if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
         if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+        // 数据模式切换链路：engine:refresh 成功 + session:list 数组（setDataMode 内部重拉列表）
+        if (channel === "engine:refresh") return Promise.resolve({ ok: true });
+        if (channel === "session:list") return Promise.resolve([]);
         return Promise.resolve({});
       },
       on: () => () => {},
@@ -206,5 +216,66 @@ describe("SettingsPanel", () => {
   it("contextLimit defaults to 0", () => {
     const settings = useSettingsStore();
     expect(settings.contextLimit).toBe(0);
+  });
+
+  // ── 数据模式开关（高级设置区，方案 D1-D9）──
+
+  function expandAdvanced(wrapper: ReturnType<typeof mountPanel>) {
+    const advBtn = wrapper.findAll("button").find((b) => b.text().includes("Advanced Settings"));
+    expect(advBtn).toBeTruthy();
+    return advBtn!.trigger("click");
+  }
+
+  it("renders data mode switch with label and description in advanced section", async () => {
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    expect(wrapper.text()).toContain("Isolated session data");
+    expect(wrapper.text()).toContain("When enabled, sessions are stored only in this app's data directory");
+    expect(wrapper.find(".data-mode-switch").exists()).toBe(true);
+  });
+
+  it("toggling switch calls setDataMode and switches dataMode to isolated", async () => {
+    const settings = useSettingsStore();
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    const sw = wrapper.find(".data-mode-switch");
+    // 初始 shared（开关未开启）
+    expect(sw.classes()).not.toContain("data-mode-switch--on");
+    await sw.trigger("click");
+    // flush setDataMode 异步链（saveSettings → refreshEngine → loadSessions）
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.dataMode).toBe("isolated");
+    expect(settings.isRestarting).toBe(false);
+    // 开关反映开启态
+    expect(wrapper.find(".data-mode-switch").classes()).toContain("data-mode-switch--on");
+  });
+
+  it("switch disabled while isRestarting (防连点)", async () => {
+    const settings = useSettingsStore();
+    settings.isRestarting = true;
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    const sw = wrapper.find(".data-mode-switch");
+    expect((sw.element as HTMLButtonElement).disabled).toBe(true);
+    // 禁用态半透明（视觉反馈，opacity 由 data-mode-row--disabled 控制）
+    expect(wrapper.find(".data-mode-row").classes()).toContain("data-mode-row--disabled");
+  });
+
+  it("shows failure message with restored mode text when setDataMode rolls back", async () => {
+    const settings = useSettingsStore();
+    const wrapper = mountPanel();
+    // 覆盖 bridge：engine:refresh 全部失败（回滚后仍失败 → 报错文案）
+    (window as unknown as { electronBridge: { invoke: (c: string) => Promise<unknown> } }).electronBridge.invoke = (channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "engine:refresh") return Promise.resolve({ ok: false, error: "serve 连续 3 次启动失败" });
+      if (channel === "session:list") return Promise.resolve([]);
+      return Promise.resolve({});
+    };
+    await expandAdvanced(wrapper);
+    await wrapper.find(".data-mode-switch").trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(wrapper.text()).toContain("Engine restart failed, restored original mode");
+    expect(settings.dataMode).toBe("shared");
   });
 });

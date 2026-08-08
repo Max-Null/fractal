@@ -164,7 +164,12 @@
     "loading": "Loading…",
     "jsonUnsaved": "Unsaved changes",
     "jsonSavedAt": "Saved at",
-    "jsonHint": "JSONC comments supported; validated on save, invalid values fall back to defaults with a notice. Engine items (model/permission mode/effort) sync to opencode.json automatically."
+    "jsonHint": "JSONC comments supported; validated on save, invalid values fall back to defaults with a notice. Engine items (model/permission mode/effort) sync to opencode.json automatically.",
+    "dataModeLabel": "Isolated session data",
+    "dataModeDesc": "When enabled, sessions are stored only in this app's data directory, isolated from other tools",
+    "dataModeRestarting": "Restarting engine…",
+    "dataModeDone": "Engine restarted: isolated session data mode",
+    "dataModeFail": "Engine restart failed, restored original mode"
   },
   "session": {
     "new": "New Session",

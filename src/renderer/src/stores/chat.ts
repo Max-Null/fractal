@@ -146,6 +146,11 @@ export const useChatStore = defineStore("chat", () => {
     return null;
   }
 
+  /** 清空全部会话缓存（数据模式切换后旧数据目录的会话缓存已失效——serve 数据目录已切换） */
+  function clearSessionCache() {
+    sessionCache.clear();
+  }
+
   /**
    * 处理后台会话的流式事件（当前活跃会话不是该 session 时调用）。
    * 将增量数据写入 sessionCache，切回时 loadFromCache 即可恢复完整状态。
@@ -722,6 +727,7 @@ export const useChatStore = defineStore("chat", () => {
     prependFromFullHistory,
     saveSessionCache,
     loadFromCache,
+    clearSessionCache,
     handleBackgroundStreamEvent,
     sessionCache,
     updateMessage,

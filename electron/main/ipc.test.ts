@@ -484,4 +484,36 @@ describe('logs:readServeLog / app:getInfo handler', () => {
     expect(r).toHaveLength(1)
     expect(r[0]).toContain('📨 a')
   })
+
+  it('engine:refresh：未注入 serverManager → { ok:false, error }（不抛，数据模式切换需回滚链）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:refresh')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { ok: boolean; error?: string }
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('引擎未初始化')
+  })
+
+  it('engine:refresh：stopServer + startServer 成功 → { ok:true }', async () => {
+    const stopServer = vi.fn(async () => {})
+    const startServer = vi.fn(async () => ({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p', port: 1 }))
+    registerIpcHandlers({ stopServer, startServer } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:refresh')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { ok: boolean; error?: string }
+    expect(r).toEqual({ ok: true })
+    expect(stopServer).toHaveBeenCalled()
+    expect(startServer).toHaveBeenCalled()
+  })
+
+  it('engine:refresh：startServer 抛错 → { ok:false, error }（不抛给渲染层）', async () => {
+    const stopServer = vi.fn(async () => {})
+    const startServer = vi.fn(async () => { throw new Error('serve 连续 3 次启动失败') })
+    registerIpcHandlers({ stopServer, startServer } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:refresh')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { ok: boolean; error?: string }
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('serve 连续 3 次启动失败')
+  })
 })

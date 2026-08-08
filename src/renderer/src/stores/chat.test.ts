@@ -474,6 +474,21 @@ describe("chat store", () => {
     expect(chat.todos).toHaveLength(0);
   });
 
+  it("clearSessionCache 清空全部缓存（数据模式切换后旧数据目录缓存失效）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hello");
+    chat.todos.push({ content: "Task", status: "pending", activeForm: "Working" });
+    chat.saveSessionCache("ses-a");
+    chat.clearMessages();
+    chat.addUserMessage("Second");
+    chat.saveSessionCache("ses-b");
+    expect(chat.sessionCache.size).toBe(2);
+    chat.clearSessionCache();
+    expect(chat.sessionCache.size).toBe(0);
+    expect(chat.loadFromCache("ses-a")).toBeNull();
+    expect(chat.loadFromCache("ses-b")).toBeNull();
+  });
+
   // ── setTodos（serve 原生 todo.updated）──
 
   it("setTodos 覆盖 serve 原生 todo.updated 数据（含 cancelled）", () => {
