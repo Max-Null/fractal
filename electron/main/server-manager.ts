@@ -259,7 +259,9 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
 
     const child = spawn(
       bin,
-      ['serve', '--port', String(port), '--hostname', '127.0.0.1'],
+      // --print-logs：serve 默认日志静默，加此参数后 INFO 日志（loading/listening/插件报错）输出到 stderr——
+      // 诊断面板引擎日志页的数据源（方案 D1/D3；实测 2026-08-08：不加则 stderr 平时无数据，面板恒空）
+      ['serve', '--port', String(port), '--hostname', '127.0.0.1', '--print-logs'],
       {
         env: {
           ...process.env,
