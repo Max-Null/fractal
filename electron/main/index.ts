@@ -87,6 +87,25 @@ function createWindow(workspace?: string): BrowserWindow {
     mainWindow.show()
   })
 
+  // 超时兜底（2026-08-08）：大工作区/慢盘时渲染层首帧可能远超 ready-to-show 阈值，
+  // 死等会导致窗口永远不可见（visible=false——实测新窗口场景）；超时强制显示，
+  // 窗口先展示渲染层统一的「加载中」界面（AppShell initializing 机制），内容就绪自然替换
+  setTimeout(() => {
+    if (!mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      mainWindow.show()
+      diag('ready-to-show 超时强制显示')
+    }
+  }, 3000)
+
+  // 诊断：新窗口「创建了但没显示」排查（2026-08-08）——ready-to-show 不触发 = 渲染层首帧未画
+  const diag = (msg: string) => {
+    console.log(`[win:${mainWindow.id}] ${msg}`)
+    try { appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[win:${mainWindow.id}] ${msg}\n`) } catch { /* 日志失败不阻断 */ }
+  }
+  mainWindow.webContents.on('did-finish-load', () => diag('did-finish-load'))
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc) => diag(`did-fail-load code=${code} desc=${desc}`))
+  mainWindow.webContents.on('render-process-gone', (_e, details) => diag(`render-process-gone reason=${details.reason}`))
+
   // 新窗口指定工作区：页面 load 完成后主进程主动下发工作区路径。
   // 比 URL query 更可靠（无编码/编码路径问题）；渲染进程 AppShell 监听 window:init-workspace →
   // cwd 切到目标工作区 + 会话列表按工作区过滤。once 保证只下发一次（页面重载不重复触发）
