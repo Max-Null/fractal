@@ -265,6 +265,12 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
   }
   /** 当前实例的 serve.log 路径（spawn 时赋值，stopServer 时 end 流） */
   let serveLogFile = ''
+  /**
+   * startServer 进行中互斥：并发调用（index 启动链 + 渲染层 IPC 双入口）共享同一次启动。
+   * ready() 的 startPromise 缓存会被 exit 回调置空（秒退场景，2026-08-08 实测）——并发时
+   * 两个调用各自 startServer → 双 serve 并存（同实测：34776+13964 双进程）。
+   */
+  let startInFlight: Promise<StartServerResult> | null = null
 
   function toInfo(): ServerInfo {
     return {
@@ -289,51 +295,59 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
   }
 
 async function startServer(): Promise<StartServerResult> {
-    // 单例：已有存活进程直接返回（不重复 spawn）
-    if (state.child && !state.failed) {
-      return {
-        baseURL: state.baseURL!,
-        username: state.username!,
-        password: state.password!,
-        port: state.port!,
-      }
-    }
-    // 残留清理（一次性）：Windows 强杀父进程不会带走子进程（2026-08-08 实测：electron 被杀后
-    // 旧 serve 残留，双 serve 并存 + 官方桌面端共享 storage → 竞争导致新 serve 秒退 exit 1 无声）。
-    // 只清「本应用 bin 路径 + serve 参数」的进程——官方桌面端（@opencode-aidesktop）路径不匹配，安全
-    await cleanupStaleServes()
-    // 秒退容错（2026-08-07 实测）：首次 spawn 偶发秒退 exit 1（原因未定，可能与端口/环境竞争有关），
-    // 第二次尝试几乎必然成功——若等待 30s 健康检查失败才抛错，启动链（ready → startEngineEvents）会卡死，
-    // 渲染层 splash 永不消失。改为循环重试，健康检查失败立即进入下一次尝试。
-    // generation 标记：stopServer 期间 ++startGeneration，使进行中的重试循环在下次 spawn 前放弃——
-    // 否则旧循环会继续 spawn 出第二个 serve（双 serve 实测 2026-08-08：启动残留 2 个进程）
-    const gen = ++startGeneration
-    let lastErr: unknown = null
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      if (gen !== startGeneration) {
-        // 启动已被 stopServer 取消（竞态），放弃本次启动——直接抛错不再重试
-        throw new Error('serve 启动已取消（stopServer 竞态）')
-      }
-      if (attempt > 1) {
-        console.log(`[server-manager] serve 第 ${attempt} 次启动尝试`)
-        await new Promise((r) => setTimeout(r, 800))
-      }
-      try {
-        return await spawnOnce()
-      } catch (err) {
-        lastErr = err
-        // 清理失败状态，允许下一次尝试（exit 回调可能已置 failed/child=null）
-        state.failed = false
-        state.child = null
-        state.client = null
-        if (gen !== startGeneration) {
-          // spawn 后/健康检查中又被 stopServer 取消——直接放弃，不再 spawn 下一个
-          throw err instanceof Error ? err : new Error('serve 启动已取消（stopServer 竞态）')
+    // 进行中互斥：并发调用共享同一次启动（见 startInFlight 注释）
+    if (startInFlight) return startInFlight
+    const run = async (): Promise<StartServerResult> => {
+      // 单例：已有存活进程直接返回（不重复 spawn）
+      if (state.child && !state.failed) {
+        return {
+          baseURL: state.baseURL!,
+          username: state.username!,
+          password: state.password!,
+          port: state.port!,
         }
       }
+      // 残留清理（一次性）：Windows 强杀父进程不会带走子进程（2026-08-08 实测：electron 被杀后
+      // 旧 serve 残留，双 serve 并存 + 官方桌面端共享 storage → 竞争导致新 serve 秒退 exit 1 无声）。
+      // 只清「本应用 bin 路径 + serve 参数」的进程——官方桌面端（@opencode-aidesktop）路径不匹配，安全
+      await cleanupStaleServes()
+      // 秒退容错（2026-08-07 实测）：首次 spawn 偶发秒退 exit 1（原因未定，可能与端口/环境竞争有关），
+      // 第二次尝试几乎必然成功——若等待 30s 健康检查失败才抛错，启动链（ready → startEngineEvents）会卡死，
+      // 渲染层 splash 永不消失。改为循环重试，健康检查失败立即进入下一次尝试。
+      // generation 标记：stopServer 期间 ++startGeneration，使进行中的重试循环在下次 spawn 前放弃——
+      // 否则旧循环会继续 spawn 出第二个 serve（双 serve 实测 2026-08-08：启动残留 2 个进程）
+      const gen = ++startGeneration
+      let lastErr: unknown = null
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        if (gen !== startGeneration) {
+          // 启动已被 stopServer 取消（竞态），放弃本次启动——直接抛错不再重试
+          throw new Error('serve 启动已取消（stopServer 竞态）')
+        }
+        if (attempt > 1) {
+          console.log(`[server-manager] serve 第 ${attempt} 次启动尝试`)
+          await new Promise((r) => setTimeout(r, 800))
+        }
+        try {
+          return await spawnOnce()
+        } catch (err) {
+          lastErr = err
+          // 清理失败状态，允许下一次尝试（exit 回调可能已置 failed/child=null）
+          state.failed = false
+          state.child = null
+          state.client = null
+          if (gen !== startGeneration) {
+            // spawn 后/健康检查中又被 stopServer 取消——直接放弃，不再 spawn 下一个
+            throw err instanceof Error ? err : new Error('serve 启动已取消（stopServer 竞态）')
+          }
+        }
+      }
+      state.failed = true
+      throw lastErr instanceof Error ? lastErr : new Error('serve 连续 3 次启动失败')
     }
-    state.failed = true
-    throw lastErr instanceof Error ? lastErr : new Error('serve 连续 3 次启动失败')
+    startInFlight = run().finally(() => {
+      startInFlight = null
+    })
+    return startInFlight
   }
 
   /** 单次 spawn + 健康检查（startServer 重试循环的单元；失败抛错由调用方处理） */

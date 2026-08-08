@@ -64,6 +64,12 @@ describe.skipIf(isCi)('server-manager 生命周期（真 spawn）', () => {
       expect(second.port).toBe(first.port)
       expect(second.baseURL).toBe(first.baseURL)
 
+      // 并发 startServer（index 启动链 + 渲染层 IPC 双入口）：进行中互斥共享同一次启动——
+      // 修复前 startPromise 缓存会被 exit 回调置空，并发时各自 startServer → 双 serve 不同端口（2026-08-08 实测）
+      const [c1, c2] = await Promise.all([manager.startServer(), manager.startServer()])
+      expect(c1.baseURL).toBe(c2.baseURL)
+      expect(c1.port).toBe(c2.port)
+
       // 客户端可用（认证头生效）
       const client = manager.getClient()
       expect(client.session).toBeTruthy()

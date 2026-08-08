@@ -198,8 +198,17 @@ win.on('closed', () => {
     console.log('[engine] ready 完成')
     await startEngineEvents(win, serverManager)
   } catch (err) {
-    // 首次启动偶发秒退（历史遗留竞态）：渲染层 IPC 触发 ready() 会再重试，最终失败才在此兜底
-    console.warn('[engine] 引擎首次启动失败（界面将按需重试）：', err)
+    // 首次启动偶发秒退（历史遗留竞态）：渲染层 IPC 会触发 ready() 重试，但 startEngineEvents
+    // （engine:status 广播 + SSE 订阅）只有这里执行——不补执行会导致渲染层补拉缺失，
+    // 会话列表空白（2026-08-08 实测）。重试一轮保证广播一定执行。
+    console.warn('[engine] 引擎首次启动失败，重试中：', err)
+    try {
+      await serverManager.ready()
+      await startEngineEvents(win, serverManager)
+      console.log('[engine] ready 完成（重试后）')
+    } catch (err2) {
+      console.warn('[engine] 引擎重试仍失败（界面将按需再试）：', err2)
+    }
   }
 
   app.on('activate', function () {
