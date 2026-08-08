@@ -56,7 +56,12 @@ if (!gotSingleInstanceLock) {
 }
 
 // serve 进程管理器：应用级单例（userData 隔离 XDG_CONFIG_HOME，D17 实测定案）
-const serverManager = createServerManager({ userDataDir: app.getPath('userData') })
+// e2e 模式（OC_GUI_E2E=1）强制数据隔离（XDG_DATA_HOME=临时 userData/data）：
+// 测试会话不落共享数据库（opencode.db），防止污染正式会话列表（2026-08-08 清理 49 个测试残留后根治）
+const serverManager = createServerManager({
+  userDataDir: app.getPath('userData'),
+  dataMode: isE2E ? 'isolated' : undefined,
+})
 
 // createWindow：创建主窗口。workspace 有值时新窗口启动后切到目标工作区（多窗口支持，
 // 交互模式变更——渲染进程点最近工作区非当前项 → 新开窗口，不再当前窗口内切换）

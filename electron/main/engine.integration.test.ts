@@ -20,7 +20,8 @@ const fixturePath = resolve(process.cwd(), 'electron/tests/fixtures/events-round
 describe.skipIf(!hasKey)('engine 集成冒烟（serve 全链路）', () => {
   it('建会话 → promptAsync → SSE 回合完成（120s 超时）', async () => {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'oc-engine-test-'))
-    const manager = createServerManager({ userDataDir: dir })
+    // dataMode 强制隔离：测试会话进 <tmpdir>/data/opencode 临时数据库，不污染共享会话列表（2026-08-08 根治）
+    const manager = createServerManager({ userDataDir: dir, dataMode: 'isolated' })
     try {
       // ① 配置先行：隔离目录写 apiKey（permissionMode 用 default，冒烟不发权限敏感指令）
       await ensureConfig(dir, { apiKey: process.env.DEEPSEEK_API_KEY!, permissionMode: 'default' })

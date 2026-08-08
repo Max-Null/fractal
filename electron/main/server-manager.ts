@@ -35,6 +35,11 @@ export interface StartServerResult {
 export interface ServerManagerOptions {
   /** 分形数据目录：XDG_CONFIG_HOME = <userDataDir>/config（生产传 app.getPath('userData')，测试传 tmpdir） */
   userDataDir: string
+  /**
+   * 数据模式覆盖（生产不传 → 走 settings 模块内存态，即设置页开关）：
+   * 测试/e2e 传 'isolated' 强制数据隔离（XDG_DATA_HOME=临时目录），测试会话不落共享数据库
+   */
+  dataMode?: string
 }
 
 /**
@@ -366,9 +371,10 @@ async function startServer(): Promise<StartServerResult> {
     const username = 'oc-' + crypto.randomBytes(6).toString('hex')
     const password = crypto.randomBytes(16).toString('hex')
     // D17 配置隔离：XDG_CONFIG_HOME 指向分形数据目录（buildServeEnv 内 join），serve 全局配置不再读用户 ~/.config
-    // 数据隔离（dataMode）：读 settings 模块内存态（index.ts 启动链已 await loadSettings 保证已加载——
+    // 数据隔离（dataMode）：options.dataMode 覆盖优先（测试/e2e 强制隔离）——
+    // 否则读 settings 模块内存态（index.ts 启动链已 await loadSettings 保证已加载——
     // 否则首次启动独立模式会读到 DEFAULT 默认值 shared，数据目录注入失效）
-    const dataMode = typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared'
+    const dataMode = options.dataMode ?? (typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared')
 
     const child = spawn(
       bin,
