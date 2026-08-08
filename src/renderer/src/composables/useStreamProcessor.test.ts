@@ -97,6 +97,12 @@ describe("useStreamProcessor", () => {
       "{}",
     );
 
+    // 回合完成记录（诊断按钮「有日志」保底入口）：✅ 前缀 + 耗时/token 统计
+    expect(debugLogAddMock).toHaveBeenCalledWith(
+      expect.stringMatching(/^✅ 回合完成：1200ms \/ in=10 out=20$/),
+      "event-session",
+    );
+
     stopListening();
   });
 

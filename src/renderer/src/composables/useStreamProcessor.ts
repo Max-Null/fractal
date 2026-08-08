@@ -332,6 +332,12 @@ export function useStreamProcessor() {
             });
             saveMessage(msg.id, targetSessionId, "assistant", fullContent, "{}").catch(() => {});
           }
+          // 回合完成记录（D6 精简后的低频高价值点；也是诊断按钮「有日志」的保底入口——
+          // 普通对话无错误/权限事件时，事件日志靠此条非空，用户才进得了引擎日志页）
+          debugLog.add(
+            `✅ 回合完成：${data.duration_ms != null ? `${data.duration_ms}ms` : '—'} / in=${data.input_tokens ?? msg?.inputTokens ?? '—'} out=${data.output_tokens ?? msg?.outputTokens ?? '—'}`,
+            data.session_id || session.activeSessionId,
+          );
           // 结算最后的思考和执行计时
           const finalThinking = popThinkingDuration(); // 最后一段思考（无后续 tool_use 触发 pop）
           if (toolExecStart && lastToolUse) {
