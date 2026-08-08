@@ -1,4 +1,4 @@
-<!-- type: knowledge --><!-- status: pending --><!-- description: 分形窗口去重机制：winWorkspaces 登记 + registerWorkspace 补主窗口洞 -->
+<!-- type: knowledge --><!-- status: auto --><!-- description: 分形窗口去重机制：winWorkspaces 登记 + registerWorkspace 补主窗口洞 -->
 # 分形窗口去重机制
 
 **事实**：分形「同工作区窗口去重」：主进程 `winWorkspaces Map<win.id, workspace>`——`window:openWorkspace` 先比对已有窗口（normKey：去尾斜杠+小写）→ 命中直接 restore/show/focus，否则 createWindow(workspace) 登记。**主窗口创建时 workspace 未传（登记 ''）→ 切走再切回初始工作区匹配不上 → 新开窗口**（2026-08-09 用户实测）。
