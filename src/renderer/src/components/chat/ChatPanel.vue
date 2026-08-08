@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onMounted, onUnmounted, inject } from "vue";
-import { useChatStore, FULL_HISTORY_LIMIT, buildSubTaskMap, type AttachedFile } from "@/stores/chat";
+import { useChatStore, FULL_HISTORY_LIMIT, buildSubTaskMap, type AttachedFile, type SubTask } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
 import {
@@ -37,7 +37,6 @@ import TodoPanel from "./TodoPanel.vue";
 import SubTaskCard from "./SubTaskCard.vue";
 import SubTaskMonitor from "./SubTaskMonitor.vue";
 import SubTaskDetail from "./SubTaskDetail.vue";
-import SubTaskHistoryList from "./SubTaskHistoryList.vue";
 import { useI18n } from "vue-i18n";
 const { t } = useI18n();
 import { useCommandRegistry } from "@/composables/useCommandRegistry";
@@ -251,22 +250,69 @@ const childSessions = computed(() =>
 );
 
 /**
- * 消息 → 历史子任务映射。
- * 互斥过滤（D3）：只保留「已完成且不在实时 subTasks」的任务——运行中/本 app 内已见由 SubTaskCard 管理，
- * 避免同一子会话双入口重复显示（实时卡片 + 历史入口）。
+ * 消息 → 历史子任务卡片映射（平铺渲染，复用 SubTaskCard）。
+ * 历史条目映射为 SubTask 形状：status 恒 'done'（已完成），summary 留空 → 展开时 summaryLoader 懒加载。
+ * 互斥过滤（D3）：只保留「不在实时 subTasks」的任务——运行中/本 app 内已见由实时 SubTaskCard 管理，
+ * 避免同一子会话双卡片重复显示。
  */
 const subTaskMap = computed(() => {
   const map = buildSubTaskMap(chat.messages, childSessions.value);
-  // 实时 subTasks 仍存在的 id（running 或本 app 已见）从历史入口剔除
+  const result = new Map<string, SubTask[]>();
   for (const [msgId, list] of map) {
+    // 实时 subTasks 仍存在的 id（running 或本 app 已见）从历史卡片剔除
     const filtered = list.filter((s) => !chat.subTasks[s.id]);
-    if (filtered.length !== list.length) {
-      if (filtered.length === 0) map.delete(msgId);
-      else map.set(msgId, filtered);
-    }
+    if (filtered.length === 0) continue;
+    result.set(
+      msgId,
+      filtered.map((s) => ({
+        id: s.id,
+        agent: s.agent,
+        status: "done" as const,
+        startedAt: s.createdAt,
+        endedAt: s.endedAt,
+        deltaText: "",
+        parts: [],
+        // summary 留空 → SubTaskCard 展开时经 summaryLoader 懒加载（瞬态，不写 store）
+        summary: "",
+      }))
+    );
   }
-  return map;
+  return result;
 });
+
+/**
+ * 历史子任务摘要懒加载：拉取子会话消息，取最后一条 assistant 文本（子会话最终产出）。
+ * 返回 undefined = 无 assistant 文本产出；异常同样返回 undefined（降级，不阻塞交互）。
+ */
+async function loadSubTaskSummary(subId: string): Promise<string | undefined> {
+  try {
+    const msgs = await listMessages(subId);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role !== "assistant") continue;
+      const text = extractAssistantText(m.content);
+      if (text) return text;
+    }
+    return undefined;
+  } catch (e) {
+    return undefined;
+  }
+}
+
+/** 从消息原始 content 提取 assistant 文本：JSON blob（{text,...}）取 text；纯文本旧格式原样 */
+function extractAssistantText(content: string): string | undefined {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === "object") {
+      const text = (parsed as { text?: unknown }).text;
+      return typeof text === "string" && text.trim() ? text : undefined;
+    }
+  } catch {
+    // 非 JSON → 纯文本旧格式
+  }
+  const trimmed = content.trim();
+  return trimmed || undefined;
+}
 
 function toggleExpandSubTask(id: string) {
   expandSubTaskId.value = expandSubTaskId.value === id ? null : id;
@@ -1051,7 +1097,7 @@ watch(
         </div>
         <!-- 加载更早为同步内存切片（瞬时无感），不再需要顶部加载提示 -->
         <TransitionGroup name="msg">
-          <!-- 消息 + 历史子任务入口包在单一根 div（TransitionGroup 子元素需唯一 key；data-message-id 仍在内部可定位） -->
+          <!-- 消息 + 历史子任务卡片包在单一根 div（TransitionGroup 子元素需唯一 key；data-message-id 仍在内部可定位） -->
           <div v-for="msg in chat.messages" :key="msg.id" class="msg-entry">
             <MessageBubble
               :message="msg"
@@ -1060,11 +1106,16 @@ watch(
               @fork="handleFork"
               @preview-file="(f) => openFileInPanel(f)"
             />
-            <!-- 历史子任务入口（D1-D6）：assistant 消息块下方；点击项 → 复用 SubTaskDetail 详情弹窗 -->
-            <SubTaskHistoryList
-              v-if="subTaskMap.get(msg.id)?.length"
-              :sub-tasks="subTaskMap.get(msg.id)!"
-              @open="(subId) => (detailSubTaskId = subId)"
+            <!-- 历史子任务卡片（平铺，复用 SubTaskCard）：已完成子会话在消息块下方；点击展开 → summaryLoader 懒加载摘要；
+                 运行中/本 app 已见已在 subTaskMap 互斥过滤（D3）剔除，不重复显示 -->
+            <SubTaskCard
+              v-for="sub in subTaskMap.get(msg.id) ?? []"
+              :key="sub.id"
+              :subtask="sub"
+              :expanded="expandSubTaskId === sub.id"
+              :summary-loader="loadSubTaskSummary"
+              @expand="toggleExpandSubTask(sub.id)"
+              @detail="detailSubTaskId = sub.id"
             />
           </div>
         </TransitionGroup>

@@ -1,12 +1,18 @@
 <script setup lang="ts">
 // 子任务卡片（消息流内 ToolCard 风格）：三态渲染——运行中（实时进度）/ 已完成（摘要 + 展开）/ 详情按钮
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import type { SubTask } from "@/stores/chat";
 
 const props = defineProps<{
   subtask: SubTask;
   /** 行内展开摘要全文（ChatPanel expandId 管理） */
   expanded?: boolean;
+  /**
+   * 历史场景摘要懒加载：subtask.summary 为空且展开时调用，返回子会话摘要文本
+   * （undefined = 子会话无 assistant 文本产出）。
+   * 实时场景不传——summary 已由 idle 事件拉好，向后兼容。
+   */
+  summaryLoader?: (subId: string) => Promise<string | undefined>;
 }>();
 
 const emit = defineEmits<{
@@ -65,12 +71,6 @@ const liveText = computed(() => {
   return t.length > 120 ? t.slice(-120) : t;
 });
 
-/** summary 前 3 行（已完成且未展开时预览） */
-const summaryPreview = computed(() => {
-  const s = props.subtask.summary || "";
-  return s.split("\n").slice(0, 3).join("\n");
-});
-
 /**
  * 摘要文案三态（军师 #9）：获取失败 / 本来无文本 / 正常有内容
  * - summaryFailed=true → 显「（摘要获取失败）」（idle 拉取异常，非空表示原本有产出但没拉成）
@@ -79,6 +79,58 @@ const summaryPreview = computed(() => {
 const summaryFallback = computed(() => {
   if (props.subtask.summaryFailed) return "（摘要获取失败）";
   return "（无摘要）";
+});
+
+// ── summary 懒加载（历史场景 D1-D6）：summary 空 + 展开 + 有 loader → 拉取子会话摘要（瞬态数据，不写 store）──
+const lazySummary = ref<string | null>(null);
+const lazyLoading = ref(false);
+const lazyFailed = ref(false);
+let lazyRequestId = 0;
+
+// immediate 覆盖初始即展开的场景（历史卡片展开态挂载）
+watch(
+  () => props.expanded,
+  async (expanded) => {
+    // 仅展开态触发；已有内容或正在加载不重复请求
+    if (!expanded) return;
+    if (props.subtask.summary || lazySummary.value !== null || lazyLoading.value) return;
+    if (!props.summaryLoader) return;
+    const reqId = ++lazyRequestId;
+    lazyLoading.value = true;
+    lazyFailed.value = false;
+    try {
+      const text = await props.summaryLoader(props.subtask.id);
+      // 竞态保护：展开→收起→再展开期间旧请求过期，丢弃过期结果
+      if (reqId !== lazyRequestId) return;
+      // undefined = 子会话无 assistant 产出（正常结束），走「（无摘要）」兜底；仅异常（catch）标 failed
+      lazySummary.value = text ?? "";
+    } catch {
+      if (reqId !== lazyRequestId) return;
+      lazyFailed.value = true;
+    } finally {
+      if (reqId === lazyRequestId) lazyLoading.value = false;
+    }
+  },
+  { immediate: true }
+);
+
+/**
+ * 未展开预览：实时 summary 前 3 行；历史懒加载场景（summary 空 + 有 loader）显中性提示
+ * （点击展开才拉取，避免误导性「无摘要」）；无 summary 无 loader 走兜底三态
+ */
+const summaryPreview = computed(() => {
+  const s = props.subtask.summary || "";
+  if (s) return s.split("\n").slice(0, 3).join("\n");
+  if (props.summaryLoader) return "点击查看子任务结果…";
+  return summaryFallback.value;
+});
+
+/** 展开区最终文案：懒加载中 → 提示；loader 失败 → 失败文案；loader 结果 → 结果；实时 summary → 全文；否则兜底 */
+const expandedText = computed(() => {
+  if (lazyLoading.value) return "正在加载结果…";
+  if (lazyFailed.value) return "（摘要获取失败）";
+  if (lazySummary.value) return lazySummary.value;
+  return props.subtask.summary || summaryFallback.value;
 });
 </script>
 
@@ -126,9 +178,9 @@ const summaryFallback = computed(() => {
     <!-- 运行中：动态行（deltaText 尾部，单行省略） -->
     <div v-else-if="subtask.status === 'running'" class="subtask-live" :title="subtask.deltaText">{{ liveText }}</div>
 
-    <!-- 已完成：summary 前 3 行预览；展开态显示全文（三态文案 #9） -->
+    <!-- 已完成：未展开显预览（前 3 行/历史懒加载提示/三态兜底）；展开态显全文（loader 结果或实时 summary） -->
     <div v-else-if="!subtask.failed" class="subtask-summary" :class="{ 'subtask-summary--expanded': expanded }">
-      {{ expanded ? (subtask.summary || summaryFallback) : (subtask.summary ? summaryPreview : summaryFallback) }}
+      {{ expanded ? expandedText : summaryPreview }}
     </div>
   </div>
 </template>

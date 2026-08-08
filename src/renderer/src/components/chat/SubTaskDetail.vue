@@ -104,7 +104,10 @@ function onBack() {
       <span class="detail-header">
         <span class="detail-badge">{{ badge }}</span>
         <span class="detail-agent">{{ task?.agent || "子智能体" }}</span>
+        <!-- 状态三态：实时 done → 已完成；实时 running → 运行中；历史场景（subTasks 无记录，detail 从历史入口打开）→
+             已完成 · 历史记录——修复「历史子会话误显运行中」bug（不再默认 running） -->
         <span v-if="task?.status === 'done'" class="detail-status">✅ 已完成</span>
+        <span v-else-if="!task" class="detail-status">✅ 已完成 · 历史记录</span>
         <span v-else class="detail-status detail-status--running">🔄 运行中</span>
         <span class="flex-1"></span>
         <!-- 返回主会话：parentId 拿不到则隐藏（旧数据/异常场景） -->

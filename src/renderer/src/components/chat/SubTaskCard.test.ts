@@ -1,7 +1,8 @@
 // SubTaskCard 三态渲染测试：运行中（耗时 + 动态行）/ 已完成（摘要 + 展开收起）/ 点击分流（monitor/expand/detail）
+// + summaryLoader 懒加载（历史场景：summary 空 + 展开时拉取子会话摘要）
 // 注意：trigger 须作用于 find('.subtask-card') 子元素（wrapper 根触发在 jsdom 不可靠，已实测）
-import { describe, it, expect } from "vitest";
-import { mount } from "@vue/test-utils";
+import { describe, it, expect, vi } from "vitest";
+import { mount, flushPromises } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import SubTaskCard from "./SubTaskCard.vue";
 import type { SubTask } from "@/stores/chat";
@@ -26,9 +27,13 @@ function makeSubTask(overrides: Partial<SubTask> = {}): SubTask {
   };
 }
 
-function mountCard(subtask: SubTask, expanded = false) {
+function mountCard(
+  subtask: SubTask,
+  expanded = false,
+  summaryLoader?: (subId: string) => Promise<string | undefined>
+) {
   return mount(SubTaskCard, {
-    props: { subtask, expanded },
+    props: { subtask, expanded, summaryLoader },
     global: { plugins: [i18n] },
   });
 }
@@ -141,5 +146,61 @@ describe("SubTaskCard", () => {
       makeSubTask({ status: "done", endedAt: Date.now(), summaryFailed: false })
     );
     expect(wrapper.text()).toContain("（无摘要）");
+  });
+
+  // ── summaryLoader 懒加载（历史场景 D1-D6：已完成子会话摘要为空，展开时拉取）──
+
+  it("历史场景（summary 空 + loader）：展开时调用 loader（subId 参数），resolve 后显示结果", async () => {
+    const loader = vi.fn().mockResolvedValue("子会话最终产出文本");
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), true, loader);
+    expect(loader).toHaveBeenCalledWith("sub-1");
+    await flushPromises();
+    expect(wrapper.text()).toContain("子会话最终产出文本");
+  });
+
+  it("loader pending 期间显示「正在加载结果…」", async () => {
+    let resolveFn!: (v: string | undefined) => void;
+    const loader = vi.fn().mockReturnValue(
+      new Promise<string | undefined>((res) => { resolveFn = res; })
+    );
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), true, loader);
+    expect(wrapper.text()).toContain("正在加载结果…");
+    resolveFn("结果");
+    await flushPromises();
+    expect(wrapper.text()).toContain("结果");
+  });
+
+  it("loader 返回 undefined（无 assistant 产出）：显示「（无摘要）」", async () => {
+    const loader = vi.fn().mockResolvedValue(undefined);
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), true, loader);
+    await flushPromises();
+    expect(wrapper.text()).toContain("（无摘要）");
+  });
+
+  it("loader 抛异常：显示「（摘要获取失败）」", async () => {
+    const loader = vi.fn().mockRejectedValue(new Error("boom"));
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), true, loader);
+    await flushPromises();
+    expect(wrapper.text()).toContain("（摘要获取失败）");
+  });
+
+  it("未展开 + summary 空 + loader：预览显「点击查看子任务结果…」，不调 loader", () => {
+    const loader = vi.fn();
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "" }), false, loader);
+    expect(wrapper.text()).toContain("点击查看子任务结果…");
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it("已展开 + summary 已有 + loader：summary 优先，不重复拉取", async () => {
+    const loader = vi.fn();
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "已有摘要" }), true, loader);
+    await flushPromises();
+    expect(loader).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("已有摘要");
+  });
+
+  it("实时场景不传 loader：summary 有值展开直接显示全文（向后兼容）", async () => {
+    const wrapper = mountCard(makeSubTask({ status: "done", endedAt: Date.now(), summary: "实时摘要全文" }), true);
+    expect(wrapper.text()).toContain("实时摘要全文");
   });
 });
