@@ -1163,5 +1163,8 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
   manager.onStatusChange((s) => {
     if (!win.isDestroyed()) win.webContents.send('engine:status', s)
   })
+  // 主动补发一次当前状态：失败重试场景下 serve 在注册前已 running，
+  // onStatusChange 只在状态变化时触发（不会补发）→ 渲染层等不到就绪信号 → 会话列表空（2026-08-08 实测）
+  if (!win.isDestroyed()) win.webContents.send('engine:status', manager.getServerInfo())
 }
 
