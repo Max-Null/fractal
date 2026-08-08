@@ -83,6 +83,8 @@ export interface SessionData {
   title: string;
   cli_session_id: string | null;
   cwd: string;
+  /** serve 原生字段：会话绑定的项目目录（SDK Session.directory；cwd 是旧别名——serve 实际只返回 directory） */
+  directory?: string;
   model: string;
   status: string;
   mode: string;

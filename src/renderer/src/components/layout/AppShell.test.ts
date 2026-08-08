@@ -214,8 +214,9 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
 
     const settings = useSettingsStore();
     expect(settings.cwd).toBe(SERVE_B);
-    // loadSessions 两次：onMounted 初始一次 + init-workspace 一次（按新工作区过滤）
-    expect(listSessionsMock).toHaveBeenLastCalledWith(SERVE_B);
+    // loadSessions 两次：onMounted 初始一次 + init-workspace 一次——
+    // 新实现全量拉取 + store 前端过滤（listSessions 不再传 directory，绕开 serve 实例化崩溃，2026-08-08）
+    expect(listSessionsMock).toHaveBeenCalledTimes(2);
   });
 
   it("点 × 移除最近工作区 → 菜单立即消失（含 serve 聚合场景）且不触发新开窗口（click.stop）", async () => {

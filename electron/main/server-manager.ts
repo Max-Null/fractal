@@ -7,7 +7,7 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 
 import { app } from 'electron'
-import { createWriteStream, mkdirSync, renameSync, statSync, type WriteStream } from 'node:fs'
+import { createWriteStream, mkdirSync, renameSync, statSync, appendFileSync, type WriteStream } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
@@ -92,6 +92,8 @@ interface InternalState {
   /** spawn 后失败标记：进程 exit/error 触发后 startServer 不应返回"已运行"的假状态 */
   failed: boolean
   /** ready() 缓存：并发调用共享同一次启动；失败置空可重试 */  startPromise: Promise<StartServerResult> | null
+  /** 主动停止标记：stopServer 置 true，防止退出时误 dump 崩溃日志（正常停止 code!=0 不算崩溃） */
+  stopping: boolean
 }
 
 /** 健康检查：轮询 GET /doc（带 Basic 头），200 即就绪；2s 间隔、30s 超时 */
@@ -267,6 +269,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     statusCallbacks: [],
     failed: false,
     startPromise: null,
+    /** 主动停止标记：stopServer 置 true，防止退出时误 dump 崩溃日志（正常停止 code!=0 不算崩溃） */
+    stopping: false,
   }
   /** 当前实例的 serve.log 路径（spawn 时赋值，stopServer 时 end 流） */
   let serveLogFile = ''
@@ -392,10 +396,14 @@ async function startServer(): Promise<StartServerResult> {
     // serve stderr tee：console 转发（开发排查，保留 500 截断）+ 落盘 serve.log（面板引擎日志页，写完整文本）。
     // 日志目录必须注入式（options.userDataDir）——测试传 tmpdir，不可用 app.getPath('userData')（会写真实用户数据）
     serveLogFile = join(options.userDataDir, 'logs', 'serve.log')
+    // 崩溃诊断滚动缓冲（16KB）：serve 退出 code!=0 时 dump 原文到 serve-crash-<ts>.log——
+    // 崩溃原因（如 doc-edit 实例化崩溃）常出现在 stderr 尾部，serve.log 行级处理可能丢最后未 flush 段（2026-08-08）
+    let serveStderrTail = ''
     child.stderr?.on('data', (d: Buffer) => {
       try {
         const utf8 = d.toString('utf8').replace(/\u0000/g, '')
         const txt = utf8.includes('\ufffd') ? d.toString('utf16le').replace(/\u0000/g, '') : utf8
+        serveStderrTail = (serveStderrTail + txt).slice(-16384)
         if (txt.trim()) console.error(`[serve] ${txt.trim().slice(0, 500)}`)
         // 落盘写完整文本（[HH:mm:ss] 前缀 + 10MB 轮转），console 的 500 截断不影响落盘
         appendServeLog(serveLogFile, txt)
@@ -421,6 +429,15 @@ async function startServer(): Promise<StartServerResult> {
     child.on('exit', (code, signal) => {
       // 退出时收 serve 日志流（与 stopServer 对称；serve 崩溃时旧文件句柄不残留，下次启动重建）
       if (serveLogFile) void closeServeLog(serveLogFile)
+      // 非零退出且非主动停止 → dump 崩溃 stderr 原文（诊断 serve 崩溃根因——appendServeLog 行级处理可能丢段）
+      if (code !== 0 && !state.stopping && serveStderrTail.trim()) {
+        try {
+          const crashFile = join(options.userDataDir, 'logs', `serve-crash-${Date.now()}.log`)
+          appendFileSync(crashFile, `[exit code=${code} signal=${signal ?? ''} @ ${new Date().toISOString()}]\n` + serveStderrTail)
+        } catch {
+          /* dump 失败不阻断退出流程 */
+        }
+      }
       state.child = null
       state.failed = true
       state.startPromise = null // 启动缓存失效，允许下次 ready 重建
@@ -477,6 +494,8 @@ async function startServer(): Promise<StartServerResult> {
   async function stopServer(): Promise<void> {
     // 取消进行中的启动重试循环（startServer 的 generation 检查点会放弃后续 spawn——防双 serve）
     startGeneration++
+    // 主动停止标记：本次退出不算崩溃（exit 回调跳过 serve-crash dump）
+    state.stopping = true
     const child = state.child
     // 停止后启动缓存必须失效：否则后续 ready() 返回已死 serve 的连接参数（2026-08-06 实测：设置自动保存杀 serve 后永不重启）
     state.startPromise = null

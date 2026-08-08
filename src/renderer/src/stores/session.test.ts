@@ -78,4 +78,24 @@ describe("session store", () => {
     expect(session.sessions).toHaveLength(1);
     expect(session.sessions[0].id).toBe("s2");
   });
+
+  it("前端过滤：listSessions 全量调用 + 按 directory 过滤（绕开 serve 实例化崩溃，2026-08-08）", async () => {
+    listSessionsMock.mockResolvedValue([
+      { id: "s1", title: "fractal 会话", cwd: "H:/MaxNull/WorkStation/fractal", directory: "H:/MaxNull/WorkStation/fractal" },
+      { id: "s2", title: "doc-edit 会话", cwd: "H:\\MaxNull\\WorkStation\\doc-edit", directory: "H:\\MaxNull\\WorkStation\\doc-edit" },
+      { id: "s3", title: "无目录会话", cwd: "" },
+    ]);
+    const session = useSessionStore();
+
+    // 带 directory → 前端过滤（反斜杠输入也能匹配正斜杠存储）
+    await session.loadSessions("H:\\MaxNull\\WorkStation\\doc-edit");
+    // 全量调用（不再传 directory 给 serve——绕开实例化崩溃；过滤在 store 内存完成）
+    expect(listSessionsMock).toHaveBeenCalledTimes(1);
+    expect(session.sessions).toHaveLength(1);
+    expect(session.sessions[0].id).toBe("s2");
+
+    // 不带 directory → 全量
+    await session.loadSessions();
+    expect(session.sessions).toHaveLength(3);
+  });
 });

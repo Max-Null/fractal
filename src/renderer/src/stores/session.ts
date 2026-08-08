@@ -20,10 +20,11 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messageCount: number;
-  totalTokens?: number | null;
-  totalCost?: number | null;
-  /** 会话类型（后端返回，分形下恒为 'cc'，无 UI 过滤依赖） */
-  mode?: string;
+  totalTokens: number | null;
+  totalCost: number | null;
+  mode: string;
+  /** 会话绑定的工作区目录（serve directory；前端过滤用） */
+  cwd?: string;
 }
 
 export const useSessionStore = defineStore("session", () => {
@@ -63,9 +64,15 @@ export const useSessionStore = defineStore("session", () => {
     pendingLoads++;
     sessionsLoading.value = true;
     try {
-      const list = await listSessions(directory);
+      // 全量拉取 + 前端过滤（2026-08-08 根治）：serve 的 ?directory= 参数会触发目标目录「实例化」
+      // （creating instance → bootstrapping），doc-edit 项目场景 serve 实例化时崩溃退出（code=1 无输出）——
+      // 列表加载不再触发实例化；全量 186 会话量级可接受，过滤在内存完成
+      const list = await listSessions();
       if (seq !== loadSeq) return; // 已有更新的加载请求，丢弃过期结果
-      sessions.value = list.map(toLocalSession);
+      const filtered = directory
+        ? list.filter((s) => normalizeDir(s.directory || s.cwd) === normalizeDir(directory))
+        : list;
+      sessions.value = filtered.map(toLocalSession);
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {
       console.error("Failed to load sessions:", err);
@@ -73,6 +80,11 @@ export const useSessionStore = defineStore("session", () => {
       pendingLoads--;
       if (pendingLoads <= 0) sessionsLoading.value = false;
     }
+  }
+
+  // 目录规范化：分隔符/尾斜杠/大小写统一（serve 存正斜杠，前端可能传反斜杠）
+  function normalizeDir(p?: string): string {
+    return (p || "").replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
   }
 
   /** Create a new session via backend，可指定 CWD 和 mode。locale 用于本地化默认标题 */
@@ -173,5 +185,6 @@ function toLocalSession(s: SessionData): Session {
     totalTokens: s.total_tokens,
     totalCost: s.total_cost,
     mode: s.mode || "cc",
+    cwd: s.directory || s.cwd,
   };
 }

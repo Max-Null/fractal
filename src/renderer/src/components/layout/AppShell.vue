@@ -389,6 +389,7 @@ onMounted(async () => {
   // （location.search 读取——零时序依赖），IPC window:init-workspace 作为兜底（e2e/兼容路径）。
   // 先切 cwd 再并行初始化，保证 loadSessions 用目标工作区而非旧值
   const wsFromUrl = new URLSearchParams(window.location.search).get('workspace')
+  console.log('[ws-init] URL workspace =', wsFromUrl, '| 当前 cwd =', settings.cwd)
   if (wsFromUrl && wsFromUrl !== settings.cwd) {
     settings.windowInitCwd = wsFromUrl;
     settings.cwd = wsFromUrl;
