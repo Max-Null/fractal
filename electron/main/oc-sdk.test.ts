@@ -1,7 +1,7 @@
 // oc-sdk 单元测试：用 stage0 实测的 /provider 响应验证 deepseek 模型提取逻辑
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { listDeepseekModels, normalizeError, OcError, type Provider, type HeyApiResult } from './oc-sdk'
 
 // 定位 fixtures 路径：测试文件在 electron/main/ 下，fixtures 在 electron/tests/fixtures/
@@ -222,5 +222,37 @@ describe('session.promptAsync variant', () => {
     await client.session.promptAsync('ses_1', 'hi')
     const body = sdkMocks.sessionPromptAsync.mock.calls[0][0].body as Record<string, unknown>
     expect(body).not.toHaveProperty('variant')
+  })
+})
+
+// ── session.list v2 全量拉取（2026-08-09 实测：v1 /session 的 limit 失效、永远只返回最近 50 条）──
+
+describe('session.list v2', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('拉 v2 /api/session?limit=1000 并映射 location.directory → directory（前端 normalizeDir 过滤依赖）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    const body = {
+      data: [
+        { id: 'ses_a', parentID: null, title: 'A', location: { directory: 'H:/Work/proj' } },
+        { id: 'ses_b', parentID: 'ses_x', title: 'B', location: {} },
+      ],
+      cursor: null,
+    }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(body), { status: 200 })))
+    const list = await client.session.list()
+    expect(fetch).toHaveBeenCalledWith(
+      'http://127.0.0.1:1/api/session?limit=1000',
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: expect.stringContaining('Basic ') }) }),
+    )
+    expect(list).toHaveLength(2)
+    expect((list[0] as unknown as { directory?: string }).directory).toBe('H:/Work/proj')
+    expect((list[1] as unknown as { directory?: string }).directory).toBeUndefined()
+  })
+
+  it('HTTP 非 2xx → 抛错（serve 异常透传）', async () => {
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 500 })))
+    await expect(client.session.list()).rejects.toThrow(/HTTP 500/)
   })
 })

@@ -524,18 +524,21 @@ async function openFilePanelTo(_path: string) {
 
 <template>
   <!-- 启动画面：赛博载入页（数据串行加载中）——stage/percent/logs 由 onMounted 串行链驱动 -->
-  <LoadingScreen
-    v-if="initializing"
-    :stage="bootStage"
-    :percent="bootPercent"
-    :timed-out="engineReadyTimedOut"
-    :logs="bootLogs"
-  />
+  <!-- Transition boot-fade：载入完成淡出（用户反馈一闪而过很突兀，2026-08-09） -->
+  <Transition name="boot-fade">
+    <LoadingScreen
+      v-if="initializing"
+      :stage="bootStage"
+      :percent="bootPercent"
+      :timed-out="engineReadyTimedOut"
+      :logs="bootLogs"
+    />
+  </Transition>
 
-  <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面 -->
-  <Onboarding v-else-if="showOnboarding" @finish="dismissOnboarding" @skip="dismissOnboarding" />
+  <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面（独立 v-if——LoadingScreen 被 Transition 包裹后 v-else-if 无法相邻） -->
+  <Onboarding v-if="!initializing && showOnboarding" @finish="dismissOnboarding" @skip="dismissOnboarding" />
 
-  <div v-else class="f-shell">
+  <div v-if="!initializing && !showOnboarding" class="f-shell">
     <!-- Navbar（原型 app-bar：52px 半透明毛玻璃） -->
     <header class="f-header">
       <!-- app-bar-left：brand + ws-pill -->

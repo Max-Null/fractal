@@ -21,6 +21,14 @@ import type {
 // 类型定义（对外导出，供 server-manager / ipc 使用）
 // ══════════════════════════════════════════════════════════════════
 
+/**
+ * 会话列表拉取上限（v2 /api/session 单次返回量）。
+ * 2026-08-09 实测：serve 1.18.15 的 v1 GET /session 的 limit/start 参数全部无效、
+ * 永远只返回最近 50 条——早期会话被挤出导致工作区列表空——v2 ?limit=1000 返回全量。
+ * 响应含 cursor 字段，>1000 会话时翻页续拉留待（当前用户库 128 条）。
+ */
+export const SESSION_LIST_LIMIT = 1000
+
 /** /provider 响应中的单个模型定义（字段对齐实测报文，仅取本阶段所需） */
 export interface ModelInfo {
   id: string
@@ -236,9 +244,22 @@ export function createOcClient(options: OcClientOptions): OcClient {
         // 目录走 query.directory（SDK 实测结构：body 只有 parentID/title）——绑定工作区后会话在 ?directory= 过滤下可见
         await client.session.create({ query: opts?.cwd ? { directory: opts.cwd } : undefined, body: { title: opts?.title, parentID: opts?.parentID } }),
       ),
-      list: async (directory?: string) =>
-    // serve 原生支持 GET /session?directory= 按工作区过滤（spec 实测）；未传目录返回全部
-    normalizeError<Session[]>(await client.session.list({ query: directory ? { directory } : undefined })),
+      list: async (directory?: string) => {
+        // v2 全量列表（2026-08-09 实测）：serve 1.18.15 的 v1 GET /session 的 limit/start 参数全部无效，
+        // 永远只返回最近 50 条——早期会话（如 oc-plus 的主会话）被挤出，工作区列表过滤后为空。
+        // v2 GET /api/session?limit=1000 返回全量（响应 {data, cursor}；>1000 会话时 cursor 翻页留待）。
+        // directory 参数保留签名兼容但忽略——目录过滤由前端内存完成（session store normalizeDir）
+        void directory
+        const authHeader = basicAuthHeader(options.username, options.password)
+        const res = await fetch(`${options.baseURL}/api/session?limit=${SESSION_LIST_LIMIT}`, { headers: { Authorization: authHeader } })
+        if (!res.ok) throw new Error(`session list 失败: HTTP ${res.status}`)
+        const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
+        // v2 会话目录在 location.directory（v1 在顶层 directory）——映射回 v1 形状供前端 normalizeDir 过滤
+        return (body.data ?? []).map((s) => ({
+          ...s,
+          directory: (s.location as { directory?: string } | undefined)?.directory ?? undefined,
+        })) as unknown as Session[]
+      },
       get: async (id) => normalizeError<Session>(await client.session.get({ path: { id } })),
       delete: async (id) => normalizeError<boolean>(await client.session.delete({ path: { id } })),
       rename: async (id, title) => normalizeError<Session>(await client.session.update({ path: { id }, body: { title } })),
