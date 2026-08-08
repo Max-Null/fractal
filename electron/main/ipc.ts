@@ -563,7 +563,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       tempId = s.id || ''
       if (!tempId) throw new Error('临时会话创建失败')
       // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
-      await client.session.promptAsync(tempId, POLISH_PROMPT + text, { agent: 'build' })
+      // model: flash + variant low——润色是短文本任务，快模型足够（v4-pro 推理慢 2-3 倍，2026-08-08 用户讨论「直连 vs 走引擎」后选定）
+      await client.session.promptAsync(tempId, POLISH_PROMPT + text, {
+        agent: 'build',
+        model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
+        variant: 'low',
+      })
       // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
       let polished = ''
       for (let i = 0; i < 120 && !polished; i++) {
