@@ -196,6 +196,13 @@ describe("forkSession / testConnection / listMessages（IPC 直连）", () => {
     await polishMessage("请优化这条");
     expect(invokeMock).toHaveBeenCalledWith("ai:polishMessage", { text: "请优化这条" });
   });
+
+  it("polishMessage 带 refs → 透传引用上下文", async () => {
+    invokeMock.mockResolvedValue({ ok: true, text: "优化" });
+    const refs = [{ label: "选区片段", content: "const a = 1" }, { label: "b.ts", path: "C:\\b.ts" }];
+    await polishMessage("优化", refs);
+    expect(invokeMock).toHaveBeenCalledWith("ai:polishMessage", { text: "优化", refs });
+  });
 });
 
 describe("loadModelVariants / compactSession（思考强度与压缩 API）", () => {

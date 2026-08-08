@@ -552,7 +552,7 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现。
   // 2026-08-08 修复：①指定 build agent（临时会话默认双星会触发读文件/工具流，润色只需纯文本回复——用户报错根因）；
   // ②超时 20s→60s（deepseek-v4-pro 长推理，20s 内未回复即报「润色超时」——用户报错嫌疑）。
-  ipcMain.handle('ai:polishMessage', async (_e, args: { text: string }) => {
+  ipcMain.handle('ai:polishMessage', async (_e, args: { text: string; refs?: Array<{ label?: string; content?: string; path?: string }> }) => {
     const text = typeof args?.text === 'string' ? args.text.trim() : ''
     if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
     const client = await requireClient()
@@ -564,7 +564,7 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       if (!tempId) throw new Error('临时会话创建失败')
       // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
       // model: flash + variant low——润色是短文本任务，快模型足够（v4-pro 推理慢 2-3 倍，2026-08-08 用户讨论「直连 vs 走引擎」后选定）
-      await client.session.promptAsync(tempId, POLISH_PROMPT + text, {
+      await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
         agent: 'build',
         model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
         variant: 'low',
@@ -907,9 +907,45 @@ function buildHistoryContentBlocks(
 
 // ── ✨ 输入消息润色辅助（ai:polishMessage 用）──
 
-/** 润色指令前缀：中文写作助手，直接输出优化结果不解释（防污染输入框） */
-const POLISH_PROMPT =
+/** 润色指令前缀：中文写作助手，直接输出优化结果不解释（防污染输入框）（导出供测试断言） */
+export const POLISH_PROMPT =
   '你是专业的中文写作助手。请优化下面的用户消息，使其表达更清晰、准确、有条理，保持原意和语气，不改变用户意图。直接输出优化后的消息，不要任何解释、前缀或引号。\n\n消息：'
+
+/** 引用文件内容截断上限（防超大文件打爆 prompt，50KB ≈ 1.5 万 token） */
+const POLISH_REF_MAX_BYTES = 50_000
+
+/**
+ * 组装润色 prompt：带用户显式引用的上下文（chips：选区片段 content / 附件文件 path）。
+ * 引用仅作背景理解（明确告知模型不要引用到输出中）；文件读取失败跳过该引用不阻断润色。
+ * 2026-08-08 用户确认方案：不带对话历史（不可预期/贵/慢），带显式引用（用户意图明确）。
+ */
+export async function buildPolishPrompt(
+  text: string,
+  refs?: Array<{ label?: string; content?: string; path?: string }>,
+): Promise<string> {
+  if (!refs || refs.length === 0) return POLISH_PROMPT + text
+  const blocks: string[] = []
+  for (const r of refs) {
+    if (r.content) {
+      blocks.push(`【${r.label || '引用片段'}】\n${r.content}`)
+    } else if (r.path) {
+      try {
+        const content = await fsp.readFile(r.path, 'utf-8')
+        blocks.push(`【${r.label || r.path}】\n${content.slice(0, POLISH_REF_MAX_BYTES)}`)
+      } catch {
+        // 文件读不到（已删除/无权限）——跳过该引用，不阻断润色
+      }
+    }
+  }
+  if (blocks.length === 0) return POLISH_PROMPT + text
+  return (
+    `你是专业的中文写作助手。请优化下面的用户消息，使其表达更清晰、准确、有条理，保持原意和语气，不改变用户意图。\n` +
+    `以下是用户显式引用的参考内容（仅作背景理解，不要引用到输出中）：\n\n` +
+    `${blocks.join('\n\n')}\n\n` +
+    `要优化的消息：${text}\n\n` +
+    `直接输出优化后的消息，不要任何解释、前缀或引号。`
+  )
+}
 
 /** 提取最后一条 assistant 消息的全部 text part（润色回复；多 part 拼接；导出供测试） */
 export function extractAssistantText(msgs: SessionMessage[]): string {

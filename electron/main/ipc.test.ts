@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT } from './ipc'
 import type { SessionMessage } from './oc-sdk'
 
 describe('assertValidFsPath（路径校验）', () => {
@@ -293,5 +293,31 @@ describe('extractAssistantText', () => {
   })
   it('空列表返回空串', () => {
     expect(extractAssistantText([])).toBe('')
+  })
+})
+
+// ── buildPolishPrompt（润色指令组装：无引用纯文本 / 带选区片段 / 带附件文件 / 文件读取失败跳过）──
+describe('buildPolishPrompt', () => {
+  it('无引用 = 基础指令 + 消息', async () => {
+    const p = await buildPolishPrompt('你好')
+    expect(p).toBe(POLISH_PROMPT + '你好')
+  })
+  it('带选区片段：内容入 prompt 且标注不要引用到输出', async () => {
+    const p = await buildPolishPrompt('优化这段', [{ label: '选区片段', content: 'const a = 1' }])
+    expect(p).toContain('【选区片段】\nconst a = 1')
+    expect(p).toContain('仅作背景理解，不要引用到输出中')
+    expect(p).toContain('要优化的消息：优化这段')
+  })
+  it('带附件文件：主进程读文件内容入 prompt（50KB 截断）', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'polish-ref-'))
+    const file = join(dir, 'ref.txt')
+    await fsp.writeFile(file, '文件内容ABC', 'utf-8')
+    const p = await buildPolishPrompt('优化', [{ label: 'ref.txt', path: file }])
+    expect(p).toContain('【ref.txt】\n文件内容ABC')
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+  it('文件读取失败（不存在）→ 跳过该引用，退化为基础指令', async () => {
+    const p = await buildPolishPrompt('你好', [{ label: 'gone.txt', path: 'Z:\\不存在\\gone.txt' }])
+    expect(p).toBe(POLISH_PROMPT + '你好')
   })
 })

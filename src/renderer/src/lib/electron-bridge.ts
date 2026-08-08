@@ -465,8 +465,16 @@ export async function refreshEngine(): Promise<{ ok: boolean }> {
 }
 
 /** ✨ 优化输入消息：引擎临时会话润色，返回 {ok, text}（失败 ok=false，无文本） */
-export async function polishMessage(text: string): Promise<{ ok: boolean; text?: string }> {
-  return invoke<{ ok: boolean; text?: string }>("ai:polishMessage", { text });
+/** 优化消息引用（用户显式引用的上下文：选区片段 content 或附件 path） */
+export interface PolishRef {
+  label: string;
+  content?: string;
+  path?: string;
+}
+
+export async function polishMessage(text: string, refs?: PolishRef[]): Promise<{ ok: boolean; text?: string }> {
+  // refs 为用户显式引用的背景上下文（chips：选区/附件），主进程读文件内容拼入润色指令
+  return invoke<{ ok: boolean; text?: string }>("ai:polishMessage", { text, refs });
 }
 
 /**

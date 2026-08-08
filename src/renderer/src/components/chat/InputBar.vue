@@ -27,6 +27,10 @@ export interface ComposerChip {
   tone?: "accent" | "elevated";
   clickable?: boolean;
   removable?: boolean;
+  /** 引用内容（选区片段文本——优化消息时作为背景上下文，用户显式引用） */
+  content?: string;
+  /** 引用文件路径（附件——优化消息时主进程读内容作为背景） */
+  path?: string;
 }
 
 const props = withDefaults(defineProps<{
@@ -347,7 +351,11 @@ async function polishInput() {
   polishing.value = true;
   polishError.value = "";
   try {
-    const result = await polishMessage(text);
+    // 带上用户显式引用的上下文（chips：选区片段 content / 附件 path）——优化结果有背景可参考（2026-08-08 用户确认方案）
+    const refs = props.chips
+      .filter((c) => c.content || c.path)
+      .map((c) => ({ label: c.label, content: c.content ?? "", path: c.path ?? "" }));
+    const result = await polishMessage(text, refs);
     if (result?.ok && result.text) {
       input.value = result.text;
       autoResize();

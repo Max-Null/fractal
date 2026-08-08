@@ -128,14 +128,18 @@ interface ComposerChip {
   tone: "accent" | "elevated";
   clickable?: boolean;
   removable?: boolean;
+  /** 引用内容（选区片段——优化消息作背景上下文） */
+  content?: string;
+  /** 引用文件路径（附件——优化消息读文件作背景上下文） */
+  path?: string;
 }
 const composerChips = computed<ComposerChip[]>(() => {
   const chips: ComposerChip[] = [];
-  // 选区卡片：accent 底（accent-glow 语义，原型「选中内容自动出现在这里」）
+  // 选区卡片：accent 底（accent-glow 语义，原型「选中内容自动出现在这里」）；content 供优化消息作背景上下文
   if (textSnippet.value) {
-    chips.push({ id: "snippet", label: textSnippet.value.label, tone: "accent", removable: true });
+    chips.push({ id: "snippet", label: textSnippet.value.label, tone: "accent", removable: true, content: textSnippet.value.content });
   }
-  // 附件 chips：elevated 底 + 缩略图 + 点击打开预览
+  // 附件 chips：elevated 底 + 缩略图 + 点击打开预览；path 供优化消息读文件作背景上下文
   for (const f of attachedFiles.value) {
     chips.push({
       id: `file:${f.path}`,
@@ -144,6 +148,7 @@ const composerChips = computed<ComposerChip[]>(() => {
       tone: "elevated",
       clickable: true,
       removable: true,
+      path: f.path,
     });
   }
   return chips;

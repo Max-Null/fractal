@@ -268,6 +268,34 @@ describe("InputBar", () => {
     expect(wrapper.find("button[title='Polish message with AI']").attributes("disabled")).toBeDefined();
   });
 
+  it("polish with chips refs passes context to IPC", async () => {
+    // chips 带 content/path（选区/附件）→ polishMessage 应收到 refs
+    let captured: unknown;
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      invoke: (channel: string, args?: unknown) => {
+        if (channel === "ai:polishMessage") { captured = args; return Promise.resolve({ ok: true, text: "好" }); }
+        return Promise.resolve({});
+      },
+      on: () => () => {},
+    };
+    const wrapper = mountInputBar({
+      chips: [
+        { id: "snippet", label: "选区片段", tone: "accent", content: "const a = 1" },
+        { id: "file:C:\\b.ts", label: "b.ts", tone: "elevated", path: "C:\\b.ts" },
+      ],
+    });
+    await wrapper.find("textarea").setValue("优化这段代码");
+    await wrapper.find("button[title='Polish message with AI']").trigger("click");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(captured).toEqual({
+      text: "优化这段代码",
+      refs: [
+        { label: "选区片段", content: "const a = 1", path: "" },
+        { label: "b.ts", content: "", path: "C:\\b.ts" },
+      ],
+    });
+  });
+
   // ── foot 操作按钮 ──
 
   it("emits attach on 📎 button", async () => {
