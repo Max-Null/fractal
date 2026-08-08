@@ -46,9 +46,10 @@
   @keyframes boot-scan-float { from { transform: translateY(-72px); opacity: 0.5; } to { transform: translateY(0); opacity: 1; } }
   .boot-center { position: relative; display: flex; flex-direction: column; align-items: center; gap: 16px; z-index: 1; }
 
-  /* ─────── Si 原子 v3：真 3D（preserve-3d）——参考 react-loading-indicator + fresh-portfolio 原子动画方案
-     轨道 rotateX(80°) 近直立 + rotateY(0/120/240°) 三向分布（长轴互成 120°，教科书原子）；
-     核不设 z-index → 参与 3D 深度排序，轨道穿核时前段盖核、后段被核盖（天然遮挡）─────── */
+  /* ─────── Si 原子 v3.1：真 3D 修正（用户反馈三轮：轨道不可见/电子消失/核阴影被切）
+     ①轨道 rotateX 80°→60°（投影椭圆更宽可见）+ border 1.5px 加亮
+     ②电子补偿动画 delay 与公转对齐（不同步→电子方向乱→压扁成线几乎不可见）
+     ③核辉光改伪元素（preserve-3d 下 box-shadow 被裁剪，Chromium 已知）─────── */
   .si-atom {
     position: relative; width: 220px; height: 220px; perspective: 700px;
     transform-style: preserve-3d;
@@ -62,17 +63,17 @@
     background: radial-gradient(ellipse, rgba(56,189,248,.10), transparent 70%);
     filter: blur(2px);
   }
-  /* 轨道：scale 定半径层级 + 3D 摆放（rotateX 近直立 + rotateY 三向主轴） */
+  /* 轨道：scale 定半径层级 + 3D 摆放（rotateX 60° + rotateY 三向主轴互成 120°） */
   .si-orbit {
-    position: absolute; inset: 0; border: 1px solid rgba(14, 165, 233, 0.4); border-radius: 50%;
+    position: absolute; inset: 0; border: 1.5px solid rgba(14, 165, 233, 0.5); border-radius: 50%;
     transform-style: preserve-3d;
     animation: orbit-breathe 6s ease-in-out infinite;
   }
-  .si-orbit--outer { transform: scale(1) rotateX(80deg) rotateY(0deg); }
-  .si-orbit--mid { transform: scale(0.78) rotateX(80deg) rotateY(120deg); animation-delay: -2s; }
-  .si-orbit--inner { transform: scale(0.52) rotateX(80deg) rotateY(240deg); animation-delay: -4s; }
-  @keyframes orbit-breathe { 0%,100% { border-color: rgba(125,211,252,.22); } 50% { border-color: rgba(125,211,252,.5); } }
-  /* 公转：轨道平面内 rotateZ 0→360（动画覆盖 transform，keyframes 必须保留静态摆放） */
+  .si-orbit--outer { transform: scale(1) rotateX(60deg) rotateY(0deg); }
+  .si-orbit--mid { transform: scale(0.78) rotateX(60deg) rotateY(120deg); animation-delay: -2s; }
+  .si-orbit--inner { transform: scale(0.52) rotateX(60deg) rotateY(240deg); animation-delay: -4s; }
+  @keyframes orbit-breathe { 0%,100% { border-color: rgba(125,211,252,.3); } 50% { border-color: rgba(125,211,252,.6); } }
+  /* 公转：轨道平面内 rotateZ 0→360 */
   .si-spin { position: absolute; inset: 0; animation: si-spin linear infinite; transform-style: preserve-3d; }
   .si-spin--outer { animation-name: si-spin-0; animation-duration: 11s; animation-delay: -2.6s; }
   .si-spin--mid { animation-name: si-spin-120; animation-duration: 6.5s; animation-delay: -1.2s; }
@@ -82,29 +83,36 @@
   @keyframes si-spin-240 { from { transform: rotateZ(0deg); } to { transform: rotateZ(360deg); } }
   /* 电子起始角 */
   .si-e-pos { position: absolute; inset: 0; transform: rotate(var(--d, 0deg)); }
-  /* 电子：反向补偿动画（rotateZ -360 抵消公转 + 静态 rotateY(-N) rotateX(-80) 抵消轨道摆放）——
-     公转全程保持正圆面向屏幕（参考 electronFix 方案） */
+  /* 电子：反向补偿动画 + delay 与公转严格对齐（同 start 时刻，counter 才成立） */
   .si-e {
     position: absolute; left: 50%; top: -5px; width: 8px; height: 8px; margin-left: -4px;
     border-radius: 50%; background: var(--accent);
     box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
   }
-  .si-orbit--outer .si-e { animation: e-fix-0 11s linear infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: .85; }
-  .si-orbit--mid .si-e { animation: e-fix-120 6.5s linear infinite; opacity: .9; }
-  .si-orbit--inner .si-e { animation: e-fix-240 3.2s linear infinite; }
-  @keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-80deg) rotateZ(-360deg); } }
-  @keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(-360deg); } }
-  @keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(-360deg); } }
-  /* 原子核 = 眼睛：不设 z-index（参与 3D 深度排序，轨道穿核天然遮挡） */
+  .si-orbit--outer .si-e { animation: e-fix-0 11s linear -2.6s infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: .85; }
+  .si-orbit--mid .si-e { animation: e-fix-120 6.5s linear -1.2s infinite; opacity: .9; }
+  .si-orbit--inner .si-e { animation: e-fix-240 3.2s linear 0s infinite; }
+  @keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-60deg) rotateZ(-360deg); } }
+  @keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(-360deg); } }
+  @keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(-360deg); } }
+  /* 原子核 = 眼睛：不设 z-index（3D 深度排序）；去 overflow hidden（瞳孔不越界）+ 去 box-shadow 呼吸（被裁）
+     辉光改用伪元素 radial-gradient（呼吸动画在伪元素上） */
   .si-nucleus {
     position: absolute; left: 50%; top: 50%; width: 50px; height: 50px; margin: -25px 0 0 -25px;
-    border-radius: 50%; overflow: hidden;
+    border-radius: 50%;
     transform: translateZ(0);
     border: 1px solid rgba(56,189,248,.35);
     background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
-    box-shadow: 0 0 18px rgba(14,165,233,.55), inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12);
-    animation: si-nucleus-breathe 2.6s ease-in-out infinite;
+    box-shadow: inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12);
   }
+  /* 核辉光：独立伪元素（不被 3D 裁剪） */
+  .si-nucleus::after {
+    content: ''; position: absolute; inset: -16px; border-radius: 50%;
+    background: radial-gradient(circle, rgba(14,165,233,.45), transparent 62%);
+    animation: nucleus-glow 2.6s ease-in-out infinite;
+    z-index: -1;
+  }
+  @keyframes nucleus-glow { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
   @keyframes si-nucleus-breathe {
     0%, 100% { box-shadow: 0 0 14px rgba(14,165,233,.5), inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12); }
     50% { box-shadow: 0 0 32px rgba(14,165,233,.9), inset 0 0 10px rgba(0,0,0,.55), inset 0 2px 6px rgba(255,255,255,.12); }

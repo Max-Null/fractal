@@ -166,21 +166,22 @@ const stageLines = computed(() => {
   50% { transform: rotateY(10deg); }
 }
 
-/* ── 轨道环：scale 定半径层级 + 3D 摆放（rotateX 近直立 + rotateY 三向主轴互成 120°）── */
+/* ── 轨道环 v3.1：scale 定半径层级 + 3D 摆放（rotateX 60° + rotateY 三向主轴互成 120°）──
+   用户反馈三轮：rotateX 80° 投影过扁轨道不可见 → 60°；border 1px→1.5px 加亮 */
 .si-orbit {
   position: absolute;
   inset: 0;
-  border: 1px solid rgba(14, 165, 233, 0.4);
+  border: 1.5px solid rgba(14, 165, 233, 0.5);
   border-radius: 50%;
   transform-style: preserve-3d;
   animation: orbit-breathe 6s ease-in-out infinite;
 }
-.si-orbit--outer { transform: scale(1) rotateX(80deg) rotateY(0deg); }
-.si-orbit--mid { transform: scale(0.78) rotateX(80deg) rotateY(120deg); animation-delay: -2s; }
-.si-orbit--inner { transform: scale(0.52) rotateX(80deg) rotateY(240deg); animation-delay: -4s; }
+.si-orbit--outer { transform: scale(1) rotateX(60deg) rotateY(0deg); }
+.si-orbit--mid { transform: scale(0.78) rotateX(60deg) rotateY(120deg); animation-delay: -2s; }
+.si-orbit--inner { transform: scale(0.52) rotateX(60deg) rotateY(240deg); animation-delay: -4s; }
 @keyframes orbit-breathe {
-  0%, 100% { border-color: rgba(125, 211, 252, 0.22); }
-  50% { border-color: rgba(125, 211, 252, 0.5); }
+  0%, 100% { border-color: rgba(125, 211, 252, 0.3); }
+  50% { border-color: rgba(125, 211, 252, 0.6); }
 }
 
 /* ── 公转：轨道平面内 rotateZ 0→360（动画覆盖 transform，keyframes 保留静态摆放）── */
@@ -203,8 +204,8 @@ const stageLines = computed(() => {
   inset: 0;
   transform: rotate(var(--d, 0deg));
 }
-/* 电子：反向补偿动画（rotateZ -360 抵消公转 + 静态 rotateY(-N) rotateX(-80) 抵消轨道摆放）——
-   公转全程保持正圆面向屏幕（参考 electronFix 方案，2026-08-09） */
+/* 电子：反向补偿动画 + delay 与公转严格对齐（同 start 时刻 counter 才成立——
+   用户反馈「电子几乎不见了」= delay 未对齐，补偿失效电子被压扁成线） */
 .si-e {
   position: absolute;
   left: 50%;
@@ -216,14 +217,16 @@ const stageLines = computed(() => {
   background: var(--accent);
   box-shadow: 0 0 10px var(--accent), 0 0 4px #fff;
 }
-.si-orbit--outer .si-e { animation: e-fix-0 11s linear infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: 0.85; }
-.si-orbit--mid .si-e { animation: e-fix-120 6.5s linear infinite; opacity: 0.9; }
-.si-orbit--inner .si-e { animation: e-fix-240 3.2s linear infinite; }
-@keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-80deg) rotateZ(-360deg); } }
-@keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-80deg) rotateZ(-360deg); } }
-@keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-80deg) rotateZ(-360deg); } }
+.si-orbit--outer .si-e { animation: e-fix-0 11s linear -2.6s infinite; width: 6px; height: 6px; margin-left: -3px; top: -4px; opacity: 0.85; }
+.si-orbit--mid .si-e { animation: e-fix-120 6.5s linear -1.2s infinite; opacity: 0.9; }
+.si-orbit--inner .si-e { animation: e-fix-240 3.2s linear 0s infinite; }
+@keyframes e-fix-0 { from { transform: rotateY(0deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(0deg) rotateX(-60deg) rotateZ(-360deg); } }
+@keyframes e-fix-120 { from { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-120deg) rotateX(-60deg) rotateZ(-360deg); } }
+@keyframes e-fix-240 { from { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(0deg); } to { transform: rotateY(-240deg) rotateX(-60deg) rotateZ(-360deg); } }
 
-/* ── 原子核 = 眼睛（logo 同款瞳孔）：虹膜容器 + 会「到处看」的瞳孔 ── */
+/* ── 原子核 = 眼睛（logo 同款瞳孔）：虹膜容器 + 会「到处看」的瞳孔 ──
+   v3.1：去 overflow hidden（瞳孔 22px 移动 ±9px 不越界 46px 核——原为防越界，实为多余）；
+   去 box-shadow 呼吸辉光（preserve-3d 下被裁剪，用户反馈「左/上被切掉」）→ 辉光改伪元素 */
 .si-nucleus {
   position: absolute;
   left: 50%;
@@ -235,16 +238,24 @@ const stageLines = computed(() => {
   /* 描边 + 内阴影：球体感而非平面圆（制图师 P1，2026-08-09） */
   border: 1px solid rgba(56, 189, 248, 0.35);
   background: radial-gradient(circle at 35% 30%, #0b4a75, #0369a1 55%, #075985);
-  box-shadow: 0 0 18px rgba(14, 165, 233, 0.55), inset 0 0 10px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.12);
-  overflow: hidden;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.55), inset 0 2px 6px rgba(255, 255, 255, 0.12);
   /* v3 真 3D：不设 z-index（参与 preserve-3d 深度排序，轨道穿核时天然前后遮挡）；
-     translateZ(0) 锚定核到 z=0 平面（参考 react-loading-indicator 原子方案，2026-08-09） */
+     translateZ(0) 锚定核到 z=0 平面 */
   transform: translateZ(0);
-  animation: si-nucleus-breathe 2.6s ease-in-out infinite;
 }
-@keyframes si-nucleus-breathe {
-  0%, 100% { box-shadow: 0 0 14px rgba(14, 165, 233, 0.5), inset 0 0 8px rgba(0, 0, 0, 0.5); }
-  50% { box-shadow: 0 0 30px rgba(14, 165, 233, 0.9), inset 0 0 8px rgba(0, 0, 0, 0.5); }
+/* 核辉光：独立伪元素 radial-gradient（呼吸动画在伪元素上，不被 3D 裁剪） */
+.si-nucleus::after {
+  content: '';
+  position: absolute;
+  inset: -16px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(14, 165, 233, 0.45), transparent 62%);
+  animation: nucleus-glow 2.6s ease-in-out infinite;
+  z-index: -1;
+}
+@keyframes nucleus-glow {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 /* 瞳孔：天蓝圆点 + 「环顾」扫视动画（8 方向平滑循环 = 到处看） */
 .si-pupil {
