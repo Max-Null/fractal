@@ -229,6 +229,32 @@ async function resolveEngineVersion(): Promise<string> {
 }
 
 /** 工厂：创建 server manager（userDataDir 注入便于集成测试；生产传 app.getPath('userData')） */
+/**
+ * 清理本应用残留的 serve 进程（一次性，startServer 首次调用前执行）：
+ * - Windows 上 Stop-Process 强杀 electron 不会带走子进程（无父死子亡机制），app 崩溃/开发重启会残留旧 serve
+ * - 残留 serve 与新 serve 并存 + 与官方桌面端共享 storage → SQLite 锁竞争 → 新 serve 秒退 exit 1（实测 2026-08-08）
+ * - 匹配条件：CommandLine 含本应用 sidecar 路径（resources\bin\opencode.exe serve）——官方桌面端/系统 OC 路径不匹配，不会误杀
+ */
+let staleCleaned = false
+export async function cleanupStaleServes(): Promise<void> {
+  if (staleCleaned) return
+  staleCleaned = true
+  if (process.platform !== 'win32') return
+  try {
+    await new Promise<void>((resolve) => {
+      const ps = spawn('powershell', [
+        '-NoProfile',
+        '-Command',
+        "Get-CimInstance Win32_Process -Filter \"Name='opencode.exe'\" | Where-Object { $_.CommandLine -match 'resources\\\\bin\\\\opencode.exe serve' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }",
+      ], { windowsHide: true, stdio: 'ignore' })
+      ps.on('exit', () => resolve())
+      ps.on('error', () => resolve())
+    })
+  } catch {
+    // 清理失败不阻断启动（serve 自身有 3 次重试兜底）
+  }
+}
+
 export function createServerManager(options: ServerManagerOptions): ServerManager {
   const state: InternalState = {
     child: null,
@@ -262,7 +288,7 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     }
   }
 
-  async function startServer(): Promise<StartServerResult> {
+async function startServer(): Promise<StartServerResult> {
     // 单例：已有存活进程直接返回（不重复 spawn）
     if (state.child && !state.failed) {
       return {
@@ -272,6 +298,10 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
         port: state.port!,
       }
     }
+    // 残留清理（一次性）：Windows 强杀父进程不会带走子进程（2026-08-08 实测：electron 被杀后
+    // 旧 serve 残留，双 serve 并存 + 官方桌面端共享 storage → 竞争导致新 serve 秒退 exit 1 无声）。
+    // 只清「本应用 bin 路径 + serve 参数」的进程——官方桌面端（@opencode-aidesktop）路径不匹配，安全
+    await cleanupStaleServes()
     // 秒退容错（2026-08-07 实测）：首次 spawn 偶发秒退 exit 1（原因未定，可能与端口/环境竞争有关），
     // 第二次尝试几乎必然成功——若等待 30s 健康检查失败才抛错，启动链（ready → startEngineEvents）会卡死，
     // 渲染层 splash 永不消失。改为循环重试，健康检查失败立即进入下一次尝试。
