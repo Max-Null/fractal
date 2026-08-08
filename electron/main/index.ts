@@ -7,6 +7,7 @@ import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers, startEngineEvents } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
+import { migrateUserDataIfNeeded } from './migrate-userdata'
 import { initPreset, ensurePresetConfig } from './preset'
 import { watchSettings, loadSettings } from './settings'
 import { startPanelWatchers, setPanelWatchers } from './panel'
@@ -21,10 +22,10 @@ const gotSingleInstanceLock = isE2E || app.requestSingleInstanceLock()
 if (isE2E && process.env.OC_GUI_E2E_SHARE !== '1') {
   app.setPath('userData', join(app.getPath('temp'), 'oc-gui-e2e'))
 } else {
-  // 固定 userData = %APPDATA%\oc-gui：dev（electron .）默认 userData 是 %APPDATA%\Electron，
-  // 与打包 app（%APPDATA%\oc-gui）分裂——API Key/主题/会话配置在两种运行方式间各存各的，
-  // 表现为「dev 里设了亮色主题，打包 app 重启还是暗色」
-  app.setPath('userData', join(app.getPath('appData'), 'oc-gui'))
+  // 固定 userData = %APPDATA%\fractal（2026-08-08 产品名对齐，原 oc-gui）：dev（electron .）默认 userData 是
+  // %APPDATA%\Electron，与打包 app 分裂——API Key/主题/会话配置在两种运行方式间各存各的，
+  // 表现为「dev 里设了亮色主题，打包 app 重启还是暗色」；旧目录数据由 migrateUserDataIfNeeded 一次性迁移
+  app.setPath('userData', join(app.getPath('appData'), 'fractal'))
 }
 
 // e2e 继承正式配置（API Key），保证真实引擎对话 e2e 可跑；正式配置不存在则走无 key 场景（onboarding 测试）
@@ -115,6 +116,10 @@ function createWindow(workspace?: string): BrowserWindow {
 app.whenReady().then(async () => {
   // Windows 通知/任务栏分组需要固定的 app user model id
   electronApp.setAppUserModelId('com.oc-gui')
+
+  // userData 改名一次性迁移（oc-gui → fractal，2026-08-08）：必须在任何 userData 读写前执行
+  // （settings/预置/日志/服务配置都依赖 userData 路径）；e2e 临时 userData 自动跳过
+  migrateUserDataIfNeeded(app.getPath('userData'), join(app.getPath('appData'), 'oc-gui'))
 
   // dev 下 F12 开关 DevTools、prod 下屏蔽刷新快捷键
   app.on('browser-window-created', (_, window) => {
