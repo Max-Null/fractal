@@ -120,6 +120,75 @@ export async function writeJsonFile(filePath: string, data: unknown): Promise<vo
   await fsp.writeFile(filePath, JSON.stringify(data), 'utf-8')
 }
 
+/**
+ * 读取文件尾部 N 行（大文件尾部读取，避免 10MB serve.log 全量加载）。
+ * 实现：fs.open + 从文件尾向前按块扫 0x0A 定位行边界；0x0A 是 ASCII 单字节，
+ * 不会出现在多字节 UTF-8 序列内部——按换行符切分天然在字符边界上，不会切出 �。
+ * 文件不存在/为空 → 返回 []（serve 从未启动的正常空态）。
+ */
+
+/**
+ * 从 Buffer 尾部定位「最后 maxLines 行」的起始字节：
+ * 跳过文件末尾空行后，从最后一个非空行向前数 maxLines 个换行（行分隔），第 maxLines 个换行之后即起点。
+ * 返回 -1 = 无法确定（缓冲区开头可能仍处于某行中间——单行超长时尾部块内数不够换行，需继续读取更早内容）；
+ * 返回 >=0 = 已确定起点（含 0：整个缓冲区都是目标行）。
+ */
+function findTailStart(buf: Buffer, maxLines: number): number {
+  let i = buf.length - 1
+  while (i >= 0 && buf[i] === 0x0a) i-- // 跳过文件末尾的空行（末尾 \n 是空行的结束，不算行）
+  if (i < 0) return 0 // 全空行/空文件 → 起点 0
+  let need = maxLines
+  for (; i >= 0; i--) {
+    if (buf[i] === 0x0a) {
+      need--
+      if (need === 0) return i + 1
+    }
+  }
+  return -1
+}
+
+export async function readTailLines(filePath: string, maxLines: number): Promise<string[]> {
+  const CHUNK = 64 * 1024
+  let fh: fsp.FileHandle | null = null
+  try {
+    fh = await fsp.open(filePath, 'r')
+  } catch (err) {
+    // 文件不存在（serve 从未启动）→ 正常空态；其他错误（权限/占用）→ 记日志防误判为空态
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      console.error(`[ipc] serve.log 打开失败：${err instanceof Error ? err.message : String(err)}`)
+    }
+    return []
+  }
+  try {
+    const st = await fh.stat()
+    if (st.size === 0) return []
+    let pos = st.size
+    let tail = Buffer.alloc(0)
+    // 从尾向前按块读，累积到能确定「最后 maxLines 行」起点即够（多出的头部截掉）
+    while (pos > 0) {
+      const readSize = Math.min(CHUNK, pos)
+      pos -= readSize
+      const buf = Buffer.alloc(readSize)
+      await fh.read(buf, 0, readSize, pos)
+      tail = Buffer.concat([buf, tail])
+      const start = findTailStart(tail, maxLines)
+      // pos===0 = 已读完全部（单行超长无换行时 findTailStart 恒 -1，此时整个 tail 即目标行）
+      if (start >= 0 || pos === 0) {
+        if (start >= 0) tail = tail.subarray(start)
+        break
+      }
+      // 防御：文件极大且每行极短/单行超长（尾块内始终数不够）→ 限制内存占用，取已读部分
+      if (tail.length > 10 * 1024 * 1024) break
+    }
+    // 已收集尾部字节串（起始于完整行边界）→ 按行切分，去掉尾部空串（文件以换行结尾）
+    const parts = tail.toString('utf8').split('\n')
+    if (parts.length > 0 && parts[parts.length - 1] === '') parts.pop()
+    return parts.slice(-maxLines)
+  } finally {
+    if (fh) await fh.close()
+  }
+}
+
 /** 解析 git status --porcelain 输出为结构化 GitStatus */
 export function parseGitStatus(stdout: string): {
   branch: string
@@ -389,25 +458,40 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return getSettingsSchema()
   })
 
-  // ── 会话日志持久化（userData/session-logs/{sessionId}/）──
+  // ── 会话日志持久化（userData/session-logs/{sessionId}/）+ serve 引擎日志（userData/logs/serve.log）──
 
   ipcMain.handle('logs:saveSessionDebugLog', (_e, args: { sessionId: string; linesJson: string }) => {
     const file = join(app.getPath('userData'), 'session-logs', args.sessionId, 'debug.json')
     return fsp.mkdir(dirname(file), { recursive: true }).then(() => fsp.writeFile(file, args.linesJson, 'utf-8'))
   })
 
-  ipcMain.handle('logs:saveSessionStderrLog', (_e, args: { sessionId: string; linesJson: string }) => {
-    const file = join(app.getPath('userData'), 'session-logs', args.sessionId, 'stderr.json')
-    return fsp.mkdir(dirname(file), { recursive: true }).then(() => fsp.writeFile(file, args.linesJson, 'utf-8'))
+  // 读取 serve 引擎日志尾部（诊断面板引擎日志页，D8）：lines 正整数 1-5000，缺省 500
+  ipcMain.handle('logs:readServeLog', async (_e, args: { lines?: number }) => {
+    const maxLines = args?.lines ?? 500
+    if (!Number.isInteger(maxLines) || maxLines < 1 || maxLines > 5000) {
+      throw new Error(`logs:readServeLog lines 必须是 1-5000 的正整数: ${String(args?.lines)}`)
+    }
+    try {
+      // readTailLines 大文件尾部读取；文件不存在（serve 未启动）内部已返回 []
+      return await readTailLines(join(app.getPath('userData'), 'logs', 'serve.log'), maxLines)
+    } catch (err) {
+      // 读取失败（文件被占用/权限）→ 返回空数组 + 主进程记录，前端显示空态可重试
+      console.error(`[ipc] 读取 serve.log 失败：${err instanceof Error ? err.message : String(err)}`)
+      return []
+    }
   })
 
   ipcMain.handle('logs:loadSessionLogs', async (_e, args: { sessionId: string }) => {
     const dir = join(app.getPath('userData'), 'session-logs', args.sessionId)
     const debugFile = join(dir, 'debug.json')
-    const stderrFile = join(dir, 'stderr.json')
+    // stderr.json 槽位已移除（OC 无 --verbose 输出，CC 遗留机制废除——方案 D4），返回结构单元素 [debugJson]
     const debug = await fsp.readFile(debugFile, 'utf-8').catch(() => null)
-    const stderr = await fsp.readFile(stderrFile, 'utf-8').catch(() => null)
-    return [debug, stderr] as [string | null, string | null]
+    return [debug] as [string | null]
+  })
+
+  // 应用信息（诊断面板「复制诊断信息」打包头：应用名 + 版本；测试环境 mock electron app）
+  ipcMain.handle('app:getInfo', () => {
+    return { name: app.getName(), version: app.getVersion() }
   })
 
   // ── 文件对话框（替代 @tauri-apps/plugin-dialog）──

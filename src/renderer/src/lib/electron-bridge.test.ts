@@ -13,6 +13,8 @@ import {
   openWorkspaceWindow,
   onInitWorkspace,
   polishMessage,
+  readServeLog,
+  getAppInfo,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -239,6 +241,28 @@ describe("openWorkspaceWindow / onInitWorkspace（多窗口）", () => {
     const unsub = onInitWorkspace(cb);
     expect(onInitWorkspaceBridgeMock).toHaveBeenCalledWith(cb);
     expect(typeof unsub).toBe("function");
+  });
+});
+
+describe("readServeLog / getAppInfo（诊断面板引擎日志数据源，方案 D8）", () => {
+  it("readServeLog 缺省 500 行 → logs:readServeLog { lines: 500 }", async () => {
+    invokeMock.mockResolvedValue(["[12:00:00] engine boot"]);
+    const r = await readServeLog();
+    expect(invokeMock).toHaveBeenCalledWith("logs:readServeLog", { lines: 500 });
+    expect(r).toEqual(["[12:00:00] engine boot"]);
+  });
+
+  it("readServeLog 指定行数 → 透传 lines", async () => {
+    invokeMock.mockResolvedValue([]);
+    await readServeLog(100);
+    expect(invokeMock).toHaveBeenCalledWith("logs:readServeLog", { lines: 100 });
+  });
+
+  it("getAppInfo → app:getInfo 返回 { name, version }（无参数时 invoke 第二参数为 undefined，桥约定）", async () => {
+    invokeMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
+    const r = await getAppInfo();
+    expect(invokeMock).toHaveBeenCalledWith("app:getInfo", undefined);
+    expect(r).toEqual({ name: "分形", version: "1.2.3" });
   });
 });
 

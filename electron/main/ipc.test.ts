@@ -1,11 +1,35 @@
 // ipc.ts 纯函数单元测试（不依赖 electron 运行时，node 环境）
 // 覆盖军师审查 🔴3：路径校验、git status 解析、JSON 持久化往返
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers } from './ipc'
 import type { SessionMessage } from './oc-sdk'
+
+// electron mock：app:getInfo / logs:readServeLog 用例需要（node 环境无 electron 运行时）。
+// registerIpcHandlers 用 ipcMain.handle mock 捕获注册的 handler，随后直接调用验证返回值。
+const electronMock = vi.hoisted(() => ({
+  app: {
+    getName: vi.fn(() => '分形'),
+    getVersion: vi.fn(() => '1.2.3'),
+    // 带参签名：readServeLog 用例用 mockImplementation((name) => ...) 覆盖，返回独立 userData 目录
+    getPath: vi.fn((_name: string) => ''),
+  },
+  handleCalls: [] as Array<{ channel: string; handler: (...a: unknown[]) => unknown }>,
+}))
+vi.mock('electron', () => ({
+  app: electronMock.app,
+  dialog: {},
+  ipcMain: {
+    handle: (channel: string, handler: (...a: unknown[]) => unknown) => {
+      electronMock.handleCalls.push({ channel, handler })
+    },
+    on: vi.fn(),
+  },
+  shell: {},
+  BrowserWindow: class {},
+}))
 
 describe('assertValidFsPath（路径校验）', () => {
   it('接受正常绝对路径', () => {
@@ -319,5 +343,130 @@ describe('buildPolishPrompt', () => {
   it('文件读取失败（不存在）→ 跳过该引用，退化为基础指令', async () => {
     const p = await buildPolishPrompt('你好', [{ label: 'gone.txt', path: 'Z:\\不存在\\gone.txt' }])
     expect(p).toBe(POLISH_PROMPT + '你好')
+  })
+})
+
+// ── readTailLines（serve.log 尾部读取，方案 D8：大文件尾部 N 行，UTF-8 整行边界）──
+describe('readTailLines（serve.log 尾部读取）', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(join(tmpdir(), 'serve-tail-'))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  it('多行文件：读取尾部 N 行（最后 maxLines 行）', async () => {
+    const file = join(dir, 'serve.log')
+    const lines = Array.from({ length: 20 }, (_, i) => `line-${i}`)
+    await fsp.writeFile(file, lines.join('\n') + '\n', 'utf-8')
+    const tail = await readTailLines(file, 5)
+    expect(tail).toEqual(['line-15', 'line-16', 'line-17', 'line-18', 'line-19'])
+  })
+
+  it('行数不足 maxLines → 全量返回', async () => {
+    const file = join(dir, 'serve.log')
+    await fsp.writeFile(file, 'a\nb\nc', 'utf-8')
+    expect(await readTailLines(file, 10)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('空文件 → []', async () => {
+    const file = join(dir, 'serve.log')
+    await fsp.writeFile(file, '', 'utf-8')
+    expect(await readTailLines(file, 5)).toEqual([])
+  })
+
+  it('文件不存在 → []（serve 从未启动）', async () => {
+    expect(await readTailLines(join(dir, 'missing.log'), 5)).toEqual([])
+  })
+
+  it('UTF-8 多字节行不被切坏（尾部读取从整行边界开始）', async () => {
+    const file = join(dir, 'serve.log')
+    await fsp.writeFile(file, '启动服务\n模型加载成功\n监听端口 58143\n', 'utf-8')
+    const tail = await readTailLines(file, 2)
+    expect(tail).toEqual(['模型加载成功', '监听端口 58143'])
+  })
+
+  it('文件无尾换行也正常返回', async () => {
+    const file = join(dir, 'serve.log')
+    await fsp.writeFile(file, 'one\ntwo', 'utf-8')
+    expect(await readTailLines(file, 5)).toEqual(['one', 'two'])
+  })
+
+  it('单行超长（无换行）→ 整行返回不截断', async () => {
+    const file = join(dir, 'serve.log')
+    await fsp.writeFile(file, 'x'.repeat(200_000), 'utf-8')
+    const tail = await readTailLines(file, 5)
+    expect(tail).toHaveLength(1)
+    expect(tail[0]).toHaveLength(200_000)
+  })
+})
+
+// ── logs:readServeLog / app:getInfo（诊断面板引擎日志页数据源，方案 D8 / 4.5）──
+describe('logs:readServeLog / app:getInfo handler', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    // 每个用例独立 userData 目录（readServeLog 读 userData/logs/serve.log，防跨用例文件串扰）
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-serve-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('readServeLog：读取 userData/logs/serve.log 尾部（文件存在）', async () => {
+    const serveDir = join(userDataDir, 'logs')
+    await fsp.mkdir(serveDir, { recursive: true })
+    const logFile = join(serveDir, 'serve.log')
+    await fsp.writeFile(logFile, 'one\ntwo\nthree\n', 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'logs:readServeLog')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { lines: 2 })) as string[]
+    expect(r).toEqual(['two', 'three'])
+  })
+
+  it('readServeLog：lines 非法（非 1-5000 正整数）→ 抛错', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'logs:readServeLog')
+    expect(h).toBeDefined()
+    await expect(h!.handler({}, { lines: 0 })).rejects.toThrow('lines 必须是 1-5000')
+    await expect(h!.handler({}, { lines: 99999 })).rejects.toThrow('lines 必须是 1-5000')
+  })
+
+  it('readServeLog：文件不存在 → 返回空数组（serve 未启动空态）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'logs:readServeLog')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { lines: 500 })) as string[]
+    expect(r).toEqual([])
+  })
+
+  it('app:getInfo：返回应用名与版本（复制诊断信息打包头）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'app:getInfo')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { name: string; version: string }
+    expect(r).toEqual({ name: '分形', version: '1.2.3' })
+  })
+
+  it('loadSessionLogs：返回单元素 [debugJson]（stderr 槽位已移除，旧 stderr.json 不再读取）', async () => {
+    const sdir = join(userDataDir, 'session-logs', 'ses_x')
+    await fsp.mkdir(sdir, { recursive: true })
+    await fsp.writeFile(join(sdir, 'debug.json'), '["📨 a"]', 'utf-8')
+    await fsp.writeFile(join(sdir, 'stderr.json'), '["旧数据"]', 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'logs:loadSessionLogs')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { sessionId: 'ses_x' })) as [string | null]
+    // 协议变更双元素 → 单元素（方案 D4）；旧 stderr.json 残留不返回
+    expect(r).toHaveLength(1)
+    expect(r[0]).toContain('📨 a')
   })
 })

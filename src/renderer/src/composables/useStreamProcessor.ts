@@ -3,8 +3,7 @@ import { useChatStore, FULL_HISTORY_LIMIT, type ToolUse, type ContentBlock, type
 import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
-import { useStderrLog } from "@/composables/useStderrLog";
-import { saveMessage, saveSessionDebugLog, saveSessionStderrLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
@@ -126,7 +125,6 @@ export function useStreamProcessor() {
   const session = useSessionStore();
   const settings = useSettingsStore();
   const debugLog = useDebugLog();
-  const stderrLog = useStderrLog();
   const { t } = useI18n();
 
   // 分阶段计时：思考 ↔ 工具执行
@@ -179,7 +177,8 @@ export function useStreamProcessor() {
     // 分形主链路：serve SSE 映射事件（主进程 startEngineEvents 转发 engine:event）
     unlisten = window.electronBridge.on("engine:event", (payload) => {
       const data = payload as StreamEvent;
-      debugLog.add(`📨 event: ${data.type} | sid=${data.session_id} | text=${(data.text||'').slice(0,50)} | thinking=${(data.thinking||'').slice(0,50)} | final=${data.is_final}`, data.session_id);
+      // 逐条事件明细已移除（D6 精简：原 debug.json 每事件 50 字截断刷屏且不含错误内容；
+      // 保留的关键记录点在：control_request 权限 / error 错误 / unknown type / 引擎状态 / 历史重载）
 
       // 事件是否属于当前活跃会话（后台会话 → 写缓存 + 更新 activity 指示器）
       const isActive = data.session_id === session.activeSessionId;
@@ -354,11 +353,10 @@ export function useStreamProcessor() {
             data.output_tokens ?? msg?.outputTokens,
             data.cost_usd ?? msg?.costUSD,
           );
-          // 持久化 debug/stderr 日志 + 刷新侧栏统计
+          // 持久化 debug 日志 + 刷新侧栏统计（stderr 日志槽位已移除——OC 无 --verbose 输出，CC 遗留机制废除）
           const sid = data.session_id || session.activeSessionId;
           if (sid) {
             saveSessionDebugLog(sid, JSON.stringify(debugLog.exportLines(sid))).catch(() => {});
-            saveSessionStderrLog(sid, JSON.stringify(stderrLog.exportLines(sid))).catch(() => {});
             session.loadSessions(settings.cwd || undefined).catch(() => {});  // 刷新侧栏统计（带工作区过滤，否则覆盖为全部）
           }
 
@@ -376,6 +374,8 @@ export function useStreamProcessor() {
 
         case "error": {
           const { key, params } = translateError(data.error || "Unknown error");
+          // 错误事件是排查核心（D6：原 debug.json 只记事件类型不含错误内容，精简时补记录点）
+          debugLog.add(`❌ ${t(key, params as any)}`, data.session_id);
           chat.appendText(`\n\n> ⚠️ ${t(key, params as any)}`);
           chat.finishAssistantMessage();
           break;

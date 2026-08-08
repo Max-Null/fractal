@@ -14,6 +14,9 @@ const questionRejectMock = vi.fn();
 const respondPermissionMock = vi.fn();
 const sendMessageMock = vi.fn();
 const listMessagesMock = vi.fn();
+const loadSessionLogsMock = vi.fn();
+const readServeLogMock = vi.fn();
+const getAppInfoMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
   respondPermission: (...args: unknown[]) => respondPermissionMock(...args),
@@ -24,7 +27,9 @@ vi.mock("@/lib/electron-bridge", () => ({
   stopSession: vi.fn().mockResolvedValue(undefined),
   listMessages: (...args: unknown[]) => listMessagesMock(...args),
   writeFile: vi.fn().mockResolvedValue(undefined),
-  loadSessionLogs: vi.fn().mockResolvedValue([null, null]),
+  loadSessionLogs: (...args: unknown[]) => loadSessionLogsMock(...args),
+  readServeLog: (...args: unknown[]) => readServeLogMock(...args),
+  getAppInfo: (...args: unknown[]) => getAppInfoMock(...args),
   openDialog: vi.fn().mockResolvedValue(null),
   saveDialog: vi.fn().mockResolvedValue(null),
   readFileBase64: vi.fn().mockResolvedValue(""),
@@ -55,7 +60,19 @@ const i18n = createI18n({
         submit: "Submit",
         todos: "Task List",
         noTodos: "No tasks yet",
+        debugTitle: "Diagnostics",
+        debugLabel: "Event Log",
+        debugServeTab: "Engine Log",
+        debugRefresh: "Refresh",
+        debugCopyDiag: "Copy Diagnostics",
+        debugNoServeLog: "No engine logs yet",
+        debugPrivacyHint: "Logs may contain local paths",
+        debugFooter: "Logs help troubleshooting",
+        copied: "Copied",
+        close: "Close",
+        copy: "Copy",
       },
+      status: { exportFail: "Export failed {error}" },
       composer: { chipHint: "" },
       tools: { Bash: "Bash" },
     },
@@ -78,11 +95,11 @@ const ModalShellStub = {
 const mockRouter = { push: vi.fn(), currentRoute: { value: { path: "/chat" } } };
 let pinia: Pinia;
 
-// InputBar stub：声明 send 事件，供 handleSend 附件传递用例触发
+// InputBar stub：声明 send 事件，供 handleSend 附件传递用例触发；渲染 #left 插槽（诊断面板开关按钮）
 const InputBarStub = {
   name: "InputBarStub",
   emits: ["send"],
-  template: '<div class="input-bar-stub" />',
+  template: '<div class="input-bar-stub"><slot name="left" /></div>',
 };
 
 function mountChatPanel(): VueWrapper {
@@ -91,6 +108,8 @@ function mountChatPanel(): VueWrapper {
       plugins: [pinia, i18n],
       provide: { router: mockRouter },
       stubs: {
+        // 诊断面板裸 div + Teleport：stub 让 Teleport 内容渲染到组件树内（wrapper.find 可及）
+        Teleport: { template: "<div><slot /></div>" },
         ErrorBoundary: { template: "<div><slot /></div>" },
         InputBar: InputBarStub,
         // 渲染 data-message-id / data-role：时间线跳转与 scroll spy 定位依赖 DOM 属性
@@ -130,6 +149,12 @@ describe("ChatPanel 弹窗", () => {
     respondPermissionMock.mockReset();
     sendMessageMock.mockReset();
     listMessagesMock.mockReset();
+    loadSessionLogsMock.mockReset();
+    loadSessionLogsMock.mockResolvedValue([null]);
+    readServeLogMock.mockReset();
+    readServeLogMock.mockResolvedValue([]);
+    getAppInfoMock.mockReset();
+    getAppInfoMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
     questionReplyMock.mockResolvedValue({ ok: true });
     questionRejectMock.mockResolvedValue({ ok: true });
     respondPermissionMock.mockResolvedValue({ responded: true });
@@ -512,6 +537,72 @@ describe("ChatPanel 弹窗", () => {
       expect(scrollIntoViewMock).not.toHaveBeenCalled();
     } finally {
       Element.prototype.scrollIntoView = orig;
+    }
+  });
+
+  // ── 诊断面板（方案 D7：事件日志 / 引擎日志两标签页）──
+
+  it("诊断面板：切到引擎日志标签页 → readServeLog(500) 拉取并渲染 serve 行", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    // 事件日志非空 → 面板开关按钮出现（按钮显示条件只看事件日志，方案 4.5）；debugJson 需是合法 JSON 数组串
+    loadSessionLogsMock.mockResolvedValue(['["debug line"]']);
+    readServeLogMock.mockResolvedValue(["[12:00:00] engine boot", "[12:00:01] listening on port 58143"]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    const debugBtn = wrapper.find(".debug-btn");
+    expect(debugBtn.exists()).toBe(true);
+    await debugBtn.trigger("click"); // 打开诊断面板
+    await flush();
+
+    expect(wrapper.text()).toContain("Diagnostics");
+
+    // 切到引擎日志标签页 → 自动拉取 serve.log 尾部
+    const serveTab = wrapper.findAll("button").find((b) => b.text() === "Engine Log");
+    expect(serveTab).toBeDefined();
+    await serveTab!.trigger("click");
+    await flush();
+
+    expect(readServeLogMock).toHaveBeenCalledWith(500);
+    expect(wrapper.text()).toContain("[12:00:00] engine boot");
+    expect(wrapper.text()).toContain("[12:00:01] listening on port 58143");
+  });
+
+  it("复制诊断信息 → getAppInfo + readServeLog 组合为「应用名 v版本 + serve 尾部」复制", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    loadSessionLogsMock.mockResolvedValue(['["debug line"]']);
+    getAppInfoMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
+    readServeLogMock.mockResolvedValue(["[12:00:00] engine boot"]);
+
+    // 捕获 copyText 写入的 textarea 值（execCommand 被调用时 textarea 尚未移除）
+    const captured: string[] = [];
+    const origExec = document.execCommand;
+    document.execCommand = ((cmd: string) => {
+      const ta = document.querySelector("textarea");
+      captured.push(ta ? ta.value : "");
+      return true;
+    }) as typeof document.execCommand;
+    try {
+      const wrapper = mountChatPanel();
+      await flush();
+      await wrapper.find(".debug-btn").trigger("click");
+      await flush();
+
+      const copyDiag = wrapper.find('[title="Copy Diagnostics"]');
+      expect(copyDiag.exists()).toBe(true);
+      await copyDiag.trigger("click");
+      await flush();
+
+      expect(getAppInfoMock).toHaveBeenCalled();
+      expect(readServeLogMock).toHaveBeenCalledWith(500);
+      // 复制正文 = 应用名 + 版本 + 空行 + serve.log 尾部
+      expect(captured[0]).toContain("分形 v1.2.3");
+      expect(captured[0]).toContain("[12:00:00] engine boot");
+    } finally {
+      document.execCommand = origExec;
     }
   });
 });

@@ -7,10 +7,11 @@
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 
 import { app } from 'electron'
+import { createWriteStream, mkdirSync, renameSync, statSync, type WriteStream } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import net from 'node:net'
 import crypto from 'node:crypto'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { createOcClient, type OcClient } from './oc-sdk'
 
 /** serve 运行状态（供 getServerInfo / onStatusChange / engine:status 转发） */
@@ -180,6 +181,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     failed: false,
     startPromise: null,
   }
+  /** 当前实例的 serve.log 路径（spawn 时赋值，stopServer 时 end 流） */
+  let serveLogFile = ''
 
   function toInfo(): ServerInfo {
     return {
@@ -270,12 +273,16 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
 
     // 启动日志转发（serve 输出可能是 UTF-16，console 直接打会乱码——仅记录不展示）
     child.stdout?.on('data', () => {})
-    // serve stderr 转发 console（serve 启动失败/运行错误排查关键信息；输出编码可能 UTF-16 或 UTF-8，双解码尝试）
+    // serve stderr tee：console 转发（开发排查，保留 500 截断）+ 落盘 serve.log（面板引擎日志页，写完整文本）。
+    // 日志目录必须注入式（options.userDataDir）——测试传 tmpdir，不可用 app.getPath('userData')（会写真实用户数据）
+    serveLogFile = join(options.userDataDir, 'logs', 'serve.log')
     child.stderr?.on('data', (d: Buffer) => {
       try {
         const utf8 = d.toString('utf8').replace(/\u0000/g, '')
         const txt = utf8.includes('\ufffd') ? d.toString('utf16le').replace(/\u0000/g, '') : utf8
         if (txt.trim()) console.error(`[serve] ${txt.trim().slice(0, 500)}`)
+        // 落盘写完整文本（[HH:mm:ss] 前缀 + 10MB 轮转），console 的 500 截断不影响落盘
+        appendServeLog(serveLogFile, txt)
       } catch {
         /* 转码失败不阻断 */
       }
@@ -296,7 +303,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
 
     // 进程退出（正常/被杀/崩溃）→ 置空状态并通知（前端 engine:status 感知连接断开）
     child.on('exit', (code, signal) => {
-
+      // 退出时收 serve 日志流（与 stopServer 对称；serve 崩溃时旧文件句柄不残留，下次启动重建）
+      if (serveLogFile) void closeServeLog(serveLogFile)
       state.child = null
       state.failed = true
       state.startPromise = null // 启动缓存失效，允许下次 ready 重建
@@ -354,6 +362,8 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
     const child = state.child
     // 停止后启动缓存必须失效：否则后续 ready() 返回已死 serve 的连接参数（2026-08-06 实测：设置自动保存杀 serve 后永不重启）
     state.startPromise = null
+    // 关闭 serve 日志流（serve 重启时旧流 end 后重建，避免旧文件句柄残留；end 后旧流数据已 flush）
+    if (serveLogFile) void closeServeLog(serveLogFile)
     if (!child) {
       state.failed = true
       state.client = null
@@ -400,4 +410,106 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
   }
 
   return { startServer, ready, stopServer, getServerInfo: toInfo, getClient, onStatusChange }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// serve 引擎日志落盘（诊断面板「引擎日志」页数据源，方案 D1/D3/D5）
+// ══════════════════════════════════════════════════════════════════
+
+/** serve.log 轮转阈值：超 10MB 改名 serve.1.log（覆盖旧档），只保留 1 份 */
+const MAX_SERVE_LOG_BYTES = 10 * 1024 * 1024
+
+/** 追加流缓存（按文件路径隔离；serve 重启时 stopServer end + 清理，startServer 复用/重建） */
+const serveLogStreams = new Map<string, WriteStream>()
+/** 轮转失败警告位（rename EBUSY/EPERM 时只提示一次，避免高频 stderr 刷屏） */
+const serveRotateWarned = new Set<string>()
+
+/** 本地时间 [HH:mm:ss]（落盘行前缀，跨 serve 重启可区分先后） */
+function serveLogTimestamp(): string {
+  const d = new Date()
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `[${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}]`
+}
+
+/**
+ * 追加一行到 serve.log（serve stderr tee 落盘）：
+ * - 首次调用 mkdir logs 目录（userData/logs 首启不存在，不建则追加静默失败吞日志）
+ * - createWriteStream({flags:'a'}) 追加——高频 stderr 不能 appendFileSync 阻塞主进程
+ * - 写前 stat 超阈值 → rename serve.1.log（覆盖旧档）→ 重建流；rename 失败（Windows 文件占用）继续追加 + 警告一次
+ * - maxBytes 供测试注入小阈值（生产默认 10MB）
+ */
+export function appendServeLog(logFile: string, text: string, maxBytes = MAX_SERVE_LOG_BYTES): void {
+  try {
+    // 本次调用前是否已有缓存流：区分「首写新建」（stat 必 ENOENT——createWriteStream 打开文件是异步的）
+    // 与「旧流 + 文件被删」（须销毁重建，否则写入落到已 unlink 的 inode，文件永远不出现）
+    const hadStream = serveLogStreams.has(logFile)
+    let stream = serveLogStreams.get(logFile)
+    if (!stream) {
+      mkdirSync(dirname(logFile), { recursive: true })
+      stream = createWriteStream(logFile, { flags: 'a' })
+      // 异步写错误（磁盘满/权限变更）会 emit 'error'，无监听器直接 throw → uncaughtException 崩主进程
+      // （方案 7.2「写失败静默忽略」必须覆盖异步路径；损坏流标记后下次写入重建）
+      stream.on('error', () => {
+        serveLogStreams.delete(logFile)
+      })
+      serveLogStreams.set(logFile, stream)
+    }
+    // 轮转检查：stat 超限 → 改名 serve.1.log（覆盖旧档）→ 重建流
+    let needsRotate = false
+    try {
+      needsRotate = statSync(logFile).size > maxBytes
+    } catch {
+      // stat 失败（ENOENT）两种场景：
+      // ① 首写——createWriteStream 打开文件是异步的，此时文件尚未出现：跳过轮转（文件必空），write 会排队等待 open
+      // ② 旧流 + 文件被删（用户手动删 serve.log）——旧流句柄指向已 unlink 的 inode：销毁重建，否则写入落到不存在的文件上
+      if (hadStream) {
+        stream.end()
+        stream = createWriteStream(logFile, { flags: 'a' })
+        stream.on('error', () => {
+          serveLogStreams.delete(logFile)
+        })
+        serveLogStreams.set(logFile, stream)
+      }
+      needsRotate = false
+    }
+    if (needsRotate) {
+      try {
+        renameSync(logFile, join(dirname(logFile), 'serve.1.log'))
+        stream.end()
+      stream = createWriteStream(logFile, { flags: 'a' })
+      stream.on('error', () => {
+        serveLogStreams.delete(logFile)
+      })
+      serveLogStreams.set(logFile, stream)
+      serveRotateWarned.delete(logFile) // 轮转成功 → 重置警告位，下次失败可再提示
+      } catch (err) {
+        // rename 失败（Windows 文件占用）→ 继续追加当前文件 + 警告一次（日志不能影响主流程）
+        if (!serveRotateWarned.has(logFile)) {
+          serveRotateWarned.add(logFile)
+          console.warn(`[server-manager] serve.log 轮转失败（${err instanceof Error ? err.message : String(err)}），继续追加当前文件`)
+        }
+      }
+    }
+    // 落盘行带 [HH:mm:ss] 前缀；stderr chunk 可能不带换行，补 \n 保证每记录独立成行
+    stream.write(`${serveLogTimestamp()} ${text}${text.endsWith('\n') ? '' : '\n'}`)
+  } catch (err) {
+    // 落盘失败（磁盘满/权限）→ 静默忽略（日志不能影响主流程），console 转发不受影响
+    console.error(`[server-manager] serve.log 写入失败：${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+/** 关闭 serve 日志流（serve 停止时 end，重启时重建；省略参数则清空全部——测试隔离用）。返回 Promise 供测试等待 flush */
+export function closeServeLog(logFile?: string): Promise<void> {
+  const targets: WriteStream[] = []
+  if (logFile) {
+    const s = serveLogStreams.get(logFile)
+    if (s) {
+      targets.push(s)
+      serveLogStreams.delete(logFile)
+    }
+  } else {
+    for (const s of serveLogStreams.values()) targets.push(s)
+    serveLogStreams.clear()
+  }
+  return Promise.all(targets.map((s) => new Promise<void>((resolve) => s.end(() => resolve())))).then(() => {})
 }

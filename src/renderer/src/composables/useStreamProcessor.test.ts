@@ -4,10 +4,11 @@ import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useStreamProcessor } from "./useStreamProcessor";
 
-const { listeners, saveMessageMock, listMessagesMock } = vi.hoisted(() => ({
+const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
   saveMessageMock: vi.fn(),
   listMessagesMock: vi.fn(),
+  debugLogAddMock: vi.fn(),
 }));
 // 桩 window.electronBridge：useStreamProcessor 的事件订阅入口（原 @tauri-apps/api/event listen）
 window.electronBridge = {
@@ -22,19 +23,8 @@ window.electronBridge = {
 
 vi.mock("@/composables/useDebugLog", () => ({
   useDebugLog: () => ({
-    add: vi.fn(),
+    add: debugLogAddMock,
     clear: vi.fn(),
-    visible: { value: false },
-    setSession: vi.fn(),
-    exportLines: vi.fn().mockReturnValue([]),
-  }),
-}));
-
-vi.mock("@/composables/useStderrLog", () => ({
-  useStderrLog: () => ({
-    add: vi.fn(),
-    clear: vi.fn(),
-    lines: { value: [] },
     visible: { value: false },
     setSession: vi.fn(),
     exportLines: vi.fn().mockReturnValue([]),
@@ -53,7 +43,6 @@ vi.mock("@/lib/electron-bridge", async () => {
     ...actual,
     saveMessage: saveMessageMock,
     saveSessionDebugLog: vi.fn().mockResolvedValue(undefined),
-    saveSessionStderrLog: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue([]),
     listMessages: listMessagesMock,
   };
@@ -66,6 +55,7 @@ describe("useStreamProcessor", () => {
     saveMessageMock.mockReset();
     saveMessageMock.mockResolvedValue(undefined);
     listMessagesMock.mockReset();
+    debugLogAddMock.mockReset();
   });
 
   afterEach(() => {
@@ -326,6 +316,50 @@ describe("useStreamProcessor", () => {
     expect(cached).not.toBeNull();
     expect(chat.todos).toHaveLength(1);
     expect(chat.todos[0].content).toBe("后台任务");
+
+    stopListening();
+  });
+
+  it("error 事件 → debugLog 记录 ❌ 错误内容（D6 精简后补的记录点）", async () => {
+    const session = useSessionStore();
+    // error 事件带 session_id 且非活跃会话会走后台缓存分支（L187 return），需匹配活跃会话才进 case error
+    session.setActiveSession("ses-err");
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "error",
+      session_id: "ses-err",
+      text: "",
+      thinking: "",
+      error: "API key 无效",
+    });
+
+    // 错误内容写入 debugLog，带 ❌ 前缀（t mock 直接返回 key）
+    expect(debugLogAddMock).toHaveBeenCalledWith(expect.stringMatching(/^❌ /), "ses-err");
+
+    stopListening();
+  });
+
+  it("精简后无逐条事件流明细（D6：去掉 📨 event: 刷屏记录，防回归）", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-detail");
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // 触发消息增量事件（原 L182 会记录逐条明细的最高频事件）
+    listeners.get("engine:event")?.({
+      type: "assistant",
+      session_id: "ses-detail",
+      text: "增量文本",
+      thinking: "",
+    });
+
+    // 精简后：任何事件不再写「📨 event: 」前缀的逐条明细
+    const detailCalls = debugLogAddMock.mock.calls.filter(
+      ([line]) => typeof line === "string" && line.startsWith("📨 event: "),
+    );
+    expect(detailCalls).toHaveLength(0);
 
     stopListening();
   });

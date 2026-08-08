@@ -2,7 +2,7 @@ import { ref, computed } from "vue";
 
 /**
  * 按会话隔离的日志行存储（工厂函数）。
- * useDebugLog / useStderrLog 共享同一实现，仅 maxLines 不同。
+ * 仅 useDebugLog 使用（CC 遗留 useStderrLog 已移除——OC 无 --verbose 输出，方案 D4）。
  */
 export function createSessionLog(maxLines: number) {
   const store: Record<string, string[]> = {};

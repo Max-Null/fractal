@@ -319,13 +319,18 @@ export async function saveSessionDebugLog(sessionId: string, linesJson: string):
   return invoke("logs:saveSessionDebugLog", { sessionId, linesJson });
 }
 
-/** 持久化会话 stderr 日志 */
-export async function saveSessionStderrLog(sessionId: string, linesJson: string): Promise<void> {
-  return invoke("logs:saveSessionStderrLog", { sessionId, linesJson });
+/** 读取 serve 引擎日志尾部（诊断面板「引擎日志」页；文件不存在返回空数组，lines 默认 500 尾部行） */
+export async function readServeLog(lines = 500): Promise<string[]> {
+  return invoke("logs:readServeLog", { lines });
 }
 
-/** 加载会话日志（返回 [debugJson, stderrJson] 或 null） */
-export async function loadSessionLogs(sessionId: string): Promise<[string | null, string | null]> {
+/** 应用信息（诊断面板「复制诊断信息」打包头：应用名 + 版本） */
+export async function getAppInfo(): Promise<{ name: string; version: string }> {
+  return invoke<{ name: string; version: string }>("app:getInfo");
+}
+
+/** 加载会话日志（返回 [debugJson] 或 null；stderr.json 槽位已移除——OC 无 --verbose 输出，CC 遗留机制废除） */
+export async function loadSessionLogs(sessionId: string): Promise<[string | null]> {
   return invoke("logs:loadSessionLogs", { sessionId });
 }
 
