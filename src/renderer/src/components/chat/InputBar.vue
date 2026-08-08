@@ -421,7 +421,7 @@ async function polishInput() {
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
           </button>
-          <!-- Send button（纸飞机图标，title 保留 Send——测试定位依赖） -->
+          <!-- Send button（右上纸飞机图标，30x30 正方形与优化按钮一致；title 保留 Send——测试定位依赖） -->
           <button
             v-else
             class="send"
@@ -429,7 +429,7 @@ async function polishInput() {
             :title="$t('chat.send')"
             @click="send"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M3.478 2.404a.75.75 0 0 0-.926.941l2.432 7.905H13.5a.75.75 0 0 1 0 1.5H4.984l-2.432 7.905a.75.75 0 0 0 .926.94 60.519 60.519 0 0 0 18.445-8.986.75.75 0 0 0 0-1.218A60.517 60.517 0 0 0 3.478 2.404Z"/></svg>
           </button>
         </div>
       </div>
@@ -890,13 +890,14 @@ async function polishInput() {
   color: var(--text-muted);
 }
 
-/* ── 发送 / 停止按钮（对齐原型 .send：accent 底白字；纯图标布局后内边距收紧）── */
+/* ── 发送 / 停止按钮（30x30 正方形，与优化按钮一致；accent 实底白字）── */
 .send {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  padding: 8px 12px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
   border-radius: 9px;
   background: var(--accent);
   color: #fff;
@@ -919,7 +920,9 @@ async function polishInput() {
 }
 .send--stop {
   background: var(--coral);
-  padding: 7px 12px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
 }
 .send--stop:hover:not(:disabled) { filter: brightness(1.12); }
 
