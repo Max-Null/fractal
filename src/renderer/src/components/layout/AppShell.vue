@@ -163,6 +163,7 @@ const cwd = computed(() => settings.cwd);
 function switchToWorkspace(path: string) {
   settings.cwd = path;
   settings.addRecentWorkspace(path);
+  unDismissWorkspace(path); // 用户明确使用 → 恢复显示（清除手动移除标记）
   emitChatCommand(`switch-workspace:${path}`);
   filePanelForceClose.value++;  // 切工作区时收起文件面板
   panelFile.value = null;       // 关闭编辑器面板
@@ -176,6 +177,24 @@ const showWsMenu = ref(false);
 // ── serve 会话目录聚合（补充本地 recent：userData 迁移/清缓存后本地历史丢失仍可从引擎恢复工作区列表）──
 const serveDirs = ref<string[]>([]);
 
+/** 用户手动移除过的工作区（localStorage 持久化）：serve 里有会话时删除本地 recent 后仍会聚合显示，
+ *  用户期望「移除即消失」——用排除集合过滤聚合结果；重新打开/使用该目录时清除标记恢复显示 */
+const dismissedWorkspaces = ref<string[]>([]);
+try {
+  const raw = localStorage.getItem("sb-dismissed-workspaces");
+  if (raw) dismissedWorkspaces.value = JSON.parse(raw);
+} catch { dismissedWorkspaces.value = []; }
+function persistDismissed() {
+  try { localStorage.setItem("sb-dismissed-workspaces", JSON.stringify(dismissedWorkspaces.value)); } catch {}
+}
+function unDismissWorkspace(path: string) {
+  const next = dismissedWorkspaces.value.filter((p) => p !== path);
+  if (next.length !== dismissedWorkspaces.value.length) {
+    dismissedWorkspaces.value = next;
+    persistDismissed();
+  }
+}
+
 /** 从 serve 全量会话聚合出去重工作区目录；serve 未就绪时静默（菜单仍显示本地 recent） */
 async function loadServeWorkspaces() {
   try {
@@ -187,8 +206,10 @@ async function loadServeWorkspaces() {
   }
 }
 
-/** 工作区菜单合并列表：本地 recent 优先（原序），serve 会话目录补充（去重保序） */
-const mergedWorkspaces = computed(() => mergeWorkspaces(settings.recentWorkspaces, serveDirs.value));
+/** 工作区菜单合并列表：本地 recent 优先（原序），serve 会话目录补充（去重保序），用户手动移除的过滤掉 */
+const mergedWorkspaces = computed(() =>
+  mergeWorkspaces(settings.recentWorkspaces, serveDirs.value).filter((p) => !dismissedWorkspaces.value.includes(p))
+);
 
 // 目录选择提示条（对话框不置前/失败时的可见反馈，3s 自动消失）
 const alertText = ref("");
@@ -222,6 +243,7 @@ function onWsPickRecent(path: string) {
   }
   // 交互模式变更（用户需求）：非当前工作区项 → 新开窗口并切到目标工作区，不再当前窗口内切换。
   // 主进程 createWindow(path) 创建新窗口，did-finish-load 后下发 init-workspace → 新窗口切 cwd + 按工作区加载会话。
+  unDismissWorkspace(path); // 用户明确使用该工作区（新开窗口）→ 恢复显示
   openWorkspaceWindow(path).then(() => {
     // 新窗口已创建：可见反馈（取目录名展示，路径分隔符兼容 Windows/Linux）
     alertText.value = `已在新窗口打开 ${path.split(/[\\/]/).pop()}`;
@@ -231,8 +253,13 @@ function onWsPickRecent(path: string) {
   });
 }
 function onWsRemoveRecent(path: string) {
-  // 工作区管理：从最近使用移除记录（不删磁盘/serve 会话；serve 有会话时仍会经聚合显示）
+  // 工作区管理：移除记录 + 排除集合（serve 会话聚合仍会显示该目录，用户期望「移除即消失」——
+  // dismissed 过滤聚合结果；重新打开/使用该目录时 unDismiss 恢复）
   settings.removeRecentWorkspace(path);
+  if (!dismissedWorkspaces.value.includes(path)) {
+    dismissedWorkspaces.value.push(path);
+    persistDismissed();
+  }
   alertText.value = `已从最近使用移除 ${path.split(/[\\/]/).pop()}`;
 }
 function onWsReveal(path: string) {
@@ -365,6 +392,7 @@ onMounted(async () => {
     // 先写竞态标记再切 cwd：initFromDb 的异步 cwd 恢复可能晚于本回调，标记让恢复逻辑以下发值为准
     settings.windowInitCwd = path;
     settings.cwd = path;
+    unDismissWorkspace(path); // 新窗口明确切到该工作区 → 恢复显示（若之前被手动移除）
     sessionStore.loadSessions(path);
   });
   // 并行初始化所有持久化数据：会话列表 + settings + 工作区

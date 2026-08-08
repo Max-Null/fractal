@@ -108,6 +108,11 @@ async function openMenuAndGetPaths(wrapper: VueWrapper): Promise<string[]> {
   return wrapper.findAll(".ws-menu-item-path").map((n) => n.text());
 }
 
+/** 直接读当前菜单路径（不 toggle：菜单已打开时用，避免二次点击关闭菜单） */
+function getMenuPaths(wrapper: VueWrapper): string[] {
+  return wrapper.findAll(".ws-menu-item-path").map((n) => n.text());
+}
+
 describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -120,6 +125,7 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     listSessionsMock.mockReset();
     openWorkspaceWindowMock.mockReset();
     revealInExplorerMock.mockReset();
+    onInitWorkspaceMock.mockReset(); // 不 reset 会导致 calls[0] 取到上个用例的旧回调（闭包旧 pinia 实例）
     // 新窗口打开默认成功（.then 链依赖 Promise 形状；断言失败场景的用例单独 mockRejectedValue）
     openWorkspaceWindowMock.mockResolvedValue(undefined);
     // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
@@ -212,8 +218,9 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     expect(listSessionsMock).toHaveBeenLastCalledWith(SERVE_B);
   });
 
-  it("点 × 移除最近工作区 → removeRecentWorkspace 生效且不触发新开窗口（click.stop）", async () => {
-    listSessionsMock.mockResolvedValue([]);
+  it("点 × 移除最近工作区 → 菜单立即消失（含 serve 聚合场景）且不触发新开窗口（click.stop）", async () => {
+    // serve 聚合里有 SERVE_A；本地 recent 有 LOCAL_A——删除 LOCAL_A 后菜单不应再有它
+    listSessionsMock.mockResolvedValue([makeSession("s1", SERVE_A), makeSession("s2", LOCAL_A)]);
     const wrapper = mountAppShell();
     await flushPromises();
     await wrapper.find(".ws-pill-arrow").trigger("click");
@@ -221,15 +228,45 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
 
     const settings = useSettingsStore();
     expect(settings.recentWorkspaces).toContain(LOCAL_A);
+    expect(getMenuPaths(wrapper)).toContain(LOCAL_A);
     // 第 1 项的删除按钮（.ws-menu-item-act-danger）
     await wrapper.find(".ws-menu-item-act-danger").trigger("click");
     await flushPromises();
 
     expect(settings.recentWorkspaces).not.toContain(LOCAL_A);
+    // 菜单不再显示 LOCAL_A（dismissed 过滤 serve 聚合）——serve 聚合的 SERVE_A 仍显示
+    const paths = getMenuPaths(wrapper);
+    expect(paths).not.toContain(LOCAL_A);
+    expect(paths).toContain(SERVE_A);
     // click.stop：删除不触发路径点击（不新开窗口）
     expect(openWorkspaceWindowMock).not.toHaveBeenCalled();
-    // 菜单保持展开（删除不收起菜单——不新开窗口也不关菜单，可连续操作）
-    expect(wrapper.find(".ws-menu").exists()).toBe(true);
+    // dismissed 持久化（localStorage）——刷新后仍过滤
+    expect(JSON.parse(localStorage.getItem("sb-dismissed-workspaces") || "[]")).toContain(LOCAL_A);
+  });
+
+  it("删除 serve 聚合项 → 菜单立即消失；重新打开该工作区（init-workspace 下发）→ 恢复显示（unDismiss）", async () => {
+    listSessionsMock.mockResolvedValue([makeSession("s1", SERVE_A)]);
+    const wrapper = mountAppShell();
+    await flushPromises();
+    // 点一次 arrow 打开菜单（openMenuAndGetPaths 内部会再点一次导致 toggle 关闭，故此处用裸点击）
+    await wrapper.find(".ws-pill-arrow").trigger("click");
+    await flushPromises();
+    expect(getMenuPaths(wrapper)).toContain(SERVE_A);
+
+    // 删除 serve 聚合项（SERVE_A）——菜单含 beforeEach 预设的 LOCAL_A，须定位 SERVE_A 那一项的删除按钮
+    const wsItems = wrapper.findAll(".ws-menu-item");
+    const serIdx = wsItems.findIndex((n) => n.text().includes(SERVE_A));
+    await wsItems[serIdx].find(".ws-menu-item-act-danger").trigger("click");
+    await flushPromises();
+    expect(JSON.parse(localStorage.getItem("sb-dismissed-workspaces") || "[]")).toContain(SERVE_A);
+    expect(getMenuPaths(wrapper)).not.toContain(SERVE_A);
+
+    // 模拟用户重新打开该工作区（新窗口 init-workspace 下发）→ unDismiss 清除标记 → 菜单恢复显示
+    const cb = onInitWorkspaceMock.mock.calls[0][0] as (path: string) => void;
+    cb(SERVE_A);
+    await flushPromises();
+    expect(JSON.parse(localStorage.getItem("sb-dismissed-workspaces") || "[]")).not.toContain(SERVE_A);
+    expect(getMenuPaths(wrapper)).toContain(SERVE_A);
   });
 
   it("点 📂 打开位置 → revealInExplorer 调用且不触发新开窗口（click.stop）", async () => {
