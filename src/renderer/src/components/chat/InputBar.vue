@@ -934,31 +934,31 @@ async function polishInput() {
   white-space: nowrap;
 }
 
-/* ✨ 优化消息按钮（发送左侧）：accent 强调色（用户反馈：原浅色不明显） */
+/* ✨ 优化消息按钮（发送左侧）：accent 实底白字（与发送同风格，最明显——用户两次反馈浅色不明显） */
 .polish-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   padding: 0;
-  border-radius: 8px;
-  color: var(--accent);
-  background: var(--accent-glow);
-  border: 1px solid var(--accent-line);
+  border-radius: 9px;
+  color: #fff;
+  background: var(--accent);
+  border: none;
   cursor: pointer;
   flex-shrink: 0;
   transition: all 150ms ease;
 }
 .polish-btn:hover:not(:disabled) {
-  color: #fff;
-  background: var(--accent);
-  border-color: var(--accent);
+  filter: brightness(1.15);
+  transform: translateY(-1px);
 }
+.polish-btn:active:not(:disabled) { transform: none; }
 .polish-btn:disabled {
   color: var(--text-muted);
   background: transparent;
-  border-color: var(--border-dim);
+  border: 1px solid var(--border-dim);
   cursor: default;
   opacity: 0.5;
 }
