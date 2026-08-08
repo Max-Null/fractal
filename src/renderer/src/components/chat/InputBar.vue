@@ -402,7 +402,6 @@ async function polishInput() {
       ></textarea>
 
         <div class="cf-right">
-          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
           <!-- ✨ 优化消息（发送按钮左侧，原型有此功能——用户反馈⑤） -->
           <button
             class="polish-btn"
@@ -475,6 +474,9 @@ async function polishInput() {
           <button class="composer-icon-btn" :title="$t('toolbar.commandsTitle')" @click="emit('openCommandMenu')">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
           </button>
+
+          <!-- Shift+Enter 换行提示（用户反馈⑥：与提示信息同放左侧） -->
+          <span class="composer-hint">{{ $t('composer.sendHint') }}</span>
         </div>
 
         <div class="cf-right-pills">
