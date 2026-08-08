@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { useChatStore } from "./chat";
 import {
   createSession as createSessionBackend,
@@ -127,6 +127,13 @@ export const useSessionStore = defineStore("session", () => {
     // 通知主进程活跃会话变化（子会话识别依赖；fire-and-forget，失败静默）
     setActiveSessionBridge(id);
   }
+
+  // 主进程活跃会话通知兜底：watch 统一覆盖所有赋值路径（含 URL 窗口切 cwd 激活、删除会话
+  // 自动切换等不经过 action 的直接赋值——2026-08-09 实测子会话卡片不显示，主进程 Map 为空）。
+  // action 幂等已挡同值重复，这里仅补「值变化但未走 action」的路径；同值不触发 watch。
+  watch(activeSessionId, (id) => {
+    if (id) setActiveSessionBridge(id);
+  });
 
   /** Rename session via backend */
   async function renameSession(id: string, title: string) {

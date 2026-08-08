@@ -1186,6 +1186,9 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
         console.error('[engine] SSE 订阅错误：', err)
       },
     })
+    // 诊断：子会话识别依赖本窗口的活跃会话分桶——打印当前值，serve.log 可见
+    //（2026-08-09 实测子会话卡片不显示 = 分桶空导致 isSubSession 短路，靠此日志定位）
+    console.log('[engine] 事件流订阅建立，窗口分桶:', win.webContents.id, '=', activeSessionByWebContents.get(win.webContents.id) ?? '(空)')
     // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
     win.on('closed', () => {
       activeSessionByWebContents.delete(win.webContents.id)
