@@ -131,13 +131,14 @@ const PERSP = 560;              // 透视距离（越小透视越强）
 const WOBBLE_AMP = 0.16;        // 整体摇摆幅度（±9.2°）
 
 // 轨道定义：r 半径 / tiltY 主轴（绕 Y 旋转）/ speed 公转速度(rad/s) / n 电子数 / phase 起始角
+// r 放大 1.4×（用户反馈原子偏小：原 100 显示仅 50css 半径）——140 物理 = 70css 半径 ≈ 画布 60%
 const ORBITS = [
-  { r: 100, tiltY: 0,        speed: 0.50, n: 4, phase: 0.0 },
-  { r: 78,  tiltY: 2.094,    speed: 0.90, n: 8, phase: 0.4 },
-  { r: 52,  tiltY: 4.189,    speed: 1.95, n: 2, phase: 1.2 },
+  { r: 140, tiltY: 0,        speed: 0.50, n: 4, phase: 0.0 },
+  { r: 110, tiltY: 2.094,    speed: 0.90, n: 8, phase: 0.4 },
+  { r: 73,  tiltY: 4.189,    speed: 1.95, n: 2, phase: 1.2 },
 ];
-const NUCLEUS_R = 25;          // 核半径（css 50px / 2）
-const PUPIL_R = 12;            // 瞳孔半径
+const NUCLEUS_R = 32;          // 核半径（放大：25→32）
+const PUPIL_R = 14;            // 瞳孔半径
 const GLINT_X = -11, GLINT_Y = -11; // 高光位置（核内左上）
 
 // 轨道 3D 点：轨道圆在 XY 平面，先绕 Y 旋转 tiltY（主轴朝向），返回 3D 坐标
@@ -199,7 +200,7 @@ function drawOrbitBack(o, wobble, alpha) {
 // 电子：径向渐变球体（近大远小：大小 × 投影 scale）——传入投影结果（分层已排序）
 function drawElectron(e) {
   const { o, pr } = e;
-  const baseR = o.r > 90 ? 4.2 : 5;
+  const baseR = (o.r > 90 ? 5.5 : 6.5) * pr.s;
   const r = baseR * pr.s;
   // 球体径向渐变（光源左上）
   const g = ctx.createRadialGradient(pr.x - r * 0.35, pr.y - r * 0.35, r * 0.15, pr.x, pr.y, r);
@@ -253,10 +254,10 @@ function drawNucleus(s) {
 
 // 底座（全息投影盘）：与核辉光同步闪烁
 function drawBase(s, glow) {
-  const g = ctx.createRadialGradient(CX, CY + 108, 5, CX, CY + 108, 66);
+  const g = ctx.createRadialGradient(CX, CY + 155, 5, CX, CY + 155, 90);
   g.addColorStop(0, `rgba(56, 189, 248, ${0.14 * (0.6 + 0.4 * glow)})`);
   g.addColorStop(1, 'rgba(56, 189, 248, 0)');
-  ctx.beginPath(); ctx.ellipse(CX, CY + 108, 66, 13, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
+  ctx.beginPath(); ctx.ellipse(CX, CY + 155, 90, 18, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill();
 }
 
 // 主渲染循环：分层绘制（后段轨道+电子 → 核 → 前段电子+轨道）

@@ -16,13 +16,14 @@ const ATOM_ROT_X = Math.PI * 0.42 // 俯视角（轨道椭圆开口）
 const ATOM_PERSP = 560 // 透视距离
 const ATOM_WOBBLE_AMP = 0.16 // 整体摇摆 ±9.2°
 // 轨道：r 半径 / tiltY 主轴（绕 Y 0/120/240°）/ speed 公转速度 / n 电子数 / phase 起始角
+// r 放大 1.4×（用户反馈原子偏小：原 100 显示仅 50css 半径）——140 物理 = 70css 半径 ≈ 画布 60%
 const ATOM_ORBITS = [
-  { r: 100, tiltY: 0, speed: 0.5, n: 4, phase: 0 },
-  { r: 78, tiltY: 2.094, speed: 0.9, n: 8, phase: 0.4 },
-  { r: 52, tiltY: 4.189, speed: 1.95, n: 2, phase: 1.2 },
+  { r: 140, tiltY: 0, speed: 0.5, n: 4, phase: 0 },
+  { r: 110, tiltY: 2.094, speed: 0.9, n: 8, phase: 0.4 },
+  { r: 73, tiltY: 4.189, speed: 1.95, n: 2, phase: 1.2 },
 ]
-const ATOM_NUCLEUS_R = 25
-const ATOM_PUPIL_R = 12
+const ATOM_NUCLEUS_R = 32
+const ATOM_PUPIL_R = 14
 
 function atomOrbitPoint(r: number, tiltY: number, theta: number): [number, number, number] {
   // 轨道圆在 XY 平面，绕 Y 轴 tiltY 旋转（主轴朝向）→ 3D 坐标
@@ -58,7 +59,7 @@ function atomDrawOrbit(ctx: CanvasRenderingContext2D, o: (typeof ATOM_ORBITS)[nu
 }
 // 电子球体（径向渐变 + 辉光，大小 × 投影 scale = 近大远小）
 function atomDrawElectron(ctx: CanvasRenderingContext2D, o: (typeof ATOM_ORBITS)[number], pr: ReturnType<typeof atomProject>) {
-  const r = (o.r > 90 ? 4.2 : 5) * pr.s
+  const r = (o.r > 90 ? 5.5 : 6.5) * pr.s
   const g = ctx.createRadialGradient(pr.x - r * 0.35, pr.y - r * 0.35, r * 0.15, pr.x, pr.y, r)
   g.addColorStop(0, '#7dd3fc')
   g.addColorStop(0.55, '#0ea5e9')
@@ -93,10 +94,10 @@ function atomDrawNucleus(ctx: CanvasRenderingContext2D, s: number) {
 // 底座：与核辉光同步闪烁
 function atomDrawBase(ctx: CanvasRenderingContext2D, s: number) {
   const glow = 0.5 + 0.5 * Math.sin(s * 2.4)
-  const g = ctx.createRadialGradient(ATOM_CX, ATOM_CY + 108, 5, ATOM_CX, ATOM_CY + 108, 66)
+  const g = ctx.createRadialGradient(ATOM_CX, ATOM_CY + 155, 5, ATOM_CX, ATOM_CY + 155, 90)
   g.addColorStop(0, `rgba(56, 189, 248, ${0.14 * (0.6 + 0.4 * glow)})`)
   g.addColorStop(1, 'rgba(56, 189, 248, 0)')
-  ctx.beginPath(); ctx.ellipse(ATOM_CX, ATOM_CY + 108, 66, 13, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill()
+  ctx.beginPath(); ctx.ellipse(ATOM_CX, ATOM_CY + 155, 90, 18, 0, 0, Math.PI * 2); ctx.fillStyle = g; ctx.fill()
 }
 function atomFrame(ctx: CanvasRenderingContext2D, s: number) {
   ctx.clearRect(0, 0, ATOM_W, ATOM_H)
