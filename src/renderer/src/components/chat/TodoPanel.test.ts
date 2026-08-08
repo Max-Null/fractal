@@ -132,7 +132,7 @@ describe("TodoPanel（自动展开 15s D2/D3）", () => {
     expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
   });
 
-  it("频繁变化续期：15s 内再次变化 → 计时重置", async () => {
+  it("展开期间变化不续期：15s 计时照常走完收起（引擎频繁 TodoWrite 不会导致面板永不收起）", async () => {
     vi.useFakeTimers();
     const chat = useChatStore();
     const wrapper = mountPanel();
@@ -140,16 +140,57 @@ describe("TodoPanel（自动展开 15s D2/D3）", () => {
 
     chat.setTodos([{ content: "第一轮", status: "pending" }]);
     await nextTick();
-    // 10s 后再次变化（重置 15s 计时）
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
+    // 展开期间 10s 后变化（不重置 15s 计时）
     vi.advanceTimersByTime(10_000);
-    chat.setTodos([{ content: "第二轮", status: "in_progress" }]);
+    chat.setTodos([
+      { content: "第一轮", status: "pending" },
+      { content: "第二轮", status: "in_progress" },
+    ]);
     await nextTick();
-    // 从第二次变化算 10s（距首次 20s）→ 仍展开
-    vi.advanceTimersByTime(10_000);
+    // 距首次展开已 15s → 收起（变化未续期）
+    vi.advanceTimersByTime(5_000);
+    await nextTick();
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+  });
+
+  it("收起后的真实变化 → 重新展开 15s", async () => {
+    vi.useFakeTimers();
+    const chat = useChatStore();
+    const wrapper = mountPanel();
+    await nextTick();
+
+    chat.setTodos([{ content: "第一轮", status: "pending" }]);
+    await nextTick();
+    vi.advanceTimersByTime(15_000);
+    await nextTick();
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+    // 收起后真实变化 → 重新展开
+    chat.setTodos([{ content: "第三轮", status: "in_progress" }]);
     await nextTick();
     expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
-    // 再 5s（距第二次 15s）→ 收起
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(15_000);
+    await nextTick();
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+  });
+
+  it("内容相同的重复 TodoWrite（全量覆盖）→ 不触发展开", async () => {
+    vi.useFakeTimers();
+    const chat = useChatStore();
+    const wrapper = mountPanel();
+    await nextTick();
+
+    // 首建展开
+    const base = [{ content: "a", status: "pending" }];
+    chat.setTodos(base);
+    await nextTick();
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(true);
+    // 15s 收起
+    vi.advanceTimersByTime(15_000);
+    await nextTick();
+    expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
+    // 内容相同的重复写入（引擎每步全量覆盖）→ 不重新展开
+    chat.setTodos([{ content: "a", status: "pending" }]);
     await nextTick();
     expect(wrapper.find(".todo-panel-list").exists()).toBe(false);
   });

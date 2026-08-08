@@ -31,19 +31,29 @@ function toCircled(n: number): string {
   return String(n);
 }
 
-// ── 自动展开（D2）：todos 内容/数量/状态变化 → 展开 15s 后收起；频繁变化续期 ──
+// ── hover 展开/收起（D4）：mouseenter 展开 / mouseleave 收起；删除原点击 toggle ──
+// 注意：声明必须在 watch 之前——immediate watch 在 setup 同步执行，TDZ 引用会 ReferenceError
+const hoverExpanded = ref(false);
+
+// ── 自动展开（D2）：生成/真实变化 → 展开 15s 后收起 ──
 const AUTO_EXPAND_MS = 15_000;
 const autoExpanded = ref(false);
 let autoTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
   () => chat.todos,
-  () => {
-    // 任何 todos 变化都触发自动展开 + 重置计时（连续工具更新续期，15s 无变化才收起）
-    autoExpanded.value = true;
-    if (autoTimer) clearTimeout(autoTimer);
-    autoTimer = setTimeout(() => {
-      autoExpanded.value = false;
-    }, AUTO_EXPAND_MS);
+  (newVal, oldVal) => {
+    // 内容级检测：JSON 序列化对比——引擎重复全量 TodoWrite（内容未变）不触发展开
+    const changed = JSON.stringify(newVal) !== JSON.stringify(oldVal);
+    if (!changed) return;
+    // 不续期：展开期间的变化不重置计时（避免引擎频繁 TodoWrite 导致面板永不收起——用户反馈「15s 收起效果没了」）
+    // 收起状态下的真实变化才重新展开 15s
+    if (!autoExpanded.value && !hoverExpanded.value) {
+      autoExpanded.value = true;
+      if (autoTimer) clearTimeout(autoTimer);
+      autoTimer = setTimeout(() => {
+        autoExpanded.value = false;
+      }, AUTO_EXPAND_MS);
+    }
   },
   // immediate：首建 todo 时组件才挂载（v-if），watch 注册晚于变化——立即触发才能捕捉「建立待办列表」这一下
   { deep: true, immediate: true },
@@ -53,8 +63,6 @@ onUnmounted(() => {
   if (autoTimer) clearTimeout(autoTimer);
 });
 
-// ── hover 展开/收起（D4）：mouseenter 展开 / mouseleave 收起；删除原点击 toggle ──
-const hoverExpanded = ref(false);
 // expanded = autoExpanded || hoverExpanded（D3：15s 到点鼠标仍在面板内 → hover 保持展开）
 const expanded = computed(() => autoExpanded.value || hoverExpanded.value);
 
