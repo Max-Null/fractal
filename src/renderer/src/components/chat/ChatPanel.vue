@@ -244,6 +244,13 @@ const expandSubTaskId = ref<string | null>(null);
 const monitorSubTaskId = ref<string | null>(null);
 /** 查看完整详情的子任务 id（「查看会话详情」→ SubTaskDetail） */
 const detailSubTaskId = ref<string | null>(null);
+/** 详情弹窗 agent 名（历史场景 chat.subTasks 无记录，从卡片数据传入——标题用真实名字而非「子智能体」） */
+const detailSubTaskAgent = ref<string>("");
+/** 打开子任务详情（实时/历史卡片共用）：记录 subId + agent（历史场景 agent 从卡片拿） */
+function openSubTaskDetail(sub: { id: string; agent?: string }) {
+  detailSubTaskId.value = sub.id;
+  detailSubTaskAgent.value = sub.agent || "";
+}
 
 /** 子任务卡片排序：按 startedAt 升序（保持出现顺序稳定） */
 const sortedSubTasks = computed(() =>
@@ -1173,7 +1180,7 @@ watch(
               :expanded="expandSubTaskId === sub.id"
               :summary-loader="loadSubTaskSummary"
               @expand="toggleExpandSubTask(sub.id)"
-              @detail="detailSubTaskId = sub.id"
+              @detail="openSubTaskDetail(sub)"
             />
           </div>
         </TransitionGroup>
@@ -1186,7 +1193,7 @@ watch(
           :expanded="expandSubTaskId === sub.id"
           @monitor="monitorSubTaskId = sub.id"
           @expand="toggleExpandSubTask(sub.id)"
-          @detail="detailSubTaskId = sub.id"
+          @detail="openSubTaskDetail(sub)"
         />
 
         <!-- 处理中指示器：仅在消息还没内容时显示（有内容后时间线底部状态行接管） -->
@@ -1462,6 +1469,7 @@ watch(
     <SubTaskDetail
       v-if="detailSubTaskId"
       :sub-id="detailSubTaskId"
+      :agent="detailSubTaskAgent"
       @close="detailSubTaskId = null"
       @back-to-parent="backToParentSubTask"
     />

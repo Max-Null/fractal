@@ -31,9 +31,9 @@ const i18n = createI18n({
   },
 });
 
-function mountDetail(subId: string) {
+function mountDetail(subId: string, extraProps: Record<string, unknown> = {}) {
   return mount(SubTaskDetail, {
-    props: { subId },
+    props: { subId, ...extraProps },
     // ModalShell 用 Teleport to body；stub teleport 原地渲染，wrapper.text() 可直接断言
     global: { stubs: { teleport: true }, plugins: [i18n] },
   });
@@ -101,7 +101,7 @@ describe("SubTaskDetail 状态头", () => {
     expect(wrapper.text()).toContain("请分析项目代码结构");
   });
 
-  it("assistant 消息带「🤖 子智能体执行」角色标签；后续 user 工具结果不标（归入执行流）", async () => {
+  it("assistant 消息不带角色标签；后续 user 工具结果归入执行流", async () => {
     listMessagesMock.mockResolvedValue([
       { id: "m1", role: "user", content: "任务描述", created_at: "2026-01-01T00:00:00" },
       { id: "m2", role: "assistant", content: "执行中…", created_at: "2026-01-01T00:00:01" },
@@ -109,12 +109,20 @@ describe("SubTaskDetail 状态头", () => {
     ]);
     const wrapper = mountDetail("ses_hist_2");
     await flushPromises();
-    // 角色标签只出现在 assistant 消息（1 个），文本含子智能体执行
-    expect(wrapper.findAll(".detail-role-tag").length).toBe(1);
-    expect(wrapper.text()).toContain("🤖 子智能体执行");
-    // 后续 user 消息仍渲染为普通 user 块（工具结果），且无角色标签
+    // 角色标签已移除（用户反馈多余）——assistant 消息仍正常渲染文本
+    expect(wrapper.findAll(".detail-role-tag").length).toBe(0);
+    expect(wrapper.text()).toContain("执行中…");
+    // 后续 user 消息仍渲染为普通 user 块（工具结果）
     expect(wrapper.text()).toContain("工具结果数据");
-    expect(wrapper.find(".detail-msg--user .detail-role-tag").exists()).toBe(false);
+  });
+
+  it("agent prop 优先于 task.agent 用于弹窗标题（历史场景）", async () => {
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "user", content: "任务描述", created_at: "2026-01-01T00:00:00" },
+    ]);
+    const wrapper = mountDetail("ses_hist_agent", { agent: "侦查兵" });
+    await flushPromises();
+    expect(wrapper.find(".detail-agent").text()).toContain("侦查兵");
   });
 
   it("无消息：显示 No content 兜底", async () => {

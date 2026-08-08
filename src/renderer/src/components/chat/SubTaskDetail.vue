@@ -8,7 +8,7 @@ import { listMessages, type MessageData } from "@/lib/electron-bridge";
 import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 
-const props = defineProps<{ subId: string }>();
+const props = defineProps<{ subId: string; agent?: string }>();
 const emit = defineEmits<{ close: []; backToParent: [parentId: string] }>();
 
 const chat = useChatStore();
@@ -103,7 +103,7 @@ function onBack() {
     <template #header>
       <span class="detail-header">
         <span class="detail-badge">{{ badge }}</span>
-        <span class="detail-agent">{{ task?.agent || "子智能体" }}</span>
+        <span class="detail-agent">{{ agent || task?.agent || "子智能体" }}</span>
         <!-- 状态三态：实时 done → 已完成；实时 running → 运行中；历史场景（subTasks 无记录，detail 从历史入口打开）→
              已完成 · 历史记录——修复「历史子会话误显运行中」bug（不再默认 running） -->
         <span v-if="task?.status === 'done'" class="detail-status">✅ 已完成</span>
@@ -129,9 +129,8 @@ function onBack() {
         </div>
         <!-- 后续 user 消息：工具结果，归入执行流（不重复标角色标签） -->
         <div v-else-if="msg.role === 'user'" class="detail-msg detail-msg--user">{{ msg.text || '…' }}</div>
-        <!-- assistant 消息：子智能体执行（角色标签）+ thinking 折叠 + tool 卡片 + 文本 -->
+        <!-- assistant 消息：thinking 折叠 + tool 卡片 + 文本 -->
         <div v-else class="detail-msg detail-msg--assistant">
-          <div class="detail-role-tag">🤖 子智能体执行</div>
           <details v-if="msg.thinking" class="detail-thinking" open>
             <summary class="detail-thinking-summary">💭 {{ $t('chat.subTaskThinking') }}</summary>
             <div class="detail-thinking-body">{{ msg.thinking }}</div>
@@ -239,16 +238,6 @@ function onBack() {
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-}
-/* 子智能体执行角色标签（assistant 消息前小标签；user 工具结果归入执行流不重复标） */
-.detail-role-tag {
-  font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-elevated);
-  border-radius: 4px;
-  padding: 0.05rem 0.4rem;
-  display: inline-block;
-  margin-bottom: 0.35rem;
 }
 .detail-thinking {
   border-bottom: 1px solid var(--border-dim);
