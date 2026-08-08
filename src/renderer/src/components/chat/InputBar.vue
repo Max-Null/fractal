@@ -953,12 +953,13 @@ async function polishInput() {
   border-color: var(--accent);
 }
 .polish-btn:active:not(:disabled) { transform: none; }
+/* 禁用态：保留主题蓝（半透明表达不可用）——用户反馈禁用时全灰看不见按钮 */
 .polish-btn:disabled {
-  color: var(--text-muted);
-  background: transparent;
-  border-color: var(--border-dim);
+  color: var(--accent);
+  background: var(--accent-glow);
+  border-color: var(--accent-line);
   cursor: default;
-  opacity: 0.5;
+  opacity: 0.55;
 }
 .polish-btn--busy {
   animation: polish-spin 1s linear infinite;
