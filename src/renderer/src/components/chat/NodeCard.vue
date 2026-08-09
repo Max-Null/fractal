@@ -302,6 +302,11 @@ function formatJSON(obj: unknown): string {
   border-radius: 6px;
   background: var(--bg-root);
 }
+/* 思考过程边框：琥珀色（2026-08-10 用户拍板：思考节点边框与标题同色——橘黄）
+   rgba 半透明避免纯色过重，与 amber 标题呼应 */
+.node-card--thinking {
+  border-color: rgba(217, 119, 6, 0.4);
+}
 /* tool 内部容器不再重复边框（根已提供） */
 .node-card--tool .node-card-tool {
   border: none;
@@ -328,8 +333,8 @@ function formatJSON(obj: unknown): string {
   transition: background 150ms;
 }
 .node-card-head:hover { background: rgba(255, 255, 255, 0.03); }
-/* 2026-08-10 反馈：思考过程标题与更新待办标题统一主题色（原 amber——视觉语义分散） */
-.node-card-head--thinking { color: var(--accent); }
+/* 思考过程标题：琥珀色（2026-08-10 用户拍板：思考过程保持原橘黄语义色，仅更新待办用主题色） */
+.node-card-head--thinking { color: var(--amber); }
 .node-card-head--tool {
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
 }

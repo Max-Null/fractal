@@ -162,10 +162,12 @@ const hidePanel = computed(() => {
   width: 100%;
 }
 
-/* 折叠态单行：图标 + 序号 + 内容 + 计数；hover 整块展开（无点击交互） */
+/* 折叠态单行：图标 + 序号 + 内容 + 计数；hover 整块展开（无点击交互）
+   2026-08-10 反馈：收起态文字水平居中（原 flex-start 左对齐，面板居中但内容贴左） */
 .todo-panel-collapsed {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.4rem;
   min-height: 1.1rem;
   cursor: default;

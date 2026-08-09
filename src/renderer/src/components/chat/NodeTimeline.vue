@@ -33,6 +33,11 @@ const emit = defineEmits<{
 // D17：节点序列 computed 缓存——流式增量只触发 block 内容更新（contentBlocks 引用不变时序列不重建）
 const nodes = computed<TimelineNode[]>(() => buildTurnNodes(props.turn));
 
+/** todo 更新节点（todowrite 工具）判定：圆点用主题色（2026-08-10 反馈：待办节点圆圈应与待办主题一致） */
+const isTodoNode = computed(() => (n: TimelineNode) =>
+  n.kind === "tool" && String(n.tool?.name).toLowerCase() === "todowrite"
+);
+
 /**
  * 进行中节点集合（D8）：
  * - 工具：startedAt 已开始且未完成（无 executionDurationMs / 无 result）→ busy
@@ -113,8 +118,11 @@ const tokenLabel = computed(() => {
         'node-timeline-item--last': i === nodes.length - 1 && !props.todoRecord,
       }"
     >
-      <!-- 时间线圆点（类型色；busy 时琥珀呼吸 D8） -->
-      <div class="node-timeline-dot" :class="'node-timeline-dot--' + node.kind"></div>
+      <!-- 时间线圆点（类型色；busy 时琥珀呼吸 D8）；todowrite 更新节点用主题色（待办语义） -->
+      <div
+        class="node-timeline-dot"
+        :class="isTodoNode(node) ? 'node-timeline-dot--todo' : 'node-timeline-dot--' + node.kind"
+      ></div>
       <div class="node-timeline-content">
         <NodeCard
           :node="node"
