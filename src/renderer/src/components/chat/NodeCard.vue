@@ -165,9 +165,11 @@ function formatJSON(obj: unknown): string {
       'node-card--busy': busy,
       'node-card--summary': isSummaryNode,
       'node-card--todo': isTodo,
-      // 2026-08-10 统一边框：按变体加（text 无边框；subtask 由 SubTaskCard 自带卡片）
+      // 2026-08-10 统一边框：按变体加（text 无边框；subtask 2026-08-10 反馈——边框上移到
+      // node-card 层，SubTaskCard 自带边框+margin 造成双重边框与圆点不对齐）
       'node-card--thinking': node.kind === 'thinking',
       'node-card--tool': node.kind === 'tool',
+      'node-card--subtask': node.kind === 'subtask',
     }"
   >
     <!-- ═══ thinking：标题行（收起态只渲染标题行——流式性能 D17）+ 点击展开全文 ═══ -->
@@ -297,11 +299,13 @@ function formatJSON(obj: unknown): string {
   color: var(--text-primary);
 }
 
-/* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo 统一卡片边框；
-   subtask 由 SubTaskCard 自带边框；text/summary 无边框正文） */
+/* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo/subtask 统一卡片边框；
+   subtask 2026-08-10 反馈：边框从 SubTaskCard 上移——自带边框+margin 导致 busy 双层边框
+   且与节点圆点不对齐；text/summary 无边框正文） */
 .node-card--thinking,
 .node-card--tool,
-.node-card--todo {
+.node-card--todo,
+.node-card--subtask {
   border: 1px solid var(--border-dim);
   border-radius: 6px;
   background: var(--bg-root);
@@ -315,6 +319,13 @@ function formatJSON(obj: unknown): string {
 .node-card--tool .node-card-tool {
   border: none;
   background: transparent;
+}
+/* subtask 内部 SubTaskCard 去边框/背景/margin（根已提供卡片外观；margin 会破坏与圆点
+   对齐——容器 .node-card-subtask 只有 padding 2px 0，卡片贴齐根边框） */
+.node-card--subtask :deep(.subtask-card) {
+  border: none;
+  background: transparent;
+  margin: 0;
 }
 
 /* 2026-08-10 反馈：todo 节点边框用主题色（与标题/图标呼应——thinking 标题主题色、
