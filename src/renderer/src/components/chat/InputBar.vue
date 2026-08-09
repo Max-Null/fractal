@@ -4,6 +4,7 @@
  *  ③ 输入行（textarea + hint/发送 同一行，用户反馈布局）
  *  原独立 InputBarToolbar 的模式/effort/命令逻辑已并入（组件删除，见 ChatPanel 重构记录）。 */
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import { Send, Square } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore, type Effort } from "@/stores/settings";
@@ -464,16 +465,16 @@ async function polishInput() {
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>
           </button>
-          <!-- Stop button（处理中显示红色方块，替代发送） -->
+          <!-- Stop button（处理中显示红色方块，替代发送——Lucide Square，用户反馈③） -->
           <button
             v-if="disabled"
             class="send send--stop"
             :title="$t('chat.stop')"
             @click="emit('stop')"
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+            <Square :size="12" fill="currentColor" stroke-width="0" />
           </button>
-          <!-- Send button（右上纸飞机图标，30x30 正方形与优化按钮一致；title 保留 Send——测试定位依赖） -->
+          <!-- Send button（Lucide Send，30x30 正方形与优化按钮一致；title 保留 Send——测试定位依赖） -->
           <button
             v-else
             class="send"
@@ -481,7 +482,7 @@ async function polishInput() {
             :title="$t('chat.send')"
             @click="send"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>
+            <Send :size="16" />
           </button>
         </div>
       </div>

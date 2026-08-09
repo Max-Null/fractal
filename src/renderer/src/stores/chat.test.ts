@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
-import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, extractTodoRecords, type Message, type SubTaskChildRef, type TodoItem } from "./chat";
+import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, extractTodoRecords, type Message, type SubTaskChildRef, type TodoItem, type ContentBlock } from "./chat";
 
 // mock electron-bridge：覆盖 listMessages（子任务 idle 拉摘要用），其余保留原模块
 const { listMessagesMock } = vi.hoisted(() => ({
@@ -1338,6 +1338,110 @@ describe("buildSubTaskMap", () => {
     ];
     const map = buildSubTaskMap(msgs, []);
     expect(map.size).toBe(0);
+  });
+
+  // ── append 三函数 contentBlocks 维护（D3 单写入点：SSE 事件序 = 真实输出序）──
+
+  it("appendText 首段 push text 块，后续段追加到同一块", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("Hello ");
+    chat.appendText("world!");
+    const msg = chat.currentAssistantMsg!;
+    // 扁平 content 保持原拼接
+    expect(msg.content).toBe("Hello world!");
+    // contentBlocks：相邻 text 合并进同一块（不是每段一个新块）
+    expect(msg.contentBlocks).toHaveLength(1);
+    expect(msg.contentBlocks![0]).toMatchObject({ type: "text", content: "Hello world!" });
+  });
+
+  it("appendText 工具打断后 push 新 text 块（顺序真相源保序）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("思考前的话");
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" } });
+    chat.appendText("工具后的回答");
+    const blocks = chat.currentAssistantMsg!.contentBlocks!;
+    expect(blocks.map((b) => b.type)).toEqual(["text", "tool_use", "text"]);
+    expect(blocks[0].content).toBe("思考前的话");
+    expect(blocks[2].content).toBe("工具后的回答");
+  });
+
+  it("appendText startsWith 去重：全量重发只追加增量", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("Hello");
+    // 模拟 DeepSeek 完整 assistant 事件重发（新文本以块已有文本开头）
+    chat.appendText("Hello world");
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.content).toBe("Hello world");
+    expect(msg.contentBlocks).toHaveLength(1);
+    expect(msg.contentBlocks![0].content).toBe("Hello world");
+  });
+
+  it("appendText 完全重复增量 → 跳过（content 与块均不重复）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("Hello");
+    chat.appendText("Hello");
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.content).toBe("Hello");
+    expect(msg.contentBlocks![0].content).toBe("Hello");
+  });
+
+  it("appendThinking 维护 thinking 块（相邻合并 + startsWith 去重）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendThinking("Let me think...");
+    chat.appendThinking(" more.");
+    chat.appendThinking("Let me think... more.");
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.thinking).toBe("Let me think... more.");
+    expect(msg.contentBlocks).toHaveLength(1);
+    expect(msg.contentBlocks![0]).toMatchObject({ type: "thinking", content: "Let me think... more." });
+  });
+
+  it("addToolUse push tool_use 块（与 toolUses 同引用——appendToolResult 回填同步可见）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" } });
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.contentBlocks).toHaveLength(1);
+    expect(msg.contentBlocks![0].type).toBe("tool_use");
+    expect(msg.contentBlocks![0].toolUse).toBe(msg.toolUses[0]);
+    // 引用同一对象：result 回填后块内同步可见
+    chat.appendToolResult("t1", "file1.txt", false);
+    expect(msg.contentBlocks![0].toolUse!.result).toBe("file1.txt");
+  });
+
+  it("setContentBlocks 空初始化生效（DeepSeek 无增量事件的后端首个全量）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    const blocks: ContentBlock[] = [{ type: "tool_use", toolUse: { id: "t1", name: "Bash", input: { command: "ls" } } }];
+    chat.setContentBlocks(blocks);
+    expect(chat.currentAssistantMsg!.contentBlocks).toEqual(blocks);
+  });
+
+  it("setContentBlocks 非空时忽略（append 路径已维护，全量覆盖会冲掉时间线）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("已流式到达的文本");
+    // 迟到的完整 assistant 事件带全量 content_blocks → 不应覆盖 append 维护的块
+    chat.setContentBlocks([
+      { type: "text", content: "已流式到达的文本" },
+      { type: "tool_use", toolUse: { id: "t1", name: "Bash", input: { command: "ls" } } },
+    ]);
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.contentBlocks).toHaveLength(1);
+    expect(msg.contentBlocks![0]).toMatchObject({ type: "text", content: "已流式到达的文本" });
   });
 
 });

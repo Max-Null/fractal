@@ -1008,7 +1008,7 @@ function filePartToAttachment(p: { filename?: string; url: string; source?: { pa
   return { name, path }
 }
 
-/** assistant 消息 parts → 前端 contentBlocks 时间线（thinking → tool_use+tool_result → text，工具结果紧跟工具卡片） */
+/** assistant 消息 parts → 前端 contentBlocks 时间线（按 parts 原序构建——thinking 与 text 交错不再聚合，保真实输出序） */
 function buildHistoryContentBlocks(
   parts: Array<{ type: string; text?: string; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
 ): Array<{
@@ -1023,31 +1023,28 @@ function buildHistoryContentBlocks(
     toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
     toolResult?: { toolUseId: string; content: string; isError?: boolean }
   }> = []
-  // 思考块：全部 reasoning part 聚合（与流式 synthesizeBlocks 一致，thinking 在最前）
-  const thinking = parts
-    .filter((p) => p.type === 'reasoning')
-    .map((p) => p.text ?? '')
-    .filter(Boolean)
-    .join('\n')
-  if (thinking) blocks.push({ type: 'thinking', content: thinking })
-  // 工具块：仅完成/错误态（pending/running 是流式中间态，历史消息取终态）
   for (const p of parts) {
-    if (p.type !== 'tool' || !p.callID || !p.tool) continue
-    const status = p.state?.status
-    if (status !== 'completed' && status !== 'error') continue
-    const isError = status === 'error'
-    const toolUse = { id: p.callID, name: p.tool, input: p.state?.input ?? {}, result: isError ? p.state?.error ?? '' : p.state?.output ?? '', isError }
-    blocks.push({ type: 'tool_use', toolUse })
-    // 工具结果块紧跟对应工具卡片（MessageBubble 渲染 tool_use 内嵌结果，tool_result 块保证数据完整性）
-    blocks.push({ type: 'tool_result', toolResult: { toolUseId: p.callID, content: toolUse.result, isError } })
+    if (p.type === 'reasoning') {
+      // 思考 part → thinking 块（NodeTimeline 识别用；相邻 thinking 由 buildTurnNodes 回合级合并）
+      const text = p.text ?? ''
+      if (text) blocks.push({ type: 'thinking', content: text })
+    } else if (p.type === 'tool') {
+      // 工具块：仅完成/错误态（pending/running 是流式中间态，历史消息取终态）
+      if (!p.callID || !p.tool) continue
+      const status = p.state?.status
+      if (status !== 'completed' && status !== 'error') continue
+      const isError = status === 'error'
+      const toolUse = { id: p.callID, name: p.tool, input: p.state?.input ?? {}, result: isError ? p.state?.error ?? '' : p.state?.output ?? '', isError }
+      blocks.push({ type: 'tool_use', toolUse })
+      // 工具结果块紧跟对应工具卡片（MessageBubble 渲染 tool_use 内嵌结果，tool_result 块保证数据完整性）
+      blocks.push({ type: 'tool_result', toolResult: { toolUseId: p.callID, content: toolUse.result, isError } })
+    } else if (p.type === 'text' && !(p as { synthetic?: boolean }).synthetic) {
+      // 文本 part → text 块（synthetic 是 serve 回显的临时占位，历史消息应排除）
+      const text = p.text ?? ''
+      if (text) blocks.push({ type: 'text', content: text })
+    }
+    // 其他 part 类型（step-finish/file 等）不产生前端块
   }
-  // 文本块：非 synthetic text part 聚合（synthetic 是 serve 回显的临时占位，历史消息应排除）
-  const text = parts
-    .filter((p) => p.type === 'text' && !(p as { synthetic?: boolean }).synthetic)
-    .map((p) => p.text ?? '')
-    .filter(Boolean)
-    .join('\n')
-  if (text) blocks.push({ type: 'text', content: text })
   return blocks
 }
 

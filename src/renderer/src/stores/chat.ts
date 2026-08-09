@@ -627,12 +627,17 @@ export const useChatStore = defineStore("chat", () => {
   }
 
   /**
-   * 将 CC content_blocks 合并到消息的 contentBlocks 时间线。
-   * CC 的完整 assistant 事件包含所有块的最新状态，直接覆盖。
+   * 将 CC content_blocks 初始化到消息的 contentBlocks 时间线。
+   * 仅当 contentBlocks 为空时初始化：assistant 事件 content_blocks 恒完整假设已失效
+   * （serve 增量模式实测只含 tool_result 块），全量覆盖会冲掉 append 三函数按 SSE 事件序
+   * 维护的块（D3 单写入点）——非空时忽略传入值。
    */
   function setContentBlocks(blocks: ContentBlock[]) {
     if (!currentAssistantMsg.value) return;
-    currentAssistantMsg.value.contentBlocks = blocks;
+    const msg = currentAssistantMsg.value;
+    if (!msg.contentBlocks || msg.contentBlocks.length === 0) {
+      msg.contentBlocks = blocks;
+    }
   }
 
   function addUserMessage(content: string, attachments?: AttachedFile[]): string {
@@ -669,17 +674,59 @@ export const useChatStore = defineStore("chat", () => {
 
   function appendText(text: string) {
     if (!currentAssistantMsg.value) startAssistantMessage();
-    currentAssistantMsg.value!.content += text;
+    const msg = currentAssistantMsg.value!;
+    // contentBlocks 是顺序真相源（D3）：按 SSE 事件序（真实输出序）维护 text 块。
+    // startsWith 去重移植自 buildContentBlocks——全量重发（新文本以块已有文本开头）视为
+    // 重复增量，只追加增量部分，避免扁平 content 与时间线块重复拼接。
+    const blocks = (msg.contentBlocks ||= []);
+    const last = blocks[blocks.length - 1];
+    let append = text;
+    if (last?.type === "text") {
+      const old = last.content || "";
+      if (text.startsWith(old)) {
+        append = text.slice(old.length);
+        if (!append) return;
+        last.content = old + append;
+      } else {
+        last.content = old + text;
+      }
+    } else {
+      blocks.push({ type: "text", content: text });
+    }
+    msg.content += append;
   }
 
   function appendThinking(thinking: string) {
     if (!currentAssistantMsg.value) startAssistantMessage();
-    currentAssistantMsg.value!.thinking += thinking;
+    const msg = currentAssistantMsg.value!;
+    // contentBlocks 是顺序真相源（D3）：thinking 块（OC 无标准 thinking 块，NodeTimeline
+    // 自定义类型识别用）按 SSE 事件序维护，startsWith 去重逻辑与 appendText 一致。
+    const blocks = (msg.contentBlocks ||= []);
+    const last = blocks[blocks.length - 1];
+    let append = thinking;
+    if (last?.type === "thinking") {
+      const old = last.content || "";
+      if (thinking.startsWith(old)) {
+        append = thinking.slice(old.length);
+        if (!append) return;
+        last.content = old + append;
+      } else {
+        last.content = old + thinking;
+      }
+    } else {
+      blocks.push({ type: "thinking", content: thinking });
+    }
+    msg.thinking += append;
   }
 
   function addToolUse(tool: ToolUse) {
     if (!currentAssistantMsg.value) startAssistantMessage();
-    currentAssistantMsg.value!.toolUses.push(tool);
+    const msg = currentAssistantMsg.value!;
+    msg.toolUses.push(tool);
+    // contentBlocks 是顺序真相源（D3）：tool_use 块按 SSE 事件序 push，且与 toolUses 数组
+    // 同对象引用——appendToolResult/syncBlockTimings 更新 result/计时时时间线块同步可见
+    const blocks = (msg.contentBlocks ||= []);
+    blocks.push({ type: "tool_use", toolUse: tool });
     // 追踪 agent 使用：tool name 可能是 Agent 或 Task
     if ((tool.name === "Agent" || tool.name === "Task") && tool.input) {
       const agentType = (tool.input as any).subagent_type || (tool.input as any).agent_type;

@@ -280,6 +280,45 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(parsed.toolUses).toEqual([])
     expect(parsed.contentBlocks).toEqual([{ type: 'text', content: '只有文本' }])
   })
+
+  it('assistant 消息：contentBlocks 按 parts 原序构建（thinking/text 交错不再聚合）', () => {
+    // serve 真实输出序：思考 → 文本 → 工具 → 思考 → 文本（多 step 交错）
+    const sm = makeMessage('assistant', [
+      { type: 'reasoning', text: '第一步思考' },
+      textPart('第一步回答'),
+      {
+        type: 'tool',
+        callID: 'call_1',
+        tool: 'Bash',
+        state: { status: 'completed', input: { command: 'ls' }, output: 'file1.txt' },
+      },
+      { type: 'reasoning', text: '第二步思考' },
+      textPart('第二步回答'),
+    ])
+    const data = toMessageData(sm)
+    const parsed = JSON.parse(data.content) as { contentBlocks: Array<{ type: string; content?: string }> }
+    // 原序：thinking / text / tool_use / tool_result / thinking / text（不再聚合到首尾）
+    expect(parsed.contentBlocks.map((b) => b.type)).toEqual([
+      'thinking', 'text', 'tool_use', 'tool_result', 'thinking', 'text',
+    ])
+    expect(parsed.contentBlocks[0].content).toBe('第一步思考')
+    expect(parsed.contentBlocks[1].content).toBe('第一步回答')
+    expect(parsed.contentBlocks[4].content).toBe('第二步思考')
+    expect(parsed.contentBlocks[5].content).toBe('第二步回答')
+  })
+
+  it('assistant 消息：相邻 text part 各自成块（合并交给 buildTurnNodes 回合级）', () => {
+    const sm = makeMessage('assistant', [
+      textPart('第一段'),
+      textPart('第二段'),
+    ])
+    const data = toMessageData(sm)
+    const parsed = JSON.parse(data.content) as { contentBlocks: Array<{ type: string; content?: string }> }
+    expect(parsed.contentBlocks).toEqual([
+      { type: 'text', content: '第一段' },
+      { type: 'text', content: '第二段' },
+    ])
+  })
 })
 
 // ── 附件 parts 构建（军师审查补测）──
