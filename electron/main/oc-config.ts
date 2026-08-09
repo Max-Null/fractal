@@ -27,6 +27,12 @@ export const MANAGED_MODEL_LIMITS: Record<string, { context: number; output: num
 export const SMALL_MODEL = 'deepseek/deepseek-v4-flash'
 
 /**
+ * 多模态模型（VISION 槽位）：制图师等图像能力 agent 专用
+ * 当前分形隔离配置无 kimi provider——槽位先建好，图像能力（附件图片链路）落地时补 provider + key 即通
+ */
+export const VISION_MODEL = 'moonshotai-cn/kimi-k3'
+
+/**
  * 分形受管配置路径：<userDataDir>/config/opencode/opencode.json
  * XDG_CONFIG_HOME 注入为 <userDataDir>/config 后，serve 全局配置路径即此文件（阶段 0 D17 实测定案）。
  */

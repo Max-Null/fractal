@@ -12,6 +12,7 @@ import {
   initPreset,
   ensurePresetConfig,
   getPresetVersion,
+  applyModelAliases,
   PRESET_INSTRUCTION_FILE
 } from './preset'
 
@@ -356,5 +357,75 @@ describe('getPresetVersion', () => {
     } finally {
       await fsp.rm(brokenRoot, { recursive: true, force: true })
     }
+  })
+})
+
+// 模型槽位统一（HIGH/LOW/VISION 按槽位规则替换，2026-08-09 定案）：预置 agents 来自 oc-plus 部署产物（model 写死），
+// applyModelAliases 每次启动幂等覆盖为目标值——HIGH 跟随主模型选择、LOW=SMALL_MODEL、VISION=VISION_MODEL
+describe('applyModelAliases', () => {
+  let userData: string
+
+  beforeEach(async () => {
+    userData = await fsp.mkdtemp(join(tmpdir(), 'preset-aliases-'))
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    await fsp.mkdir(agentsDir, { recursive: true })
+    // 预置 agent 部署产物形态：model 写死（全部写 pro——验证 LOW/VISION 也能覆盖非目标值）
+    await fsp.writeFile(join(agentsDir, '双星.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '工匠.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '制图师.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    // 无 model 行：继承主模型（天然 HIGH），替换必须跳过
+    await fsp.writeFile(join(agentsDir, '军师.md'), 'description: 战略远见\n', 'utf-8')
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userData, { recursive: true, force: true })
+  })
+
+  it('按槽位替换：HIGH 用主模型参数值、LOW=SMALL_MODEL、VISION=VISION_MODEL', async () => {
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "deepseek/deepseek-v4-flash"')
+    const zhi = await fsp.readFile(join(agentsDir, '制图师.md'), 'utf-8')
+    expect(zhi).toContain('model: "moonshotai-cn/kimi-k3"')
+  })
+
+  it('HIGH 参数缺省时用默认 pro（调用方不传则不降级）', async () => {
+    await applyModelAliases(userData)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-pro"')
+  })
+
+  it('无 model 行的 agent（军师）不被修改', async () => {
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const teacher = await fsp.readFile(join(agentsDir, '军师.md'), 'utf-8')
+    expect(teacher).not.toContain('model:')
+    expect(teacher).toContain('description')
+  })
+
+  it('agents 目录不存在 → 跳过不抛错（预置损坏不阻断启动）', async () => {
+    const empty = await fsp.mkdtemp(join(tmpdir(), 'preset-noagents-'))
+    try {
+      await expect(applyModelAliases(empty, 'deepseek/deepseek-v4-flash')).resolves.toBeUndefined()
+    } finally {
+      await fsp.rm(empty, { recursive: true, force: true })
+    }
+  })
+
+  it('值一致时幂等：不重复写盘（mtime 不变）', async () => {
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    // 第一次：HIGH 变化触发替换
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const file = join(agentsDir, '双星.md')
+    const mtime1 = (await fsp.stat(file)).mtimeMs
+    await new Promise((r) => setTimeout(r, 20))
+    // 第二次：值已一致 → 不写盘
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const mtime2 = (await fsp.stat(file)).mtimeMs
+    expect(mtime2).toBe(mtime1)
   })
 })

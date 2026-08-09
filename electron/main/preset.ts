@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getConfigPath, getJsoncPath } from './oc-config'
+import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL } from './oc-config'
 
 /** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段 */
 export interface PresetManifest {
@@ -171,6 +171,55 @@ export async function ensurePresetConfig(
   await fsp.writeFile(filePath, content, 'utf-8')
   // 双写 jsonc：serve 候选加载 opencode.jsonc 优先于 opencode.json（首启默认文件），只写 json 会被忽略（2026-08-06 实测）
   await fsp.writeFile(getJsoncPath(userDataDir), content, 'utf-8')
+
+  // 模型槽位替换：HIGH 跟随主模型（cfg.model 由 ensureConfig 联动设置页选择）、LOW/VISION 用 oc-config 常量
+  await applyModelAliases(userDataDir, cfg.model)
+}
+
+/** 模型槽位：agent 文件 → 对应槽位（HIGH=主模型 / LOW=轻量 / VISION=多模态）；无 model 行的 agent 继承主模型（天然 HIGH）不处理 */
+const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: 'high' | 'low' | 'vision' }> = [
+  { agents: ['双星.md'], slot: 'high' },
+  { agents: ['工匠.md', '参谋.md', '助理.md'], slot: 'low' },
+  { agents: ['制图师.md'], slot: 'vision' }
+]
+
+/**
+ * 按槽位规则替换预置 agents 的 model 字段——模型槽位统一由分形配置管理（2026-08-09 定案）：
+ * 预置包内的 agent 来自 oc-plus 部署产物（model 写死），设置页改模型后不跟随；这里每次启动幂等覆盖为目标值。
+ * 值解析：high 取 cfg.model（设置页选择经 ensureConfig 写入）；low/vision 取 oc-config 常量。
+ * 内容一致时不写盘（避免无谓刷盘）；agents 目录缺失/文件损坏 → 跳过不抛错（预置损坏不阻断启动）。
+ */
+export async function applyModelAliases(
+  userDataDir: string,
+  highModel?: unknown
+): Promise<void> {
+  const agentsDir = join(getPresetTarget(userDataDir), 'agents')
+  const slotValues: Record<'high' | 'low' | 'vision', string> = {
+    high: typeof highModel === 'string' && highModel ? highModel : 'deepseek/deepseek-v4-pro',
+    low: SMALL_MODEL,
+    vision: VISION_MODEL
+  }
+  try {
+    await fsp.access(agentsDir)
+  } catch {
+    return
+  }
+  for (const rule of MODEL_SLOT_RULES) {
+    for (const name of rule.agents) {
+      const file = join(agentsDir, name)
+      let raw: string
+      try {
+        raw = await fsp.readFile(file, 'utf-8')
+      } catch {
+        // agent 文件不存在（用户删除预置 agent）→ 跳过
+        continue
+      }
+      const value = slotValues[rule.slot]
+      // 整行替换 model 字段（agents md 的 model 行顶格无缩进）；值不变时跳过写盘
+      const next = raw.replace(/^model:.*$/m, `model: "${value}"`)
+      if (next !== raw) await fsp.writeFile(file, next, 'utf-8')
+    }
+  }
 }
 
 /** 预置插件声明：仅声明实际存在的插件文件（防用户删除后 serve 加载失效路径报错） */
