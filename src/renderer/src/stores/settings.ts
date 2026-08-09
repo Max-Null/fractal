@@ -92,8 +92,9 @@ export const useSettingsStore = defineStore("settings", () => {
   // ── Provider 配置持久化 — SQLite ──
   interface ProviderConfig {
     apiKey: string;
-    baseUrl: string;
-    model: string;
+    /** moonshotai-cn 条目无 baseUrl/model（模型固定 kimi-k3），可选保证类型兼容 */
+    baseUrl?: string;
+    model?: string;
   }
   const providerConfigs = ref<Record<string, ProviderConfig>>({});
 
@@ -108,13 +109,24 @@ export const useSettingsStore = defineStore("settings", () => {
     try { await saveProviderConfig(id, apiKey.value, baseUrl.value, model.value, restart); } catch { /* 后台静默 */ }
   }
 
+  // ── 多模态 provider（moonshotai-cn/kimi-k3，制图师 VISION 槽位）──
+  const kimiApiKey = ref("");
+
+  /** 保存制图师多模态 key（moonshotai-cn 槽位；重启由主进程按 key 是否变化决定）
+   *  restart=true 仅设置页「保存」按钮传——key 首次保存/变化后重启 serve 使 provider 生效 */
+  async function saveKimiKey(restart = false) {
+    providerConfigs.value["moonshotai-cn"] = { apiKey: kimiApiKey.value };
+    try { await saveProviderConfig("moonshotai-cn", kimiApiKey.value, "", "", restart); } catch { /* 后台静默 */ }
+  }
+
   /** 恢复目标 provider 的配置；无记录则清空 apiKey、用默认 baseUrl */
   function restoreConfig(id: string) {
     const saved = providerConfigs.value[id];
     if (saved) {
       apiKey.value = saved.apiKey;
-      baseUrl.value = saved.baseUrl;
-      model.value = saved.model;
+      // moonshotai-cn 条目无 baseUrl/model（可选字段）——用默认值兜底，避免 undefined 写入表单
+      baseUrl.value = saved.baseUrl ?? "https://api.deepseek.com";
+      model.value = saved.model ?? DEEPSEEK_MODELS[0];
     } else {
       apiKey.value = "";
       baseUrl.value = "https://api.deepseek.com";
@@ -318,9 +330,12 @@ export const useSettingsStore = defineStore("settings", () => {
     const saved = providerConfigs.value[providerId.value];
     if (saved) {
       apiKey.value = saved.apiKey;
-      baseUrl.value = saved.baseUrl;
-      model.value = saved.model;
+      baseUrl.value = saved.baseUrl ?? "https://api.deepseek.com";
+      model.value = saved.model ?? DEEPSEEK_MODELS[0];
     }
+    // 恢复制图师多模态 key（moonshotai-cn 条目；老文件无此条目 → 保持空，制图师不可用直至用户填写）
+    const kimiSaved = providerConfigs.value["moonshotai-cn"];
+    if (kimiSaved) kimiApiKey.value = kimiSaved.apiKey;
     // 启动拉取 settings.json（阶段 6，方案 3.8.1）：settings.json 是高级层源，优先级高于表单
     // （ui 偏好/引擎项以 settings.json 为准；API Key 仍在 providerConfigs，settings.json 不含密钥）
     // 启动拉取 settings.json（阶段 6）：settings.json 是高级源，优先级高于表单——await 保证渲染前配置已就绪（避免 UI 先渲染默认值再被覆盖的闪烁）
@@ -385,6 +400,13 @@ export const useSettingsStore = defineStore("settings", () => {
   watch([apiKey, baseUrl, model], () => {
     if (saveTimer) clearTimeout(saveTimer);
     saveTimer = setTimeout(() => saveCurrentConfig(), 500);
+  });
+
+  // 制图师多模态 key → 自动写 SQLite（500ms 防抖；restart=false——重启由设置页「保存」按钮显式触发）
+  let kimiSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  watch(kimiApiKey, () => {
+    if (kimiSaveTimer) clearTimeout(kimiSaveTimer);
+    kimiSaveTimer = setTimeout(() => saveKimiKey(false), 500);
   });
 
   // 模型变更（InputBar 选择 / SettingsPanel / settings.json 同步）→ 拉取该模型可用 variants。
@@ -477,5 +499,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel };
 });

@@ -188,6 +188,33 @@ describe("settings store", () => {
     expect(settings.model).toBe("deepseek-v4-pro[1M]");
   });
 
+  it("saveKimiKey：写 moonshotai-cn 槽位（仅 apiKey，无 baseUrl/model）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    settings.kimiApiKey = "sk-kimi-test";
+    await settings.saveKimiKey(true);
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
+    expect(arg.providerId).toBe("moonshotai-cn");
+    expect(arg.apiKey).toBe("sk-kimi-test");
+    expect(arg.restart).toBe(true);
+  });
+
+  it("initFromDb 恢复 kimiApiKey（moonshotai-cn 条目已有 key）", async () => {
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:loadProviderConfigs") return Promise.resolve({ "moonshotai-cn": { apiKey: "sk-kimi" } });
+      if (channel === "settings:loadUiSettings") return Promise.resolve("{}");
+      if (channel === "settings:getConfig") return Promise.resolve({ config: {}, exists: false });
+      return Promise.resolve({});
+    });
+    const settings = useSettingsStore();
+    await settings.initFromDb();
+    expect(settings.kimiApiKey).toBe("sk-kimi");
+  });
+
   it("onboarding dismiss flag persists to localStorage", () => {
     const settings = useSettingsStore();
     expect(settings.onboardingDismissed).toBe(false);

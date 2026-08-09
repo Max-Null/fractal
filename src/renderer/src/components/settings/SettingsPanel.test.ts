@@ -20,6 +20,7 @@ const i18n = createI18n({
         model: "Model",
         test: "Test Connection",
         testing: "Testing…",
+        save: "Save",
         language: "Language",
         theme: "Theme",
         defaultMode: "Permission Mode",
@@ -52,6 +53,11 @@ const i18n = createI18n({
         smallModelFlash: "deepseek-v4-flash · fast",
         smallModelPro: "deepseek-v4-pro · stronger reasoning",
         smallModelDesc: "Used for lightweight tasks (titles, summaries, message polish); empty = follow main model",
+        kimiApiKey: "Multimodal Model (Cartographer) API Key",
+        kimiApiKeyDesc: "Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty",
+        kimiKeySaved: "Saved and engine restarted",
+        showKey: "Show API Key",
+        hideKey: "Hide API Key",
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -328,5 +334,55 @@ describe("SettingsPanel", () => {
     expect(saveCalls.length).toBeGreaterThanOrEqual(1);
     const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
     expect(jsonc.smallModel).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  // ── 多模态模型（制图师 kimi-k3）API Key 输入（设置页 LLM 区）──
+
+  it("renders kimi key input with label, description and save button", () => {
+    const wrapper = mountPanel();
+    expect(wrapper.text()).toContain("Multimodal Model (Cartographer) API Key");
+    expect(wrapper.text()).toContain("cartographer unavailable if empty");
+    // 密码输入框 + 明文切换眼睛 + 保存按钮
+    const inputs = wrapper.findAll("input");
+    const kimiInput = inputs.find((i) => i.attributes("placeholder") === "kimi-k3…");
+    expect(kimiInput).toBeTruthy();
+    expect(kimiInput!.attributes("type")).toBe("password");
+    const eye = wrapper.findAll("button").find((b) => b.attributes("title") === "Show API Key");
+    expect(eye).toBeTruthy();
+    expect(wrapper.text()).toContain("Save");
+  });
+
+  it("kimi key save button: writes provider-configs via saveProviderConfig(restart=true)", async () => {
+    const settings = useSettingsStore();
+    const wrapper = mountPanel();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      return Promise.resolve({});
+    });
+    const kimiInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "kimi-k3…");
+    await kimiInput!.setValue("sk-kimi-123");
+    // 保存按钮：kimi 区第二个「Save」之外的 button（用 disabled 状态定位——key 为空时禁用）
+    const saveBtn = wrapper.findAll("button").find((b) => b.text() === "Save" && !(b.element as HTMLButtonElement).disabled);
+    expect(saveBtn).toBeTruthy();
+    await saveBtn!.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.kimiApiKey).toBe("sk-kimi-123");
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
+    expect(arg.providerId).toBe("moonshotai-cn");
+    expect(arg.apiKey).toBe("sk-kimi-123");
+    expect(arg.restart).toBe(true);
+  });
+
+  it("kimi key eye toggles password to text (明文切换)", async () => {
+    const wrapper = mountPanel();
+    const eye = wrapper.findAll("button").find((b) => b.attributes("title") === "Show API Key");
+    expect(eye).toBeTruthy();
+    await eye!.trigger("click");
+    const kimiInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "kimi-k3…");
+    expect(kimiInput!.attributes("type")).toBe("text");
   });
 });

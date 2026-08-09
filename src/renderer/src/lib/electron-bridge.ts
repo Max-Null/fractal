@@ -277,8 +277,8 @@ export async function saveProviderConfig(
   return invoke("settings:saveProviderConfig", { providerId, apiKey, baseUrl, model, restart });
 }
 
-/** 加载所有已保存的 provider 配置 */
-export async function loadProviderConfigs(): Promise<Record<string, { apiKey: string; baseUrl: string; model: string }>> {
+/** 加载所有已保存的 provider 配置；moonshotai-cn 条目仅含 apiKey（无 baseUrl/model），字段可选 */
+export async function loadProviderConfigs(): Promise<Record<string, { apiKey: string; baseUrl?: string; model?: string }>> {
   return invoke("settings:loadProviderConfigs");
 }
 

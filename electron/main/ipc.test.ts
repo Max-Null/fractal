@@ -518,3 +518,73 @@ describe('logs:readServeLog / app:getInfo handler', () => {
   })
 })
 
+// ── settings:saveProviderConfig / settings:loadProviderConfigs（多 provider 扩展：deepseek + moonshotai-cn）──
+describe('saveProviderConfig（多 provider 持久化）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-provider-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  async function getProviderCfg(): Promise<Record<string, unknown>> {
+    return JSON.parse(await fsp.readFile(join(userDataDir, 'provider-configs.json'), 'utf-8'))
+  }
+
+  it('保存 deepseek：三段式（apiKey/baseUrl/model）写入，不影响 moonshotai-cn 条目', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveProviderConfig')
+    expect(h).toBeDefined()
+    await h!.handler({}, { providerId: 'deepseek', apiKey: 'sk-ds', baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-pro', restart: false })
+    const cfg = await getProviderCfg() as { deepseek: { apiKey: string; baseUrl: string; model: string } }
+    expect(cfg.deepseek).toEqual({ apiKey: 'sk-ds', baseUrl: 'https://api.deepseek.com', model: 'deepseek-v4-pro' })
+    // 老结构无 moonshotai-cn → 不出现该条目（首次保存 deepseek 不自动建空条目，读时容错）
+    expect('moonshotai-cn' in cfg).toBe(false)
+  })
+
+  it('保存 moonshotai-cn：只写 apiKey（无 baseUrl/model），deepseek 条目保留', async () => {
+    // 前置：已有 deepseek 配置（老结构向后兼容场景）
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' } }), 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveProviderConfig')
+    expect(h).toBeDefined()
+    await h!.handler({}, { providerId: 'moonshotai-cn', apiKey: 'sk-kimi', baseUrl: '', model: '', restart: false })
+    const cfg = await getProviderCfg() as { deepseek: { apiKey: string }; 'moonshotai-cn': { apiKey: string } }
+    expect(cfg['moonshotai-cn']).toEqual({ apiKey: 'sk-kimi' })
+    // deepseek 条目不被覆盖（多 provider 共存的关键）
+    expect(cfg.deepseek.apiKey).toBe('sk-ds')
+  })
+
+  it('moonshotai-cn 保存触发 ensureConfig：opencode.json 的 moonshotai-cn provider 写入 models + key', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' } }), 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveProviderConfig')
+    expect(h).toBeDefined()
+    await h!.handler({}, { providerId: 'moonshotai-cn', apiKey: 'sk-kimi', baseUrl: '', model: '', restart: false })
+    const cfg = JSON.parse(require('node:fs').readFileSync(join(userDataDir, 'config', 'opencode', 'opencode.json'), 'utf-8')) as {
+      provider: Record<string, { options?: { apiKey?: string }; models?: unknown }>
+    }
+    const kimi = cfg.provider['moonshotai-cn']
+    expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
+    expect(kimi.options?.apiKey).toBe('sk-kimi')
+    // deepseek 槽位不受 kimi key 污染（saveProviderConfig 从旧 cfg 读 deepseek key 透传）
+    expect(cfg.provider.deepseek.options?.apiKey).toBe('sk-ds')
+  })
+
+  it('loadProviderConfigs：返回全部条目（含 moonshotai-cn 仅 apiKey）', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' }, 'moonshotai-cn': { apiKey: 'sk-kimi' } }), 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:loadProviderConfigs')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as Record<string, { apiKey: string; baseUrl?: string; model?: string }>
+    expect(r.deepseek.apiKey).toBe('sk-ds')
+    expect(r['moonshotai-cn']).toEqual({ apiKey: 'sk-kimi' })
+  })
+})
+

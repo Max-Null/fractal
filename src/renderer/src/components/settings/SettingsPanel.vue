@@ -258,6 +258,27 @@ async function handleTest() {
   finally { isTesting.value = false; }
 }
 
+// ── 多模态模型（制图师 kimi-k3）API Key ──
+// password 明文切换（独立 state，与 DeepSeek key 互不干扰——DeepSeek 输入框无切换，沿用 Onboarding 交互模式）
+const showKimiKey = ref(false);
+// 保存反馈（成功提示，失败静默——saveKimiKey 内部 catch）
+const kimiSaveMsg = ref<string | null>(null);
+let kimiSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 保存制图师多模态 key → 重启 serve 使 provider 生效（key 变化才重启，主进程判断） */
+async function handleKimiKeySave() {
+  kimiSaveMsg.value = null;
+  try {
+    await settings.saveKimiKey(true);
+    kimiSaveMsg.value = t("settings.kimiKeySaved");
+    // 成功提示 2s 后消失（不常驻遮挡表单）
+    if (kimiSaveTimer) clearTimeout(kimiSaveTimer);
+    kimiSaveTimer = setTimeout(() => { kimiSaveMsg.value = null; }, 2000);
+  } catch {
+    // saveKimiKey 内部已静默，此处不重复报错
+  }
+}
+
 // ── 更新日志弹窗 ──
 const showChangelog = ref(false);
 
@@ -300,6 +321,40 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.apiKey') }}</label>
             <input v-model="settings.apiKey" type="password" placeholder="sk-…"
               class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+          </div>
+
+          <!-- 多模态模型（制图师）API Key：明文切换 + 保存按钮（保存即重启 serve 使 provider 生效） -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.kimiApiKey') }}</label>
+            <div class="flex items-center gap-2">
+              <div class="relative flex-1">
+                <input v-model="settings.kimiApiKey" :type="showKimiKey ? 'text' : 'password'" placeholder="kimi-k3…"
+                  spellcheck="false" autocomplete="off"
+                  class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none pr-9" />
+                <!-- 眼睛按钮：明文切换（复用 Onboarding 交互模式，独立 showKimiKey state） -->
+                <button
+                  class="absolute right-1 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)]"
+                  style="color:var(--text-secondary)"
+                  :title="showKimiKey ? $t('settings.hideKey') : $t('settings.showKey')"
+                  @click="showKimiKey = !showKimiKey"
+                >
+                  <svg v-if="showKimiKey" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><line x1="2" y1="2" x2="22" y2="22"/>
+                  </svg>
+                  <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>
+                  </svg>
+                </button>
+              </div>
+              <button
+                @click="handleKimiKeySave"
+                :disabled="!settings.kimiApiKey.trim()"
+                class="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-all duration-150"
+                :style="{ background: settings.kimiApiKey.trim() ? 'var(--accent)' : 'var(--bg-elevated)', color: settings.kimiApiKey.trim() ? 'var(--bg-root)' : 'var(--text-muted)', opacity: settings.kimiApiKey.trim() ? 1 : 0.5 }"
+              >{{ $t('settings.save') }}</button>
+            </div>
+            <div class="text-[11px] mt-1" style="color:var(--text-muted)">{{ $t('settings.kimiApiKeyDesc') }}</div>
+            <div v-if="kimiSaveMsg" class="text-[11px] mt-0.5" style="color:var(--accent)">{{ kimiSaveMsg }}</div>
           </div>
 
           <!-- API 地址 -->

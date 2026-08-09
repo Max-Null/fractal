@@ -56,9 +56,18 @@ export async function resolveSmallModel(userDataDir: string): Promise<string> {
 
 /**
  * 多模态模型（VISION 槽位）：制图师等图像能力 agent 专用
- * 当前分形隔离配置无 kimi provider——槽位先建好，图像能力（附件图片链路）落地时补 provider + key 即通
+ * models.dev 内置 provider（id=moonshotai-cn），无 key 时 provider 定义仍写（models 定义使 serve 可识别），
+ * 用户填 key 后 options.apiKey 非空即通——key 空只缺鉴权，provider 不缺失（2026-08-09 多模态接入）
  */
 export const VISION_MODEL = 'moonshotai-cn/kimi-k3'
+
+/**
+ * 多模态 provider 的受管 models 定义（对应 opencode.json provider['moonshotai-cn'].models）：
+ * kimi-k3 为 models.dev 内置模型，仅显式 reasoningEffort=low（对齐用户全局配置参考，无 key 也写）
+ */
+export const KIMI_MODEL_LIMITS: Record<string, { options: { reasoningEffort: string } }> = {
+  'kimi-k3': { options: { reasoningEffort: 'low' } },
+}
 
 /**
  * 分形受管配置路径：<userDataDir>/config/opencode/opencode.json
@@ -115,6 +124,25 @@ export function buildPermissionRule(permissionMode: 'default' | 'auto', userData
 }
 
 /**
+ * 读分形受管 provider 配置（provider-configs.json）：返回全部条目（deepseek / moonshotai-cn）。
+ * 不存在/损坏 → 空对象（首次启动）；老文件只有 deepseek 条目时 moonshotai-cn 返回 undefined（容错）。
+ * ensureConfig 双 provider 写入依赖此文件（GUI 保存 API Key 的落盘点），deepseek 的 key 仍以 opts.apiKey 为准
+ * （向后兼容：调用方显式传入的 key 覆盖文件值，见 ipc saveProviderConfig 注释）。
+ */
+async function readProviderConfigs(userDataDir: string): Promise<Record<string, { apiKey?: string }>> {
+  try {
+    const raw = await fsp.readFile(join(userDataDir, 'provider-configs.json'), 'utf-8')
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, { apiKey?: string }>
+    }
+  } catch {
+    // 文件不存在（首次启动/未保存过设置）→ 空条目
+  }
+  return {}
+}
+
+/**
  * 确保分形独立配置目录下的 opencode.json 存在并含受管字段。
  * merge 不覆盖用户其他字段：读已有文件（无则 {}）→ 写受管字段 → 格式化 2 空格写回。
  */
@@ -132,12 +160,20 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
     cfg = {}
   }
 
-  // 受管字段：provider.deepseek 整体覆盖（DeepSeek 为 OC 内置 provider，仅注入 apiKey/baseURL/models）
-  // provider id 用 serve 实测值 "deepseek"（阶段 0 fixtures/providers.json：all[].id=deepseek）
+  // 受管字段：provider 整体覆盖（DeepSeek 为 OC 内置 provider，仅注入 apiKey/baseURL/models；
+  // moonshotai-cn 为 models.dev 内置多模态 provider，key 空也写 models 定义——provider 可被识别，填 key 即通）
+  const savedProviders = await readProviderConfigs(userDataDir)
   const provider = (cfg.provider as Record<string, unknown> | undefined) ?? {}
+  // provider id 用 serve 实测值 "deepseek"（阶段 0 fixtures/providers.json：all[].id=deepseek）
   provider.deepseek = {
     options: { apiKey: opts.apiKey, baseURL: 'https://api.deepseek.com/v1' },
     models: MANAGED_MODEL_LIMITS,
+  }
+  // moonshotai-cn：key 从 provider-configs.json 读（saveProviderConfig 落盘点）；models 定义恒写
+  // 对齐用户全局配置参考：{ "moonshotai-cn": { "models": { "kimi-k3": { "options": { "reasoningEffort": "low" } } } } }
+  provider['moonshotai-cn'] = {
+    models: KIMI_MODEL_LIMITS,
+    options: { apiKey: savedProviders['moonshotai-cn']?.apiKey ?? '' },
   }
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认

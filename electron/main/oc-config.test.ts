@@ -138,6 +138,45 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     const cfg = JSON.parse(await fsp.readFile(file, 'utf-8')) as Record<string, unknown>
     expect(cfg.small_model).toBeUndefined()
   })
+
+  it('moonshotai-cn：provider 定义恒写（key 空时 models 也写——provider 可被 serve 识别，填 key 即通）', async () => {
+    // 老文件只有 deepseek 条目（或 provider-configs.json 不存在）→ moonshotai-cn 用空 key
+    await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { models: unknown; options: { apiKey: string } }
+    expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
+    expect(kimi.options.apiKey).toBe('')
+    // deepseek 不受影响（双 provider 共存）
+    const ds = (cfg.provider as Record<string, unknown>).deepseek as { options: { apiKey: string } }
+    expect(ds.options.apiKey).toBe('sk-test')
+  })
+
+  it('moonshotai-cn：provider-configs.json 已有 key → 写入 options.apiKey（key 变化联动链路）', async () => {
+    // 模拟设置页已保存 kimi key（saveProviderConfig 落盘 provider-configs.json）
+    await fsp.writeFile(
+      join(dir, 'provider-configs.json'),
+      JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' }, 'moonshotai-cn': { apiKey: 'sk-kimi' } }),
+      'utf-8'
+    )
+    await ensureConfig(dir, { apiKey: 'sk-ds', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { options: { apiKey: string } }
+    expect(kimi.options.apiKey).toBe('sk-kimi')
+  })
+
+  it('moonshotai-cn：老文件只有 deepseek 条目 → moonshotai-cn 仍写 models 定义（向后兼容，key 空）', async () => {
+    // 老结构 provider-configs.json（只有 deepseek）→ 读取容错，moonshotai-cn 空 key 但 models 定义在
+    await fsp.writeFile(
+      join(dir, 'provider-configs.json'),
+      JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' } }),
+      'utf-8'
+    )
+    await ensureConfig(dir, { apiKey: 'sk-ds', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { models: unknown; options: { apiKey: string } }
+    expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
+    expect(kimi.options.apiKey).toBe('')
+  })
 })
 
 describe('resolveSmallModel（LOW 槽位：读设置页 settings.json smallModel 字段）', () => {

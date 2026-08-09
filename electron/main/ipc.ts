@@ -421,7 +421,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     async (_e, args: { providerId: string; apiKey: string; baseUrl: string; model: string; restart?: boolean }) => {
       const file = join(app.getPath('userData'), 'provider-configs.json')
       const cfg = (await readJsonFile(file, {})) as Record<string, unknown>
-      const next = { ...cfg, [args.providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model } }
+      // 多 provider 扩展：moonshotai-cn 只存 apiKey（模型固定 kimi-k3，models 定义由 ensureConfig 写盘时生成）；
+      // 其他 providerId（deepseek 现状）保持三段式（apiKey/baseUrl/model）向后兼容
+      const providerId = args.providerId === 'moonshotai-cn' ? 'moonshotai-cn' : args.providerId
+      const next = providerId === 'moonshotai-cn'
+        ? { ...cfg, [providerId]: { apiKey: args.apiKey } }
+        : { ...cfg, [providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model } }
       await writeJsonFile(file, next)
       // 模型槽位立即生效（2026-08-09 用户确认，人机交互优于重启后生效）：保存模型的同时替换预置 agents 的 model 字段。
       // 无条件调用——applyModelAliases 内部幂等（HIGH 缺省读 ensureConfig 刚写的 cfg.model，值一致不写盘）
@@ -430,12 +435,20 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // apiKey 为空视为用户未配置，跳过联动（否则会把已生效的 key 覆盖为空）。
       // permissionMode 用 default 兜底（安全默认：敏感工具 ask）；前端模式切换的精确联动后续阶段细化。
       if (args.apiKey && args.apiKey.trim()) {
-        await ensureConfig(app.getPath('userData'), { apiKey: args.apiKey.trim(), permissionMode: 'default' })
+        // ensureConfig 的 opts.apiKey 是 deepseek 语义：保存 kimi key 时不能把 kimi key 写进 deepseek 槽位，
+        // 需从写盘前的旧 cfg 读 deepseek key 透传（moonshotai-cn 自身 key 由 ensureConfig 内部读 provider-configs.json）
+        const dsKey = providerId === 'moonshotai-cn'
+          ? ((cfg as Record<string, { apiKey?: string }>)?.deepseek?.apiKey ?? '').trim()
+          : args.apiKey.trim()
+        await ensureConfig(app.getPath('userData'), { apiKey: dsKey, permissionMode: 'default' })
         // 仅用户主动保存（SettingsPanel/Onboarding 传 restart=true）且 key 确实变化时才重启 serve：
         // 启动时 store watch 自动保存会命中刚起来的 serve——重启会杀掉健康中的 serve 导致
         // 并发请求 ECONNRESET + 会话列表加载失败（2026-08-09 实测 stopping=true 日志）
-        const prevKey = (cfg as Record<string, { apiKey?: string }>)?.[args.providerId]?.apiKey
-        if (args.restart && prevKey !== args.apiKey.trim() && serverManager?.getServerInfo().running) {
+        // moonshotai-cn 例外：watch 防抖已把 key 落盘 → prevKey===新 key，但 serve 启动时加载的配置
+        // 里没有该 provider（新增 provider 必须重启 serve 才被识别）——key 非空即重启，保证制图师可用
+        const prevKey = (cfg as Record<string, { apiKey?: string }>)?.[providerId]?.apiKey
+        const keyChanged = providerId === 'moonshotai-cn' ? true : prevKey !== args.apiKey.trim()
+        if (args.restart && keyChanged && serverManager?.getServerInfo().running) {
           await serverManager.stopServer()
           await serverManager.ready()
         }
@@ -447,7 +460,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle('settings:loadProviderConfigs', async () => {
     const cfg = await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})
-    return cfg as Record<string, { apiKey: string; baseUrl: string; model: string }>
+    // moonshotai-cn 条目只有 apiKey（无 baseUrl/model），字段放宽为可选——前端 ProviderConfig 类型同步
+    return cfg as Record<string, { apiKey: string; baseUrl?: string; model?: string }>
   })
 
   // ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──
