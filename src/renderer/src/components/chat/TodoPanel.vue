@@ -163,13 +163,15 @@ const hidePanel = computed(() => {
 }
 
 /* 折叠态单行：图标 + 序号 + 内容 + 计数；hover 整块展开（无点击交互）
-   2026-08-10 反馈：收起态文字水平居中（原 flex-start 左对齐，面板居中但内容贴左） */
+   2026-08-10 反馈：收起态文字水平居中（原 flex-start 左对齐，面板居中但内容贴左）；
+   垂直居中需 line-height:1——emoji/序号字符自带行高，继承全局 line-height 会撑高整行导致视觉偏上 */
 .todo-panel-collapsed {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0.4rem;
   min-height: 1.1rem;
+  line-height: 1;
   cursor: default;
   /* 淡蓝底增强存在感：收起时当前任务一眼可见（用户反馈「进行中的任务很不明显」） */
   background: color-mix(in srgb, var(--accent) 6%, transparent);
@@ -180,6 +182,7 @@ const hidePanel = computed(() => {
 /* 折叠态进行中呼吸蓝点（当前项状态提示，pending 时不渲染） */
 .todo-current-dot {
   font-size: 8px;
+  line-height: 1;
   color: var(--accent);
   flex-shrink: 0;
   animation: todo-pulse 1.5s ease-in-out infinite;
@@ -195,9 +198,11 @@ const hidePanel = computed(() => {
   cursor: default;
 }
 
+/* 折叠态单行 📋 图标（emoji 自带行高，显式 line-height:1 避免撑高整行） */
 .todo-panel-title {
   font-size: 10px;
   font-weight: 600;
+  line-height: 1;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   color: var(--text-muted);
@@ -216,6 +221,7 @@ const hidePanel = computed(() => {
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: var(--accent);
 }
 
@@ -224,6 +230,7 @@ const hidePanel = computed(() => {
   font-size: 10px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   color: var(--accent);
   flex-shrink: 0;
 }
@@ -236,6 +243,7 @@ const hidePanel = computed(() => {
 .todo-current-text {
   font-size: 10px;
   font-weight: 600;
+  line-height: 1;
   color: var(--accent);
   overflow: hidden;
   text-overflow: ellipsis;
