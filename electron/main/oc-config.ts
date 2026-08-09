@@ -20,6 +20,13 @@ export const MANAGED_MODEL_LIMITS: Record<string, { context: number; output: num
 }
 
 /**
+ * 默认小模型（轻量任务专用：标题生成/会话摘要/输入消息润色）。
+ * OC 语义：small_model 未配置 → Provider.getSmallModel 解析失败 → ensureTitle 静默失败（oc 已知 #14807，标题永远「新会话」）。
+ * 受管字段（写死与配置同步——设置页无 small_model 入口，改这里 + ensureConfig 即全局生效）。
+ */
+export const SMALL_MODEL = 'deepseek/deepseek-v4-flash'
+
+/**
  * 分形受管配置路径：<userDataDir>/config/opencode/opencode.json
  * XDG_CONFIG_HOME 注入为 <userDataDir>/config 后，serve 全局配置路径即此文件（阶段 0 D17 实测定案）。
  */
@@ -103,7 +110,7 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   cfg.model = 'deepseek/deepseek-v4-pro'
   // small_model：标题生成等轻量任务专用（serve 首条消息后异步 ensureTitle 用 title agent + small_model；
   // 未配置 → getSmallModel 解析失败 → 静默失败（oc 已知 #14807）→ 标题永远「新会话」——2026-08-09 实测修复）
-  cfg.small_model = 'deepseek/deepseek-v4-flash'
+  cfg.small_model = SMALL_MODEL
   // 权限规则按模式生成（受管字段覆盖，用户自定义规则由设置面板二次调整）；
   // userDataDir 注入 settings.json 目录例外（阶段 6：agent 可自检自改配置的前提，方案 3.8.4）
   cfg.permission = buildPermissionRule(opts.permissionMode, userDataDir) as Record<string, unknown>

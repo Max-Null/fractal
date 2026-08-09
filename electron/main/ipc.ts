@@ -14,7 +14,7 @@ import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
-import { ensureConfig } from './oc-config'
+import { ensureConfig, SMALL_MODEL } from './oc-config'
 import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
 
 // ── 模块级状态 ──
@@ -663,10 +663,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       tempId = s.id || ''
       if (!tempId) throw new Error('临时会话创建失败')
       // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
-      // model: flash + variant low——润色是短文本任务，快模型足够（v4-pro 推理慢 2-3 倍，2026-08-08 用户讨论「直连 vs 走引擎」后选定）
+      // model: SMALL_MODEL（轻量任务模型——2026-08-09 用户指出：polish 正是 small_model 的适用场景，不再写死）+ variant low
+      const [smProvider, smModel] = SMALL_MODEL.split('/')
       await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
         agent: 'build',
-        model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
+        model: { providerID: smProvider, modelID: smModel },
         variant: 'low',
       })
       // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
