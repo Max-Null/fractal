@@ -1202,7 +1202,8 @@ watch(
             <!-- 助手回合左侧对话列（左右布局：用户右气泡、分形左时间线）：
                  头像「分」+ NodeTimeline 限宽左对齐；节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13）+ 待办记录结束节点（反馈 #6） -->
             <div v-if="turn.assistants.length" class="assistant-col">
-              <span class="assistant-col__avatar" aria-hidden="true">分</span>
+              <!-- 分形头像：logo（2026-08-10 由文字 '分' 换为 logo，保持原尺寸与圆形） -->
+              <img class="assistant-col__avatar" src="/logo.svg" alt="分形" />
               <NodeTimeline
                 :turn="turn"
                 :subtask-state="chat.subTasks"
@@ -1519,20 +1520,13 @@ watch(
   align-items: flex-start;
   max-width: 90%;
 }
-/* 模型头像：与 MessageBubble .msg-avatar--assistant 同体系（accent 渐变圆 + 首字「分」） */
+/* 模型头像：logo img——保持原尺寸（2rem 圆）与圆形裁切 */
 .assistant-col__avatar {
   width: 2rem;
   height: 2rem;
   flex-shrink: 0;
   border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 600;
-  background: linear-gradient(135deg, var(--accent), #0891b2);
-  border: 1px solid transparent;
-  color: white;
+  object-fit: cover;
 }
 
 .sticky-question-bar {

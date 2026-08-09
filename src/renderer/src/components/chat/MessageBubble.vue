@@ -21,6 +21,13 @@ const emit = defineEmits<{
 }>();
 const copied = ref(false);
 
+// 用户消息发送时间 → HH:mm（timestamp 缺失（0）→ '--:--'，与 TodoRecordCard 同模式）
+const timeLabel = computed(() => {
+  if (!props.message.timestamp) return "--:--";
+  const d = new Date(props.message.timestamp);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+});
+
 // ── Inline editing state ──
 const isEditing = ref(false);
 const editText = ref("");
@@ -96,21 +103,27 @@ const badgeVariant = computed(() => {
   <!-- 根节点不再携带 data-message-id/data-role：锚点职责由 ChatPanel 回合容器 .msg-entry 承载
        （修复锚点 bug #8：双份相同锚点属性导致 ChatTimelineNav scroll spy 定位错位） -->
   <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']">
-    <!-- Avatar：用户首字圆（32px，bg-elevated 边框；settings.username 不存在 → '我'）与气泡上下居中对齐；
-         助手兜底分支保留 '分'（渐变圆） -->
+    <!-- Avatar：用户首字圆（32px；settings.username 不存在 → '我'）；assistant 兜底分支显示 logo
+         （2026-08-10：分形头像由文字 '分' 换为 logo，保持原尺寸与圆形） -->
     <div
-      class="msg-avatar"
-      :class="message.role === 'user' ? 'msg-avatar--user' : 'msg-avatar--assistant'"
+      v-if="message.role === 'user'"
+      class="msg-avatar msg-avatar--user"
     >
-      {{ message.role === 'user' ? '我' : '分' }}
+      {{ '我' }}
     </div>
+    <img
+      v-else
+      class="msg-avatar msg-avatar--assistant"
+      src="/logo.svg"
+      alt="分形"
+    />
 
     <!-- Body -->
     <div :class="['flex-1 min-w-0 space-y-2', message.role === 'user' ? 'flex flex-col items-end' : '']">
-      <!-- Name + actions -->
+      <!-- Name + actions：用户消息显示发送时间（HH:mm），assistant 兜底分支保留 '分形' -->
       <div class="flex items-center gap-1.5 px-0.5">
         <span class="text-[11px] font-medium" style="color:var(--text-muted)">
-          {{ message.role === 'user' ? 'You' : '分形' }}
+          {{ message.role === 'user' ? timeLabel : '分形' }}
         </span>
         <!-- Copy -->
         <button
@@ -315,9 +328,8 @@ const badgeVariant = computed(() => {
   margin-top: calc(16.5px + 0.5rem);
 }
 .msg-avatar--assistant {
-  background: linear-gradient(135deg, var(--accent), #0891b2);
-  border: 1px solid transparent;
-  color: white;
+  /* logo 头像：img 替换元素，无文字/背景——圆形裁切由 .msg-avatar 的 border-radius 承担 */
+  object-fit: cover;
 }
 
 /* ── 消息操作按钮（编辑/重发/复制）── */

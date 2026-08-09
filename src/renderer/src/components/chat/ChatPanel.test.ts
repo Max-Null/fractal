@@ -924,7 +924,10 @@ describe("ChatPanel 弹窗", () => {
     chat.finishAssistantMessage();
     await flush();
     expect(wrapper.find(".assistant-col").exists()).toBe(true);
-    expect(wrapper.find(".assistant-col__avatar").text()).toBe("分");
+    // 2026-08-10：分形头像由文字 '分' 换为 logo img——断言图片存在与 alt（src 会被 vite 内联为 data URI，不比较）
+    const avatar = wrapper.find(".assistant-col__avatar");
+    expect(avatar.exists()).toBe(true);
+    expect(avatar.attributes("alt")).toBe("分形");
     expect(wrapper.find(".assistant-col .node-timeline").exists()).toBe(true);
     // 用户消息容器与 assistant-col 同属回合容器
     expect(wrapper.find(".msg-entry .assistant-col").exists()).toBe(true);

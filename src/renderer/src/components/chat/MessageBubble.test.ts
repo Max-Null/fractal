@@ -51,7 +51,8 @@ describe("MessageBubble", () => {
       global: { plugins: [i18n] },
     });
     expect(wrapper.text()).toContain("Hello AI");
-    expect(wrapper.text()).toContain("You");
+    // 2026-08-10：名字行由 'You' 换为消息发送时间 HH:mm（makeMsg timestamp=Date.now() → 匹配 HH:MM 形态）
+    expect(wrapper.text()).toMatch(/\d{2}:\d{2}/);
     // 反馈 #1：用户头像 = 用户名首字 || '我'；settings 无 username 字段 → 兜底 '我'
     expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
   });
