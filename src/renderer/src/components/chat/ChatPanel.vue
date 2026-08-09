@@ -43,9 +43,10 @@ import ChatTimelineNav from "./ChatTimelineNav.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
 import TodoRecordCard from "./TodoRecordCard.vue";
-import SubTaskCard from "./SubTaskCard.vue";
+import NodeTimeline from "./NodeTimeline.vue";
 import SubTaskMonitor from "./SubTaskMonitor.vue";
 import SubTaskDetail from "./SubTaskDetail.vue";
+import { groupTurns } from "@/lib/node-timeline";
 import { useI18n } from "vue-i18n";
 const { t } = useI18n();
 import { useCommandRegistry } from "@/composables/useCommandRegistry";
@@ -240,8 +241,6 @@ const exportContent = ref("");
 const exportFileName = ref("");
 
 // ── 子任务可视化（卡片 + 监视/详情弹窗）──
-/** 行内展开摘要全文的子任务 id（点已完成卡片切换；再点收起） */
-const expandSubTaskId = ref<string | null>(null);
 /** 正在实时监视的子任务 id（运行中卡片点击 → SubTaskMonitor） */
 const monitorSubTaskId = ref<string | null>(null);
 /** 查看完整详情的子任务 id（「查看会话详情」→ SubTaskDetail） */
@@ -254,48 +253,44 @@ function openSubTaskDetail(sub: { id: string; agent?: string }) {
   detailSubTaskAgent.value = sub.agent || "";
 }
 
-/** 子任务卡片排序：按 startedAt 升序（保持出现顺序稳定） */
-const sortedSubTasks = computed(() =>
-  Object.values(chat.subTasks).sort((a, b) => a.startedAt - b.startedAt)
-);
-
-// ── 历史子任务（D1-D6）：已完成子会话在消息级可见 ──
+// ── 历史子任务（D1-D6）：已完成子会话归属到时间线 subtask 节点（3b 平铺收敛 D13）──
 /** 当前活跃会话的子会话列表（serve 会话列表 parentId 匹配；历史子任务归属的 children 数据源） */
 const childSessions = computed(() =>
   session.childSessions.filter((s) => s.parentId === session.activeSessionId)
 );
 
 /**
- * 消息 → 历史子任务卡片映射（平铺渲染，复用 SubTaskCard）。
+ * 历史已完成子任务索引（按 taskId → SubTask 形状）：NodeTimeline 的 subtask 节点查询源。
  * 历史条目映射为 SubTask 形状：status 恒 'done'（已完成），summary 取预拉结果（historySummaries 注入；
  * 未预拉/预拉失败为空 → SubTaskCard 展开时经 summaryLoader 兜底懒加载）。
- * 互斥过滤（D3）：只保留「不在实时 subTasks」的任务——运行中/本 app 内已见由实时 SubTaskCard 管理，
+ * 互斥过滤（D3）：只保留「不在实时 subTasks」的任务——运行中/本 app 内已见由实时 subtaskState 管理，
  * 避免同一子会话双卡片重复显示。
  */
-const subTaskMap = computed(() => {
+const historySubtaskById = computed<Record<string, SubTask>>(() => {
   const map = buildSubTaskMap(chat.messages, childSessions.value);
-  const result = new Map<string, SubTask[]>();
-  for (const [msgId, list] of map) {
-    // 实时 subTasks 仍存在的 id（running 或本 app 已见）从历史卡片剔除
-    const filtered = list.filter((s) => !chat.subTasks[s.id]);
-    if (filtered.length === 0) continue;
-    result.set(
-      msgId,
-      filtered.map((s) => ({
+  const result: Record<string, SubTask> = {};
+  for (const [, list] of map) {
+    for (const s of list) {
+      // 实时 subTasks 仍存在的 id（running 或本 app 已见）从历史索引剔除
+      if (chat.subTasks[s.id]) continue;
+      result[s.id] = {
         id: s.id,
         agent: s.agent,
-        status: "done" as const,
+        status: "done",
         startedAt: s.createdAt,
         endedAt: s.endedAt,
         deltaText: "",
         parts: [],
         // 预拉摘要注入；空 → 展开时 summaryLoader 兜底（瞬态，不写 store）
         summary: historySummaries.value[s.id] ?? "",
-      }))
-    );
+      };
+    }
   }
   return result;
 });
+
+/** 回合分组（D1）：user 消息开新回合 + 后续 assistant 消息（流式 step 插入自动吸收）——渲染容器数据源 */
+const turns = computed(() => groupTurns(chat.messages));
 
 // ── 历史摘要预拉（用户反馈：完成时卡片直接显示结果梗概，替代展开懒加载）──
 /** 子会话摘要缓存（本地瞬态；预拉失败留空不重试——消息数据不变，防抖防重复拉取） */
@@ -305,10 +300,10 @@ const prefetchedIds = new Set<string>();
 /** 预拉并发上限：serve 子会话消息随时可查，但避免切回旧会话时瞬间打爆 */
 const PREFETCH_CONCURRENCY = 4;
 
-/** 预拉调度：防抖 300ms（消息流式期间跳过中间态），只对 subTaskMap 中「已完成且不在实时」的子会话并行拉摘要 */
+/** 预拉调度：防抖 300ms（消息流式期间跳过中间态），只对 historySubtaskById 中「已完成且不在实时」的子会话并行拉摘要 */
 let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
 watch(
-  subTaskMap,
+  historySubtaskById,
   () => {
     if (prefetchTimer) clearTimeout(prefetchTimer);
     prefetchTimer = setTimeout(() => {
@@ -330,15 +325,13 @@ watch(
 
 /**
  * 并行预拉：对未尝试过的子会话并发拉摘要（上限 PREFETCH_CONCURRENCY）。
- * 结果写入 historySummaries → subTaskMap 重算注入卡片 summary；失败留空（不重试）。
+ * 结果写入 historySummaries → historySubtaskById 重算注入卡片 summary；失败留空（不重试）。
  */
 async function prefetchHistorySummaries(): Promise<void> {
   // Set 去重：同一子会话 id 可能跨消息重复出现（防抖窗口内消息重排/测试构造），避免并发池重复拉取
   const pendingSet = new Set<string>();
-  for (const list of subTaskMap.value.values()) {
-    for (const sub of list) {
-      if (!prefetchedIds.has(sub.id)) pendingSet.add(sub.id);
-    }
+  for (const sub of Object.values(historySubtaskById.value)) {
+    if (!prefetchedIds.has(sub.id)) pendingSet.add(sub.id);
   }
   const pending = [...pendingSet];
   if (pending.length === 0) return;
@@ -387,10 +380,6 @@ function extractAssistantText(content: string): string | undefined {
   }
   const trimmed = content.trim();
   return trimmed || undefined;
-}
-
-function toggleExpandSubTask(id: string) {
-  expandSubTaskId.value = expandSubTaskId.value === id ? null : id;
 }
 
 /** 详情弹窗「返回主会话」：切回父会话并关闭详情（父会话不存在时静默） */
@@ -1188,48 +1177,38 @@ watch(
         </div>
         <!-- 加载更早为同步内存切片（瞬时无感），不再需要顶部加载提示 -->
         <TransitionGroup name="msg">
-          <!-- 消息 + 历史子任务卡片包在单一根 div（TransitionGroup 子元素需唯一 key；data-message-id 仍在内部可定位） -->
-          <div v-for="msg in chat.messages" :key="msg.id" class="msg-entry">
+          <!-- 回合容器（D1）：用户消息 + NodeTimeline（全部 assistant 消息聚合为一条时间线）；
+               data-message-id 锚定用户消息（时间线跳转/scroll spy 定位） -->
+          <div v-for="turn in turns" :key="turn.user.id" class="msg-entry" :data-message-id="turn.user.id" :data-role="turn.user.role">
             <MessageBubble
-              :message="msg"
+              :message="turn.user"
               @edit-save="handleEditSave"
               @resend="handleResend"
               @fork="handleFork"
               @preview-file="(f) => openFileInPanel(f)"
             />
-            <!-- 待办记录卡（v2 D9）：该轮全完成 todowrite 工具卡 → 消息后渲染；数据从 serve 消息历史提取（纯 serve 源） -->
-            <TodoRecordCard
-              v-if="recordForMsg.get(msg.id)"
-              :key="`todo-record-${msg.id}`"
-              :ended-at="recordForMsg.get(msg.id)!.endedAt"
-              :todos="recordForMsg.get(msg.id)!.todos"
+            <!-- 助手回合时间线（3b）：节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13） -->
+            <NodeTimeline
+              v-if="turn.assistants.length"
+              :turn="turn"
+              :subtask-state="chat.subTasks"
+              :history-subtasks="historySubtaskById"
+              :subtask-summary-loader="loadSubTaskSummary"
+              @subtask-detail="openSubTaskDetail"
+              @subtask-monitor="(id) => monitorSubTaskId = id"
             />
-            <!-- 历史子任务卡片（平铺，复用 SubTaskCard）：已完成子会话在消息块下方；点击展开 → summaryLoader 懒加载摘要；
-                 运行中/本 app 已见已在 subTaskMap 互斥过滤（D3）剔除，不重复显示 -->
-            <SubTaskCard
-              v-for="sub in subTaskMap.get(msg.id) ?? []"
-              :key="sub.id"
-              :subtask="sub"
-              :expanded="expandSubTaskId === sub.id"
-              :summary-loader="loadSubTaskSummary"
-              @expand="toggleExpandSubTask(sub.id)"
-              @detail="openSubTaskDetail(sub)"
-            />
+            <!-- 待办记录卡（v2 D9）：回合内各 assistant 消息承载的全完成 todowrite 工具卡 → 回合底部渲染 -->
+            <template v-for="asst in turn.assistants" :key="`todo-${asst.id}`">
+              <TodoRecordCard
+                v-if="recordForMsg.get(asst.id)"
+                :ended-at="recordForMsg.get(asst.id)!.endedAt"
+                :todos="recordForMsg.get(asst.id)!.todos"
+              />
+            </template>
           </div>
         </TransitionGroup>
 
-        <!-- 子任务卡片（消息流内，参与滚动）：运行中点击→实时监视；已完成点击→展开摘要 -->
-        <SubTaskCard
-          v-for="sub in sortedSubTasks"
-          :key="sub.id"
-          :subtask="sub"
-          :expanded="expandSubTaskId === sub.id"
-          @monitor="monitorSubTaskId = sub.id"
-          @expand="toggleExpandSubTask(sub.id)"
-          @detail="openSubTaskDetail(sub)"
-        />
-
-        <!-- 处理中指示器：仅在消息还没内容时显示（有内容后时间线底部状态行接管） -->
+        <!-- 处理中指示器：仅在消息还没内容时显示（有内容后时间线 busy 态接管） -->
         <ThinkingIndicator
           v-if="chat.isProcessing && !chat.currentAssistantMsg?.content && !chat.currentAssistantMsg?.thinking"
           :tool-name="activeToolName"

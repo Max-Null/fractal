@@ -660,6 +660,8 @@ describe("ChatPanel 弹窗", () => {
       const chat = useChatStore();
       const session = useSessionStore();
       session.setActiveSession("ses-1");
+      // 回合分组要求 user 前导（groupTurns 忽略孤儿 assistant）
+      chat.messages.push({ id: "m-user-1", role: "user", content: "开始", thinking: "", toolUses: [], timestamp: Date.now(), isStreaming: false });
       chat.messages.push(makeAssistantWithTask("m-assist-1", "ses_hist_1"));
       session.childSessions.push(makeChildSession("ses_hist_1", "ses-1"));
       listMessagesMock.mockResolvedValue([
@@ -673,8 +675,9 @@ describe("ChatPanel 弹窗", () => {
       // 超过防抖 → 预拉
       await vi.advanceTimersByTimeAsync(200);
       expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(true);
-      // 摘要注入卡片（stub 渲染 subtask.summary）
+      // 摘要注入卡片（stub 渲染 subtask.summary；卡片在 NodeTimeline 的 subtask 节点内——平铺收敛 D13）
       await vi.advanceTimersByTimeAsync(0);
+      expect(wrapper.find(".node-timeline .subtask-card-stub").exists()).toBe(true);
       expect(wrapper.text()).toContain("子会话最终产出摘要文本");
     } finally {
       vi.useRealTimers();
@@ -687,6 +690,7 @@ describe("ChatPanel 弹窗", () => {
       const chat = useChatStore();
       const session = useSessionStore();
       session.setActiveSession("ses-1");
+      chat.messages.push({ id: "m-user-1", role: "user", content: "开始", thinking: "", toolUses: [], timestamp: Date.now(), isStreaming: false });
       chat.messages.push(makeAssistantWithTask("m-assist-1", "ses_hist_1"));
       session.childSessions.push(makeChildSession("ses_hist_1", "ses-1"));
       listMessagesMock.mockRejectedValue(new Error("boom"));
@@ -695,7 +699,7 @@ describe("ChatPanel 弹窗", () => {
       await vi.advanceTimersByTimeAsync(400);
       expect(listMessagesMock.mock.calls.some((c) => c[0] === "ses_hist_1")).toBe(true);
       // 卡片 summary 为空（stub 渲染空字符串）
-      expect(wrapper.find(".subtask-card-stub").text()).toBe("");
+      expect(wrapper.find(".node-timeline .subtask-card-stub").text()).toBe("");
       // 失败不重试：消息再变化触发新防抖周期，也不再拉同一子会话
       chat.messages.push(makeAssistantWithTask("m-assist-2", "ses_hist_1"));
       await vi.advanceTimersByTimeAsync(400);
@@ -842,6 +846,88 @@ describe("ChatPanel 弹窗", () => {
     const cards = wrapper.findAll(".todo-record-card-stub");
     expect(cards).toHaveLength(1);
     expect(cards[0].text()).toContain("todos=1");
+  });
+
+  // ── 回合分组 + 平铺收敛（3b 时间线化：D1 回合级 / D13 平铺收敛）──
+
+  it("回合分组：user 消息开新回合，assistant 消息归当前回合（回合数 = user 数）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    const wrapper = mountChatPanel();
+    await flush();
+
+    chat.addUserMessage("问题一");
+    await flush();
+    expect(wrapper.findAll(".msg-entry")).toHaveLength(1);
+
+    // 流式 assistant 归当前回合，不新增回合容器
+    chat.startAssistantMessage();
+    chat.appendText("回答一");
+    chat.finishAssistantMessage();
+    await flush();
+    expect(wrapper.findAll(".msg-entry")).toHaveLength(1);
+    expect(wrapper.findAll(".node-timeline")).toHaveLength(1);
+
+    // 新 user 消息 → 第二个回合
+    chat.addUserMessage("问题二");
+    await flush();
+    expect(wrapper.findAll(".msg-entry")).toHaveLength(2);
+  });
+
+  it("回合分组：流式 step 吸收——回合最后一个 assistant 流式期间新增 step 消息仍归当前回合", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    const wrapper = mountChatPanel();
+    await flush();
+
+    chat.addUserMessage("问题一");
+    chat.startAssistantMessage();
+    chat.finishAssistantMessage();
+    await flush();
+    expect(wrapper.findAll(".msg-entry")).toHaveLength(1);
+
+    // 新 step：startAssistantMessage push 新的 assistant 消息（isStreaming）→ 归当前回合
+    chat.startAssistantMessage();
+    chat.appendText("step 输出");
+    await flush();
+    expect(wrapper.findAll(".msg-entry")).toHaveLength(1);
+    expect(wrapper.findAll(".node-timeline")).toHaveLength(1);
+  });
+
+  it("平铺收敛：实时 running 子任务只在回合时间线 subtask 节点内渲染（无全局平铺副本）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    const wrapper = mountChatPanel();
+    await flush();
+
+    // 构造 task 工具块（input.metadata.sessionId 为实时子会话键，与 3.6 提取逻辑一致）
+    chat.addUserMessage("派个子任务");
+    chat.startAssistantMessage();
+    chat.addToolUse({
+      id: "tu_task_1",
+      name: "task",
+      input: { metadata: { sessionId: "ses_run_1" } },
+    });
+    // 实时子任务状态（running）注入 store
+    chat.subTasks["ses_run_1"] = {
+      id: "ses_run_1",
+      agent: "工匠",
+      status: "running",
+      deltaText: "正在分析…",
+      parts: [],
+      startedAt: Date.now(),
+    };
+    await flush();
+
+    // 收敛后：子智能体卡片只存在于回合时间线（.msg-entry > .node-timeline）内，全 DOM 仅一份
+    const stubs = wrapper.findAll(".subtask-card-stub");
+    expect(stubs).toHaveLength(1);
+    expect(wrapper.find(".msg-entry .node-timeline .subtask-card-stub").exists()).toBe(true);
+    // 原全局平铺位置（TransitionGroup 外的实时平铺）已移除
+    expect(wrapper.find(".chat-messages-inner > .subtask-card-stub").exists()).toBe(false);
   });
 });
 

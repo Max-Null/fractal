@@ -2,6 +2,7 @@
 import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join, basename } from 'path'
 import { promises as fsp, appendFileSync } from 'node:fs'
+import { spawn } from 'node:child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { registerIpcHandlers, startEngineEvents } from './ipc'
@@ -11,6 +12,13 @@ import { migrateUserDataIfNeeded } from './migrate-userdata'
 import { initPreset, ensurePresetConfig } from './preset'
 import { watchSettings, loadSettings } from './settings'
 import { startPanelWatchers, setPanelWatchers } from './panel'
+
+// 模块级诊断日志（退出流程/窗口事件用——win 级 diag 在 createWindow 内不可达）
+// userData 路径在 whenReady 的 setPath 后固定，运行时调用安全
+const diagMain = (msg: string) => {
+  console.log(`[main] ${msg}`)
+  try { appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[main] ${msg}\n`) } catch { /* 日志失败不阻断 */ }
+}
 
 // ── 单实例锁：SQLite 用户数据（settings/session 缓存）不支持双实例并发——第二个实例直接退出并聚焦已有窗口
 // e2e 测试注入 OC_GUI_E2E=1 豁免（多个测试实例需要独立进程，且 app 可能在运行）
@@ -217,12 +225,13 @@ app.whenReady().then(async () => {
 
   // 配置监听（阶段 6，方案 3.8.3）：settings.json 变更 → config-changed 广播（GUI 表单/JSON 编辑器/agent 工具三路统一走文件）
   const stopConfigWatch = watchSettings(win, app.getPath('userData'))
-  win.on('closed', () => stopConfigWatch())
+  win.on('closed', () => { diagMain('win closed'); stopConfigWatch() })
 
   // 右侧面板数据源监听（P1-P3 拍板：GUI 文件监听实时刷新）：记忆/计划/状态文件变更 → engine:panel-update 广播
 const panelWatchers = startPanelWatchers(win, app.getPath('userData'))
 setPanelWatchers(panelWatchers)
 win.on('closed', () => {
+  diagMain('win closed (panel)')
   panelWatchers.dispose()
   setPanelWatchers(null)
 })
@@ -270,14 +279,24 @@ win.on('closed', () => {
   })
 })
 
+// 应用退出处理（2026-08-09 退出卡死根因链，min-exit 实测确认）：
+// ① serve 子进程管道句柄留在 libuv active 队列；② 窗口全关后事件循环冻结（setTimeout/微任务不调度，async 清理无效）；
+// ③ app.exit/process.exit 均等待 libuv 空队列 → 进程永不退出
+// 解法：window-all-closed 里 syncStop（kill serve + destroy 管道 + detached taskkill 树杀）后，
+// 用 detached taskkill 自杀（进程树强杀，不依赖事件循环与退出状态机，独立进程执行）
 app.on('window-all-closed', () => {
-  // macOS 惯例保持应用常驻，其余平台关闭全部窗口即退出
-  if (process.platform !== 'darwin') {
-    app.quit()
+  diagMain('window-all-closed')
+  serverManager.syncStop()
+  try {
+    const t = spawn('taskkill', ['/pid', String(process.pid), '/T', '/F'], { detached: true, stdio: 'ignore' })
+    t.unref()
+  } catch {
+    // taskkill 自杀失败（极端）→ app.exit 兜底
+    app.exit(0)
   }
 })
-
-// 应用退出时停掉 serve（taskkill 树杀，避免残留 opencode 进程）
 app.on('will-quit', () => {
-  void serverManager.stopServer()
+  diagMain('will-quit')
+  // 幂等兜底：其他 app.quit() 路径（非窗口关闭）也同步停 serve
+  serverManager.syncStop()
 })

@@ -24,6 +24,14 @@ export interface ServerInfo {
   port?: number
 }
 
+/** 解析 serve listening 日志行提取 v1 端口（--port 0 随机分配后 serve 输出 listening 行）——
+ * 分形不再预分配 v1 端口：serve --port 固定值时 v2 server 固定 8800 且 OPENCODE_PORT 不生效
+ * （2026-08-09 实测：与官方桌面端 8800 冲突即崩溃）；--port 0 时 v2 跟随 OPENCODE_PORT、v1 随机由本函数解析 */
+export function parseListeningPort(line: string): number | null {
+  const m = line.match(/listening on https?:\/\/[^\s:]+:(\d+)/)
+  return m ? Number(m[1]) : null
+}
+
 /** startServer 成功返回的连接参数（前端/ipc 建 SDK client 用） */
 export interface StartServerResult {
   baseURL: string
@@ -49,7 +57,7 @@ export interface ServerManagerOptions {
  * （会话/SQLite 等）跟随 XDG_DATA_HOME（实测 serve 数据目录 = <XDG_DATA_HOME>/opencode/），
  * 与其他工具完全隔离；'shared'（默认）不注入 → 与其他工具共享系统数据目录。
  */
-export function buildServeEnv(userDataDir: string, username: string, password: string, dataMode: string): NodeJS.ProcessEnv {
+export function buildServeEnv(userDataDir: string, username: string, password: string, dataMode: string, v2Port?: number): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     OPENCODE_SERVER_USERNAME: username,
@@ -58,6 +66,13 @@ export function buildServeEnv(userDataDir: string, username: string, password: s
   }
   if (dataMode === 'isolated') {
     env.XDG_DATA_HOME = join(userDataDir, 'data')
+  }
+  // v2 server 端口（serve 1.18.15+ 内嵌 v2 API server，默认 8800）：
+  // 8800 与官方桌面端/其他实例冲突时 serve 直接崩溃（实测 2026-08-09：Failed to start server. Is port 8800 in use?）
+  // OPENCODE_PORT env 可覆盖 v2 server 端口（实测生效），注入 v1 端口 +1 彻底避开 8800
+  // 防御：getFreePort 系统分配可能返回 65535 → +1 溢出 65536 → serve 解析失败回退 8800（2026-08-09 实测崩溃）
+  if (v2Port) {
+    env.OPENCODE_PORT = String(Math.min(v2Port, 65535))
   }
   return env
 }
@@ -69,6 +84,8 @@ export interface ServerManager {
   ready(): Promise<StartServerResult>
   /** 停止 serve：Windows tree kill + child.kill 兜底，置空状态 */
   stopServer(): Promise<void>
+  /** 同步停止 serve（应用退出专用）：不依赖事件循环，will-quit 后 async 清理实测冻结 */
+  syncStop(): void
   /** 当前运行状态（含凭据，engine:status 转发用） */
   getServerInfo(): ServerInfo
   /** 懒创建会话客户端（startServer 成功后可用，内部缓存） */
@@ -372,8 +389,8 @@ async function startServer(): Promise<StartServerResult> {
 
     const bin = await resolveOpencodeBin()
 
-    const port = await getFreePort()
-    const baseURL = `http://127.0.0.1:${port}`
+    // v2Port 仅用于 OPENCODE_PORT 注入（v2 server 端口，避开 8800——见 spawn 参数注释）
+    const v2Port = await getFreePort()
 
     // 本地回环 + 随机凭据：serve 默认 Basic 认证（阶段 0 踩坑 #5），随机防探测
     const username = 'oc-' + crypto.randomBytes(6).toString('hex')
@@ -389,15 +406,32 @@ async function startServer(): Promise<StartServerResult> {
       bin,
       // --print-logs：serve 默认日志静默，加此参数后 INFO 日志（loading/listening/插件报错）输出到 stderr——
       // 诊断面板引擎日志页的数据源（方案 D1/D3；实测 2026-08-08：不加则 stderr 平时无数据，面板恒空）
-      ['serve', '--port', String(port), '--hostname', '127.0.0.1', '--print-logs'],
+      ['serve', '--port', '0', '--hostname', '127.0.0.1', '--print-logs'],
       {
-        env: buildServeEnv(options.userDataDir, username, password, dataMode),
+        env: buildServeEnv(options.userDataDir, username, password, dataMode, v2Port + 1),
         stdio: ['ignore', 'pipe', 'pipe'],
       }
     )
 
-    // 启动日志转发（serve 输出可能是 UTF-16，console 直接打会乱码——仅记录不展示）
-    child.stdout?.on('data', () => {})
+    // v1 端口就绪信号：listening 行解析后 resolve（健康检查先等此 Promise——serve --port 0 随机端口）
+    let listeningReadyResolve: ((p: number) => void) | null = null
+    const listeningReady = new Promise<number>((resolve) => {
+      listeningReadyResolve = resolve
+    })
+    // 启动日志转发：serve 的 listening 行输出在 stdout（loading/插件日志在 stderr）——
+    // --port 0 随机端口的 v1 实际端口只能从 stdout 解析（2026-08-09 实测）
+    child.stdout?.on('data', (d: Buffer) => {
+      try {
+        const txt = d.toString('utf8').replace(/\u0000/g, '')
+        const parsed = parseListeningPort(txt)
+        if (parsed) {
+          listeningReadyResolve?.(parsed)
+          listeningReadyResolve = null
+        }
+      } catch {
+        /* 解析失败不阻断 */
+      }
+    })
     // serve stderr tee：console 转发（开发排查，保留 500 截断）+ 落盘 serve.log（面板引擎日志页，写完整文本）。
     // 日志目录必须注入式（options.userDataDir）——测试传 tmpdir，不可用 app.getPath('userData')（会写真实用户数据）
     serveLogFile = join(options.userDataDir, 'logs', 'serve.log')
@@ -412,6 +446,12 @@ async function startServer(): Promise<StartServerResult> {
         if (txt.trim()) console.error(`[serve] ${txt.trim().slice(0, 500)}`)
         // 落盘写完整文本（[HH:mm:ss] 前缀 + 10MB 轮转），console 的 500 截断不影响落盘
         appendServeLog(serveLogFile, txt)
+        // 端口解析（一次）：listening 行 → v1 实际端口（serve --port 0 随机分配）
+        const parsed = parseListeningPort(txt)
+        if (parsed) {
+          listeningReadyResolve?.(parsed)
+          listeningReadyResolve = null
+        }
       } catch {
         /* 转码失败不阻断 */
       }
@@ -458,16 +498,28 @@ async function startServer(): Promise<StartServerResult> {
     })
 
     state.child = child
-    state.baseURL = baseURL
     state.username = username
     state.password = password
-    state.port = port
 
     // 健康检查失败 → 清理进程并抛错（调用方可捕获提示用户）
     const authHeader = 'Basic ' + Buffer.from(`${username}:${password}`).toString('base64')
     try {
-      // 健康检查与进程提前退出竞速：serve 秒退（code=1）时立即失败进入重试循环，
-      // 否则等 30s 健康检查超时才失败，启动链（ready → startEngineEvents）卡死、渲染层 splash 永不消失（2026-08-07 实测）
+      // 端口就绪与进程提前退出竞速：serve 秒退（code=1）时立即失败进入重试循环，
+      // 否则等 30s 超时才失败，启动链（ready → startEngineEvents）卡死、渲染层 splash 永不消失（2026-08-07 实测）
+      const actualPort = await Promise.race([
+        listeningReady,
+        new Promise<never>((_, reject) => {
+          child.once('exit', (code) => reject(new Error(`serve 进程提前退出（code=${code}）`)))
+        }),
+        new Promise<never>((_, reject) => {
+          const t = setTimeout(() => reject(new Error('serve 端口就绪超时（30s）')), 30_000)
+          t.unref?.()
+        }),
+      ])
+      const baseURL = `http://127.0.0.1:${actualPort}`
+      state.baseURL = baseURL
+      state.port = actualPort
+      // 端口就绪后再健康检查（/doc 可达），同样与进程退出竞速
       await Promise.race([
         waitHealthy(baseURL, authHeader),
         new Promise<never>((_, reject) => {
@@ -484,19 +536,19 @@ async function startServer(): Promise<StartServerResult> {
     }
 
     emitStatus()
-    return { baseURL, username, password, port }
+    return { baseURL: state.baseURL!, username, password, port: state.port! }
   }
 
   /** 树杀进程：Windows 用 taskkill /T（连带子进程），非 Windows child.kill */
   async function killTree(child: ChildProcess): Promise<void> {
     if (process.platform === 'win32') {
+      // 先同步发信号（立即生效），taskkill 树杀仅作异步兜底——不能 await：退出流程中 execFile 回调依赖事件循环，
+      // 事件循环挂起时（Electron will-quit preventDefault 后实测）回调永不触发导致 stopServer 永不完成（2026-08-09 e2e 卡死根因）
+      child.kill()
       try {
-        await new Promise<void>((resolve) => {
-          execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { encoding: 'utf-8' }, () => resolve())
-        })
+        execFile('taskkill', ['/pid', String(child.pid), '/T', '/F'], { encoding: 'utf-8' }, () => {})
       } catch {
-        // taskkill 失败（进程已退出）→ child.kill 兜底
-        child.kill()
+        // taskkill 兜底失败忽略（child.kill 已生效）
       }
       return
     }
@@ -558,7 +610,35 @@ async function startServer(): Promise<StartServerResult> {
     state.statusCallbacks.push(cb)
   }
 
-  return { startServer, ready, stopServer, getServerInfo: toInfo, getClient, onStatusChange }
+  /**
+   * 同步停止 serve（退出流程专用）：不依赖事件循环（will-quit 后 async 清理实测冻结），
+   * child.kill 同步发信号（Windows 下 TerminateProcess 同步生效）；树杀交给 detached taskkill（不等待——execFileSync 在退出流程实测卡死）
+   */
+  function syncStop(): void {
+    state.stopping = true
+    const child = state.child
+    state.child = null
+    state.failed = true
+    state.client = null
+    if (!child) return
+    // 先 destroy 管道：uv_close 同步把句柄从 libuv active 队列移除（EOF 回调不再需要）——
+    // 退出流程中事件循环冻结，管道句柄留在 active 队列会让 app.exit 等不到空队列（2026-08-09 退出卡死根因）
+    child.stdout?.destroy()
+    child.stderr?.destroy()
+    child.stdin?.destroy()
+    child.kill()
+    if (process.platform === 'win32') {
+      try {
+        // detached + unref：独立进程完成树杀，不阻塞/不参与父进程事件循环
+        const t = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { detached: true, stdio: 'ignore' })
+        t.unref()
+      } catch {
+        // taskkill 失败忽略（child.kill 已生效）
+      }
+    }
+  }
+
+  return { startServer, ready, stopServer, syncStop, getServerInfo: toInfo, getClient, onStatusChange }
 }
 
 // ══════════════════════════════════════════════════════════════════

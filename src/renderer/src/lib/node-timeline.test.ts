@@ -1,6 +1,6 @@
 // buildTurnNodes 纯函数测试（D4 相邻合并 / D7 总结标记 / D12 task→subtask / 降级 / 空回合）
 import { describe, it, expect } from "vitest";
-import { buildTurnNodes, type TimelineNode } from "./node-timeline";
+import { buildTurnNodes, groupTurns, type TimelineNode } from "./node-timeline";
 import type { Message, ContentBlock } from "@/stores/chat";
 
 function makeAssistant(overrides: Partial<Message> & { id?: string }): Message {
@@ -223,6 +223,111 @@ describe("buildTurnNodes", () => {
       assistants: [makeAssistant({ contentBlocks: [] })],
     });
     expect(nodes).toEqual([]);
+  });
+
+  // ── taskId 提取（3b：subtask 节点 → 子会话 id 查询键）──
+
+  it("task 块 input.metadata.sessionId → taskId（实时 running 事件字段）", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: [{
+            type: "tool_use",
+            toolUse: { id: "t1", name: "task", input: { metadata: { sessionId: "ses_live_1" } } },
+          }],
+        }),
+      ],
+    });
+    expect(nodes[0].kind).toBe("subtask");
+    expect(nodes[0].taskId).toBe("ses_live_1");
+  });
+
+  it("task 块 result 的 <task id> → taskId（历史完成态，extractSubTaskIds 同正则）", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: [{
+            type: "tool_use",
+            toolUse: { id: "t1", name: "task", input: {}, result: '<task id="ses_hist_1" state="completed">\n<task_result>ok</task_result>' },
+          }],
+        }),
+      ],
+    });
+    expect(nodes[0].kind).toBe("subtask");
+    expect(nodes[0].taskId).toBe("ses_hist_1");
+  });
+
+  it("task 块无 sessionId / <task id> → taskId 缺省", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [makeAssistant({ contentBlocks: [{ type: "tool_use", toolUse: { id: "t1", name: "task", input: {} } }] })],
+    });
+    expect(nodes[0].kind).toBe("subtask");
+    expect(nodes[0].taskId).toBeUndefined();
+  });
+
+  it("thinking 节点 durationMs 回填：其后相邻 tool 块的 thinkingDurationMs", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: [
+            thinkingBlock("思考"),
+            { type: "tool_use", toolUse: { id: "t1", name: "Bash", input: { command: "ls" }, thinkingDurationMs: 1500 } },
+          ],
+        }),
+      ],
+    });
+    expect(nodes[0].kind).toBe("thinking");
+    expect(nodes[0].durationMs).toBe(1500);
+  });
+});
+
+// ── groupTurns 回合分组（D1：user 开新回合，assistant 归当前回合）──
+
+describe("groupTurns", () => {
+  function u(id: string): Message {
+    return userMsg(id);
+  }
+  function a(id: string): Message {
+    return makeAssistant({ id });
+  }
+
+  it("空列表 → 空回合数组", () => {
+    expect(groupTurns([])).toEqual([]);
+  });
+
+  it("user + assistant → 单回合（assistant 归该 user）", () => {
+    const turns = groupTurns([u("u1"), a("a1")]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].user.id).toBe("u1");
+    expect(turns[0].assistants.map((m) => m.id)).toEqual(["a1"]);
+  });
+
+  it("多 user 消息 → 多回合，assistant 归最近 user", () => {
+    const turns = groupTurns([u("u1"), a("a1"), u("u2"), a("a2"), a("a3")]);
+    expect(turns).toHaveLength(2);
+    expect(turns[0].assistants.map((m) => m.id)).toEqual(["a1"]);
+    expect(turns[1].assistants.map((m) => m.id)).toEqual(["a2", "a3"]);
+  });
+
+  it("孤儿 assistant（无前导 user）忽略", () => {
+    const turns = groupTurns([a("a0"), u("u1"), a("a1")]);
+    expect(turns).toHaveLength(1);
+    expect(turns[0].user.id).toBe("u1");
+    expect(turns[0].assistants.map((m) => m.id)).toEqual(["a1"]);
+  });
+
+  it("流式吸收：assistant 消息 push 后重算归入当前回合（流式 step 插入不断线）", () => {
+    const messages: Message[] = [u("u1"), a("a1")];
+    const first = groupTurns(messages);
+    expect(first[0].assistants).toHaveLength(1);
+    // 流式新 step：新 assistant 消息 push 进 messages
+    messages.push(a("a2"));
+    const second = groupTurns(messages);
+    expect(second[0].assistants.map((m) => m.id)).toEqual(["a1", "a2"]);
   });
 });
 

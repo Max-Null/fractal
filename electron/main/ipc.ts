@@ -1194,6 +1194,9 @@ export function toMessageData(sm: SessionMessage): {
  * 调用方（index.ts）需先 startServer 成功再调本函数。
  */
 export async function startEngineEvents(win: BrowserWindow, manager: ServerManager): Promise<void> {
+  // 窗口销毁后 win.webContents 访问抛「Object has been destroyed」（2026-08-09 实测闪退）——
+  // 提前缓存 webContents id，后续回调/日志/清理一律用缓存值（窗口活着时取的，永远有效）
+  const wcId = win.webContents.id
   const info = manager.getServerInfo()
   if (info.running && info.baseURL && info.username && info.password) {
     const stop = await subscribeEvents({
@@ -1201,8 +1204,8 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
       username: info.username,
       password: info.password,
       // 活跃会话动态读取（renderer session:setActive 上报 → 按本窗口 webContentsId 分桶，
-      // 多窗口互不干扰——军师 #2）
-      getActiveSessionId: () => activeSessionByWebContents.get(win.webContents.id) ?? '',
+      // 多窗口互不干扰——军师 #2）；窗口销毁后返回空串（订阅即将被 closed 回调中断，空窗安全）
+      getActiveSessionId: () => (win.isDestroyed() ? '' : activeSessionByWebContents.get(wcId) ?? ''),
       onEvent: (evt) => {
         if (!win.isDestroyed()) win.webContents.send('engine:event', evt)
       },
@@ -1212,10 +1215,12 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
     })
     // 诊断：子会话识别依赖本窗口的活跃会话分桶——打印当前值，serve.log 可见
     //（2026-08-09 实测子会话卡片不显示 = 分桶空导致 isSubSession 短路，靠此日志定位）
-    console.log('[engine] 事件流订阅建立，窗口分桶:', win.webContents.id, '=', activeSessionByWebContents.get(win.webContents.id) ?? '(空)')
+    if (!win.isDestroyed()) {
+      console.log('[engine] 事件流订阅建立，窗口分桶:', wcId, '=', activeSessionByWebContents.get(wcId) ?? '(空)')
+    }
     // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
     win.on('closed', () => {
-      activeSessionByWebContents.delete(win.webContents.id)
+      activeSessionByWebContents.delete(wcId)
       stop()
     })
   }

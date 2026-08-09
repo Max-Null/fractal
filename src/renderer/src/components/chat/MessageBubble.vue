@@ -1,29 +1,15 @@
 <script setup lang="ts">
 import type { Message } from "@/stores/chat";
-import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
+import { ref, computed, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
-import { useSettingsStore } from "@/stores/settings";
 
 import { isImageFile, useFilePreview } from "@/composables/useFilePreview";
-import { formatNum } from "@/lib/utils";
+import { useSlashCommands } from "@/composables/useSlashCommands";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 
 const { t } = useI18n();
-const settings = useSettingsStore();
 const { getThumbnail, thumbnails } = useFilePreview();
-
-function toolLabel(name: string): string {
-  const key = `tools.${name}`;
-  const translated = t(key);
-  return translated !== key ? translated : name;
-}
-
-
-// 每秒 tick，驱动流式期间的工具执行计时实时更新
-const now = ref(Date.now());
-let nowTimer: ReturnType<typeof setInterval> | null = null;
-onMounted(() => { nowTimer = setInterval(() => now.value = Date.now(), 1000); });
-onUnmounted(() => { if (nowTimer) clearInterval(nowTimer); });
+const { recentCommands } = useSlashCommands();
 
 const props = defineProps<{ message: Message }>();
 const emit = defineEmits<{
@@ -72,81 +58,38 @@ function onEditKeydown(e: KeyboardEvent) {
   }
 }
 
-// ── 思考总耗时：各段 tool_use 前思考时间求和（精确，无需实时计时器）──
-function totalThinkingMs(): number {
-  return props.message.toolUses.reduce((sum, tu) => sum + (tu.thinkingDurationMs || 0), 0);
-}
-// ── 总耗时（思考 + 工具执行）──
-const totalSeconds = computed(() => {
-  if (props.message.durationMs) {
-    return (props.message.durationMs / 1000).toFixed(1);
-  }
-  if (props.message.isStreaming && props.message.timestamp) {
-    return ((now.value - props.message.timestamp) / 1000).toFixed(1);
-  }
-  return null;
-});
-
-const totalLabel = computed(() => {
-  const s = totalSeconds.value;
-  return s ? `⏱${s}s` : "";
-});
-
-// ── 纯思考时间 ──
-const thinkingLabel = computed(() => {
-  const ms = totalThinkingMs();
-  return ms > 0 ? `🧠${(ms / 1000).toFixed(1)}s` : "";
-});
-
-// ── Token display ──
-const tokenLabel = computed(() => {
-  const parts: string[] = [];
-  if (props.message.inputTokens) parts.push(`↑${formatNum(props.message.inputTokens)}`);
-  if (props.message.outputTokens) parts.push(`↓${formatNum(props.message.outputTokens)}`);
-  return parts.join(" ");
-});
-
 async function copyContent() {
   await navigator.clipboard.writeText(props.message.content);
   copied.value = true;
   setTimeout(() => copied.value = false, 1500);
 }
 
-// ── Tool input display helpers ──
-function summarizeInput(input: Record<string, unknown>): string {
-  // Bash/PowerShell 命令行：收起时显示 description 而非 command 原文
-  if (typeof input.description === "string" && input.description.length > 0) {
-    return input.description;
-  }
-  // Skill 调用：收起时显示 skill 名而非 args 原文
-  if (typeof input.skill === "string" && input.skill.length > 0) {
-    return input.skill;
-  }
-  const entries = Object.entries(input);
-  if (entries.length === 0) return "(no args)";
-  const previews = entries.slice(0, 3).map(([k, v]) => {
-    if (typeof v === "string") return `${k}=${v.length > 40 ? v.slice(0, 40) + "…" : v}`;
-    if (typeof v === "number" || typeof v === "boolean") return `${k}=${v}`;
-    return `${k}={…}`;
-  });
-  let s = previews.join(", ");
-  if (entries.length > 3) s += ` +${entries.length - 3} more`;
-  return s;
-}
+// ── D15 指令徽标：@agent（中文词边界） / 斜杠命令（useSlashCommands 使用历史白名单）──
+// 注意：ASCII \b 对 CJK 无效，用「空白/中英文标点/行尾」后瞻做词边界（v1.3 修正）
+const AGENT_RE = /@(双星|工匠|参谋|军师|侦查兵|制图师|导师|助理)(?=[\s,，。！？!?]|$)/;
 
-function formatJSON(obj: unknown): string {
-  if (typeof obj === "string") return obj;
-  return JSON.stringify(obj, null, 2);
-}
+/** @agent 徽标文案：匹配到角色名 → `@工匠`；未匹配空串（不显示徽标） */
+const agentBadge = computed(() => {
+  const m = AGENT_RE.exec(props.message.content);
+  return m ? `@${m[1]}` : "";
+});
 
-/** 截断工具输出内容的首行或前 80 字符，用于折叠摘要 */
-function summarizeResult(content: string): string {
-  if (!content) return "";
-  // 取第一行（非空行），截断到 80 字符
-  const firstLine = content.trimStart().split("\n")[0] || "";
-  if (firstLine.length > 80) return firstLine.slice(0, 80) + "…";
-  return firstLine;
-}
+/** 斜杠命令徽标：消息首行首词命中 recentCommands 使用历史（recentCommands 存去前导 / 的命令名）→ 原始命令名；未命中空串 */
+const commandBadge = computed(() => {
+  const c = props.message.content.trim();
+  if (!c.startsWith("/")) return "";
+  const raw = c.split("\n")[0].trim().split(/\s+/)[0];
+  // useSlashCommands 存的是无斜杠命令名（recordCommand 去前导 /），匹配时去掉再比
+  const name = raw.startsWith("/") ? raw.slice(1) : raw;
+  return recentCommands.value.some((r) => r === name || r.startsWith(name)) ? raw : "";
+});
+
+/** 徽标变体：@agent 优先（紫），命令兜底（蓝）；边框色随变体微调 */
+const badgeVariant = computed(() => {
+  if (agentBadge.value) return "agent";
+  if (commandBadge.value) return "command";
+  return "";
+});
 </script>
 
 <template>
@@ -218,103 +161,7 @@ function summarizeResult(content: string): string {
         </button>
       </div>
 
-      <!-- ═══ 按时间线渲染（contentBlocks 可用时） ═══ -->
-      <div v-if="message.contentBlocks?.length" class="f-timeline">
-        <!-- 跳过独立的 tool_result 块——结果已嵌套在 tool_use 内部展示 -->
-        <template v-for="(block, i) in message.contentBlocks" :key="i">
-          <div
-            v-if="block.type !== 'tool_result'"
-            class="f-timeline-block"
-            :class="['tl-' + block.type, { 'tl-last': i === message.contentBlocks.length - 1 && !message.isStreaming }]"
-          >
-          <!-- 时间线圆点 -->
-          <div class="f-timeline-dot">
-            <span v-if="block.type === 'thinking'">💭</span>
-            <span v-else-if="block.type === 'tool_use'">🔧</span>
-            <span v-else>💬</span>
-          </div>
-
-          <!-- 思考块（默认折叠） -->
-          <details v-if="block.type === 'thinking'" class="tl-thinking-inner">
-            <summary class="tl-thinking-summary">
-              💭 {{ (message.isStreaming && i === message.contentBlocks!.length - 1) ? $t('chat.thinking') : $t('chat.thinkingDone') }}
-              <!-- 思考耗时：后一个工具块上记录的 thinkingDurationMs -->
-              <span v-if="message.contentBlocks[i+1]?.type === 'tool_use' && message.contentBlocks[i+1]?.toolUse?.thinkingDurationMs" class="tl-stat">🧠{{ ((message.contentBlocks[i+1]!.toolUse!.thinkingDurationMs!) / 1000).toFixed(1) }}s</span>
-              <span v-if="!(message.isStreaming && i === message.contentBlocks!.length - 1) && block.content" class="tl-thinking-snippet">{{ block.content.slice(0, 60) }}{{ block.content.length > 60 ? '…' : '' }}</span>
-              <span v-if="message.isStreaming && i === message.contentBlocks!.length - 1" class="w-1.5 h-1.5 rounded-full animate-pulse ml-1" style="background:var(--accent); display:inline-block"></span>
-            </summary>
-            <div class="tl-thinking-body">{{ block.content }}</div>
-          </details>
-
-          <!-- 工具调用块（结果收进内部展示） -->
-          <details
-            v-else-if="block.type === 'tool_use' && block.toolUse"
-            class="tl-tool"
-          >
-            <summary>
-              <span class="tl-tool-name">{{ toolLabel(block.toolUse.name) }}</span>
-              <span v-if="block.toolUse.executionDurationMs" class="tl-stat" :class="{ 'tl-slow': block.toolUse.executionDurationMs > 5000 }">⚡{{ (block.toolUse.executionDurationMs / 1000).toFixed(1) }}s</span>
-              <span v-if="!block.toolUse.executionDurationMs && block.toolUse.startedAt && message.isStreaming" class="tl-stat tl-live">⚡{{ ((now - block.toolUse.startedAt) / 1000).toFixed(1) }}s</span>
-              <span class="tl-input-preview">{{ summarizeInput(block.toolUse.input) }}</span>
-              <!-- 结果简要标记 -->
-              <span v-if="block.toolUse.isError" class="tl-stat" style="color:var(--coral)">⚠️</span>
-              <span v-else-if="block.toolUse.result" class="tl-stat" style="color:var(--accent)">✓</span>
-            </summary>
-            <!-- 输入参数 -->
-            <div class="tl-tool-section-label">{{ $t('chat.toolInput') }}</div>
-            <pre>{{ formatJSON(block.toolUse.input) }}</pre>
-            <!-- 工具结果（嵌套在内部） -->
-            <div v-if="block.toolUse.result !== undefined" class="tl-tool-result" :class="{ 'tl-tool-result-error': block.toolUse.isError }">
-              <div class="tl-tool-section-label">{{ block.toolUse.isError ? $t('chat.toolError') : $t('chat.toolOutput') }}</div>
-              <pre class="tl-tool-result-body">{{ block.toolUse.result }}</pre>
-            </div>
-          </details>
-
-          <!-- 文本块 -->
-          <div v-else-if="block.type === 'text' && block.content" class="tl-text">
-            <MarkdownRenderer :content="block.content" />
-          </div>
-        </div>
-        </template>
-        <!-- 流式光标 -->
-        <span v-if="message.isStreaming" class="stream-cursor" style="margin-left:20px"></span>
-
-        <!-- 状态行：流式中「思考中」→ 完成后「已完成」 -->
-        <div
-          v-if="message.isStreaming || (message.contentBlocks?.length && !message.isStreaming)"
-          class="text-xs select-none"
-          style="padding-top: 2px; color: var(--text-muted); opacity: 0.6"
-        >
-          <span v-if="message.isStreaming" class="tl-status-thinking">
-            —&nbsp;<template v-for="(c, ci) in $t('chat.thinking')" :key="ci"><span class="tl-wave-char" :style="{ animationDelay: ci * 0.15 + 's' }">{{ c }}</span></template>&nbsp;—
-          </span>
-          <span v-else-if="message.wasStopped" :style="{ color: 'var(--coral)' }">— {{ $t('chat.stopped') }} —</span>
-          <span v-else>— {{ $t('chat.completed') }} —</span>
-        </div>
-
-        <!-- 空文本兜底：模型未生成自然语言回复但有工具执行时，显示摘要 -->
-        <div
-          v-if="!message.isStreaming && !message.content && message.contentBlocks?.length && message.toolUses.length"
-          class="text-xs mt-2"
-          style="color: var(--text-muted); opacity: 0.6"
-        >
-          {{ $t('chat.toolsExecuted', { n: message.toolUses.filter(t => t.result).length }) }}
-        </div>
-
-        <!-- 统计行：耗时 / token -->
-        <div
-          v-if="totalLabel || thinkingLabel || tokenLabel"
-          class="flex items-center gap-2 text-[11px] mt-2"
-          style="color: var(--text-muted)"
-        >
-          <span v-if="totalLabel" class="font-mono tabular-nums">{{ totalLabel }}</span>
-          <span v-if="thinkingLabel" class="font-mono tabular-nums" style="opacity: 0.7">{{ thinkingLabel }}</span>
-          <template v-if="!message.isStreaming">
-            <span v-if="tokenLabel" style="opacity:0.5">·</span>
-            <span v-if="tokenLabel">{{ tokenLabel }}</span>
-          </template>
-        </div>
-      </div>
+      <!-- ═══ 助手消息时间线已迁移至 NodeTimeline/NodeCard（3b 组件化）——这里不再渲染 contentBlocks ═══ -->
 
       <!-- Edit mode: inline textarea for user messages -->
       <div v-if="isEditing" class="w-full">
@@ -351,8 +198,8 @@ function summarizeResult(content: string): string {
         </div>
       </div>
 
-      <!-- Assistant 消息兜底（无 contentBlocks 时显示纯文本）。
-           注意：这里用 v-if 而非 v-else-if，因为上方 v-if="isEditing" 打断了链。 -->
+      <!-- Assistant 消息兜底（无 contentBlocks 的旧存档消息：纯文本 Markdown）。
+           ChatPanel 回合分组后助手消息走 NodeTimeline，此分支仅兼容历史数据/兜底调用。 -->
       <div
         v-if="!message.contentBlocks?.length && message.role === 'assistant' && message.content"
         class="prose text-sm leading-relaxed rounded-lg"
@@ -361,35 +208,41 @@ function summarizeResult(content: string): string {
         <span v-if="message.isStreaming" class="stream-cursor"></span>
       </div>
 
-      <!-- 用户消息纯文本（无 contentBlocks，不做 Markdown 解析） -->
+      <!-- 用户消息纯文本（无 contentBlocks，不做 Markdown 解析）+ D15 指令徽标 -->
       <div
         v-if="!message.contentBlocks?.length && message.role === 'user' && message.content"
-        class="user-bubble"
+        class="user-bubble-wrap"
       >
-        {{ message.content }}
+        <!-- 指令徽标：@agent 紫 / 斜杠命令 蓝（气泡左上角） -->
+        <div v-if="badgeVariant" class="msg-badge" :class="'msg-badge--' + badgeVariant">
+          {{ badgeVariant === 'agent' ? agentBadge : commandBadge }}
+        </div>
+        <div class="user-bubble" :class="badgeVariant ? 'user-bubble--' + badgeVariant : ''">
+          {{ message.content }}
 
-        <!-- Attachments in user message -->
-        <div
-          v-if="message.attachments?.length"
-          class="flex flex-wrap gap-1 mt-2 pt-2"
-          :style="{ borderTop: '1px solid rgba(59,130,246,0.15)' }"
-        >
+          <!-- Attachments in user message -->
           <div
-            v-for="att in message.attachments"
-            :key="att.path"
-            class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors hover:brightness-110 shrink-0"
-            style="background: rgba(59,130,246,0.12); color: var(--text-secondary)"
-            @click="emit('previewFile', att)"
+            v-if="message.attachments?.length"
+            class="flex flex-wrap gap-1 mt-2 pt-2"
+            :style="{ borderTop: '1px solid rgba(59,130,246,0.15)' }"
           >
-            <img
-              v-if="isImageFile(att.name)"
-              :src="thumbnails[att.path] || ''"
-              @vue:mounted="getThumbnail(att.path, att.name)"
-              class="w-3.5 h-3.5 rounded object-cover shrink-0"
-              v-show="thumbnails[att.path]"
-            />
-            <svg v-else width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" class="shrink-0"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
-            <span class="truncate max-w-[120px]">{{ att.name }}</span>
+            <div
+              v-for="att in message.attachments"
+              :key="att.path"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors hover:brightness-110 shrink-0"
+              style="background: rgba(59,130,246,0.12); color: var(--text-secondary)"
+              @click="emit('previewFile', att)"
+            >
+              <img
+                v-if="isImageFile(att.name)"
+                :src="thumbnails[att.path] || ''"
+                @vue:mounted="getThumbnail(att.path, att.name)"
+                class="w-3.5 h-3.5 rounded object-cover shrink-0"
+                v-show="thumbnails[att.path]"
+              />
+              <svg v-else width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" class="shrink-0"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>
+              <span class="truncate max-w-[120px]">{{ att.name }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -399,6 +252,14 @@ function summarizeResult(content: string): string {
 
 <style scoped>
 /* ── 用户消息气泡 ── */
+/* wrap：气泡 + 左上角指令徽标（D15）竖向排列，徽标贴气泡左上角 */
+.user-bubble-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+}
 .user-bubble {
   padding: 0.625rem 0.875rem;
   border-radius: 1rem 1rem 0.25rem 1rem;
@@ -408,6 +269,29 @@ function summarizeResult(content: string): string {
   background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(99,102,241,0.10));
   border: 1px solid rgba(59,130,246,0.15);
   color: var(--text-bright);
+}
+/* D15 指令徽标边框色：@agent 紫 / 命令 蓝（气泡边框随变体微调） */
+.user-bubble--agent { border-color: rgba(124, 58, 237, 0.35); }
+.user-bubble--command { border-color: rgba(59, 130, 246, 0.35); }
+
+/* ── D15 指令徽标 ── */
+.msg-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  user-select: none;
+}
+.msg-badge--agent {
+  background: rgba(124, 58, 237, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(124, 58, 237, 0.3);
+}
+.msg-badge--command {
+  background: rgba(59, 130, 246, 0.12);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
 /* ── 消息行 ── */
@@ -429,237 +313,4 @@ function summarizeResult(content: string): string {
   border-radius: 0.25rem; transition: background-color 150ms;
 }
 .msg-action-btn:hover { background: var(--bg-hover); }
-
-/* ── 时间线 ── */
-.f-timeline {
-  position: relative;
-}
-
-.f-timeline-block {
-  position: relative;
-  padding-left: 26px;
-  margin-bottom: 8px;
-}
-.f-timeline-block.tl-last {
-  margin-bottom: 0;
-}
-/* 每块画线段穿过圆点中心到下一块，末块不画 */
-.f-timeline-block::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: 12px;        /* 当前圆点中心（top 4 + 8） */
-  bottom: -20px;     /* 延伸到下一块圆点中心（margin 8 + top 4 + 8） */
-  width: 2px;
-  background: var(--border-dim);
-  border-radius: 1px;
-}
-.f-timeline-block.tl-last::after {
-  display: none;
-}
-
-.f-timeline-dot {
-  position: absolute;
-  left: 3px;
-  top: 4px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 9px;
-  line-height: 1;
-  background: var(--bg-surface);
-  border: 1.5px solid var(--border-dim);
-  z-index: 1;
-}
-.tl-thinking .f-timeline-dot   { border-color: var(--amber); }
-.tl-tool_use .f-timeline-dot   { border-color: var(--violet); }
-.tl-tool_result .f-timeline-dot { border-color: var(--accent); }
-.tl-text .f-timeline-dot       { border-color: var(--border-bright); }
-
-/* ── 各块 ── */
-.tl-thinking {
-  border-radius: 6px;
-  background: var(--amber-glow);
-}
-.tl-thinking-summary {
-  padding: 5px 10px;
-  font-size: 11px;
-  cursor: pointer;
-  user-select: none;
-  color: var(--amber);
-  transition: background 150ms;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  overflow: hidden;
-}
-.tl-thinking-summary::-webkit-details-marker { display: none; }
-.tl-thinking-summary:hover { background: rgba(255,255,255,0.03); }
-.tl-thinking-snippet {
-  font-size: 11px;
-  color: var(--text-muted);
-  opacity: 0.6;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-.tl-thinking-body {
-  padding: 6px 10px;
-  font-size: 12px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  overflow-wrap: break-word;
-  word-break: break-word;
-  color: var(--text-secondary);
-  border-top: 1px solid rgba(255,255,255,0.05);
-}
-
-.tl-tool {
-  font-size: 12px;
-  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-  border-radius: 6px;
-  background: var(--bg-root);
-  border: 1px solid var(--border-dim);
-}
-.tl-tool summary {
-  padding: 6px 10px;
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-secondary);
-  transition: background 150ms;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.tl-tool summary:hover { background: var(--bg-hover); }
-.tl-tool-name  { font-weight: 600; color: var(--violet); }
-.tl-stat       { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
-.tl-stat.tl-slow { color: var(--coral); }
-.tl-stat.tl-live { color: var(--accent); animation: pulse 1s ease-in-out infinite; }
-.tl-input-preview {
-  color: var(--text-muted);
-  opacity: 0.7;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 200px;
-}
-.tl-tool pre {
-  padding: 8px 10px;
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre;
-  border-top: 1px solid var(--border-dim);
-  color: var(--text-muted);
-  max-height: 240px;
-}
-.tl-tool-section-label {
-  padding: 5px 10px 2px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: var(--text-muted);
-  opacity: 0.5;
-}
-.tl-tool-result {
-  border-top: 1px solid var(--accent-dim);
-}
-.tl-tool-result.tl-tool-result-error {
-  border-top-color: var(--coral);
-}
-.tl-tool-result-body {
-  padding: 6px 10px 6px;
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  color: var(--text-secondary);
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.tl-result {
-  font-size: 12px;
-  font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-  border-radius: 6px;
-  background: var(--bg-root);
-  border: 1px solid var(--accent-dim);
-}
-.tl-result.tl-result-error {
-  border-color: var(--coral);
-}
-.tl-result-summary {
-  padding: 5px 10px;
-  font-size: 11px;
-  cursor: pointer;
-  user-select: none;
-  color: var(--accent);
-  transition: background 150ms;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  list-style: none;
-}
-.tl-result-summary::-webkit-details-marker { display: none; }
-.tl-result-summary:hover { background: rgba(255,255,255,0.03); }
-.tl-result-error .tl-result-summary {
-  color: var(--coral);
-}
-.tl-result-snippet {
-  color: var(--text-muted);
-  opacity: 0.7;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 320px;
-}
-.tl-result-empty {
-  color: var(--text-muted);
-  opacity: 0.4;
-}
-.tl-result-body {
-  padding: 8px 10px;
-  margin: 0;
-  font-size: 11px;
-  line-height: 1.5;
-  overflow-x: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
-  border-top: 1px solid var(--border-dim);
-  color: var(--text-muted);
-  max-height: 300px;
-  overflow-y: auto;
-}
-
-.tl-text {
-  font-size: 14px;
-  line-height: 1.65;
-}
-.tl-text :deep(p) { margin: 0.25em 0; }
-
-/* 思考中波浪闪烁 */
-.tl-status-thinking {
-  color: var(--accent);
-  opacity: 0.9;
-}
-.tl-wave-char {
-  display: inline-block;
-  animation: think-wave 1.2s ease-in-out infinite;
-}
-@keyframes think-wave {
-  0%, 100% { opacity: 0.2; }
-  50% { opacity: 1; }
-}
 </style>

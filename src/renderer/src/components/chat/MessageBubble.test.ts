@@ -3,6 +3,7 @@ import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import MessageBubble from "./MessageBubble.vue";
+import { useSlashCommands } from "@/composables/useSlashCommands";
 import type { Message } from "@/stores/chat";
 
 const i18n = createI18n({
@@ -20,12 +21,17 @@ const i18n = createI18n({
   },
 });
 
-beforeEach(() => setActivePinia(createPinia()));
+beforeEach(() => {
+  localStorage.clear();
+  setActivePinia(createPinia());
+  // 重置 useSlashCommands 模块级 recentCommands（localStorage 清理不重置 ref——测试间状态隔离）
+  useSlashCommands().recentCommands.value = [];
+});
 
 function makeMsg(overrides: Partial<Message> = {}): Message {
   return {
     id: "test-1",
-    role: "assistant",
+    role: "user",
     content: "",
     thinking: "",
     toolUses: [],
@@ -48,10 +54,13 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("You");
   });
 
-  it("renders assistant message with C avatar", () => {
+  // ── Assistant 兜底分支（无 contentBlocks 旧存档 → 纯文本 Markdown + 流式光标）──
+  // 注意：助手时间线渲染已迁移至 NodeTimeline/NodeCard（3b），这里只保留无 contentBlocks 的兜底路径
+
+  it("renders assistant fallback text with C avatar", () => {
     const wrapper = mount(MessageBubble, {
       props: {
-        message: makeMsg({ role: "assistant", content: "Hello human", contentBlocks: [{ type: "text", content: "Hello human" }] }),
+        message: makeMsg({ role: "assistant", content: "Hello human" }),
       },
       global: { plugins: [i18n] },
     });
@@ -59,49 +68,31 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toContain("分形");
   });
 
-  it("shows thinking section when thinking content exists", () => {
+  it("does not render contentBlocks timeline (migrated to NodeTimeline)", () => {
+    // 助手时间线由 NodeTimeline 承接——MessageBubble 不再渲染 .f-timeline / tl-* 结构
     const wrapper = mount(MessageBubble, {
       props: {
         message: makeMsg({
           role: "assistant",
+          content: "",
           thinking: "Step 1: analyze...",
-          contentBlocks: [{ type: "thinking", content: "Step 1: analyze..." }],
+          contentBlocks: [
+            { type: "thinking", content: "Step 1: analyze..." },
+            { type: "tool_use", toolUse: { id: "tu_1", name: "Bash", input: { command: "ls" } } },
+            { type: "text", content: "done" },
+          ],
         }),
       },
       global: { plugins: [i18n] },
     });
-    expect(wrapper.text()).toContain("Step 1: analyze...");
+    expect(wrapper.find(".f-timeline").exists()).toBe(false);
+    expect(wrapper.find(".tl-thinking").exists()).toBe(false);
   });
 
-  it("does not show thinking section when empty", () => {
+  it("shows streaming cursor in fallback text when isStreaming (no contentBlocks)", () => {
     const wrapper = mount(MessageBubble, {
       props: {
-        message: makeMsg({ role: "assistant", thinking: "", contentBlocks: [] }),
-      },
-      global: { plugins: [i18n] },
-    });
-    expect(wrapper.text()).not.toContain("Thinking...");
-    expect(wrapper.text()).not.toContain("思考中...");
-  });
-
-  it("shows tool use details", () => {
-    const wrapper = mount(MessageBubble, {
-      props: {
-        message: makeMsg({
-          role: "assistant",
-          contentBlocks: [{ type: "tool_use", toolUse: { id: "tu_1", name: "Bash", input: { command: "ls" } } }],
-        }),
-      },
-      global: { plugins: [i18n] },
-    });
-    expect(wrapper.text()).toContain("Bash");
-    expect(wrapper.text()).toContain("ls");
-  });
-
-  it("shows streaming cursor when isStreaming", () => {
-    const wrapper = mount(MessageBubble, {
-      props: {
-        message: makeMsg({ role: "assistant", content: "partial", isStreaming: true, contentBlocks: [{ type: "text", content: "partial" }] }),
+        message: makeMsg({ role: "assistant", content: "partial", isStreaming: true }),
       },
       global: { plugins: [i18n] },
     });
@@ -111,78 +102,11 @@ describe("MessageBubble", () => {
   it("does not show streaming cursor when finished", () => {
     const wrapper = mount(MessageBubble, {
       props: {
-        message: makeMsg({ role: "assistant", content: "done", isStreaming: false, contentBlocks: [{ type: "text", content: "done" }] }),
+        message: makeMsg({ role: "assistant", content: "done", isStreaming: false }),
       },
       global: { plugins: [i18n] },
     });
     expect(wrapper.html()).not.toContain("stream-cursor");
-  });
-
-  // ── Token stats ──
-
-  it("shows token stats for finished assistant messages", () => {
-    const wrapper = mount(MessageBubble, {
-      props: {
-        message: makeMsg({
-          role: "assistant",
-          content: "Done.",
-          isStreaming: false,
-          durationMs: 2345,
-          inputTokens: 150,
-          outputTokens: 80,
-          contentBlocks: [{ type: "text", content: "Done." }],
-        }),
-      },
-      global: { plugins: [i18n] },
-    });
-    expect(wrapper.text()).toContain("2.3s");
-    expect(wrapper.text()).toContain("150");
-    expect(wrapper.text()).toContain("80");
-  });
-
-  it("shows stats only when finished, not streaming", () => {
-    // Streaming: no stats in the token row (only in timeline)
-    const streaming = mount(MessageBubble, {
-      props: {
-        message: makeMsg({
-          role: "assistant", content: "partial",
-          isStreaming: true, durationMs: 500, inputTokens: 10,
-          contentBlocks: [{ type: "text", content: "partial" }],
-        }),
-      },
-      global: { plugins: [i18n] },
-    });
-    // Finished: stats visible
-    const finished = mount(MessageBubble, {
-      props: {
-        message: makeMsg({
-          role: "assistant", content: "done",
-          isStreaming: false, durationMs: 2345, inputTokens: 150, outputTokens: 80,
-          contentBlocks: [{ type: "text", content: "done" }],
-        }),
-      },
-      global: { plugins: [i18n] },
-    });
-    expect(finished.text()).toContain("2.3s");
-  });
-
-  it("does not show token stats when no data", () => {
-    const wrapper = mount(MessageBubble, {
-      props: {
-        message: makeMsg({
-          role: "assistant",
-          content: "Done.",
-          isStreaming: false,
-          durationMs: undefined,
-          inputTokens: undefined,
-          outputTokens: undefined,
-          costUSD: undefined,
-        }),
-      },
-      global: { plugins: [i18n] },
-    });
-    // No token stats bar should render
-    expect(wrapper.text()).not.toContain("⏱");
   });
 
   // ── Edit / Resend buttons ──
@@ -194,7 +118,6 @@ describe("MessageBubble", () => {
       },
       global: { plugins: [i18n] },
     });
-    // Edit and Resend buttons should be present (title attributes)
     const buttons = wrapper.findAll("button");
     const titles = buttons.map(b => b.attributes("title")).filter(Boolean);
     expect(titles).toContain("Edit");
@@ -234,17 +157,14 @@ describe("MessageBubble", () => {
       },
       global: { plugins: [i18n] },
     });
-    // Click edit button
     const editBtn = wrapper.findAll("button").find(b => b.attributes("title") === "Edit");
     expect(editBtn).toBeTruthy();
     await editBtn!.trigger("click");
 
-    // Textarea should appear with original content
     const textarea = wrapper.find("textarea");
     expect(textarea.exists()).toBe(true);
     expect(textarea.element.value).toBe("Hello world");
 
-    // Cancel and Save & Resend buttons should appear
     expect(wrapper.text()).toContain("Cancel");
     expect(wrapper.text()).toContain("Save");
   });
@@ -256,15 +176,12 @@ describe("MessageBubble", () => {
       },
       global: { plugins: [i18n] },
     });
-    // Enter edit mode
     const editBtn = wrapper.findAll("button").find(b => b.attributes("title") === "Edit");
     await editBtn!.trigger("click");
 
-    // Edit text
     const textarea = wrapper.find("textarea");
     await textarea.setValue("Edited text");
 
-    // Click save
     const saveBtn = wrapper.findAll("button").find(b => b.text().includes("Save"));
     await saveBtn!.trigger("click");
 
@@ -285,5 +202,92 @@ describe("MessageBubble", () => {
 
     expect(wrapper.emitted("resend")).toBeTruthy();
     expect(wrapper.emitted("resend")![0]).toEqual(["test-1", "Retry me"]);
+  });
+
+  // ── D15 指令徽标（@agent 中文词边界 / 斜杠命令白名单）──
+
+  it("shows @agent badge (purple) with Chinese word boundary", () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: makeMsg({ role: "user", content: "帮我把这个任务交给@工匠，谢谢" }),
+      },
+      global: { plugins: [i18n] },
+    });
+    const badge = wrapper.find(".msg-badge");
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe("@工匠");
+    expect(badge.classes()).toContain("msg-badge--agent");
+    // 边框色随变体微调（紫色边框类）
+    expect(wrapper.find(".user-bubble").classes()).toContain("user-bubble--agent");
+  });
+
+  it("@agent 匹配多种角色 + 行尾/标点边界", () => {
+    // 词边界：行尾 / 中文标点后接（D15：ASCII \b 对 CJK 无效，用标点/空白/行尾做边界）
+    for (const content of ["交给@军师", "让@侦查兵，继续", "请@制图师，生成图表"]) {
+      const wrapper = mount(MessageBubble, {
+        props: { message: makeMsg({ role: "user", content }) },
+        global: { plugins: [i18n] },
+      });
+      expect(wrapper.find(".msg-badge").exists()).toBe(true);
+    }
+  });
+
+  it("@agent 后紧跟汉字不匹配（非词边界，避免误判）", () => {
+    // 「@工匠处理」中 @工匠 后是汉字「处」→ 非词边界 → 不匹配
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "让@工匠处理这个任务" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-badge").exists()).toBe(false);
+  });
+
+  it("email 场景不误判 @agent 徽标（a@b.com 词边界不匹配）", () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: makeMsg({ role: "user", content: "发到 a@b.com 就好" }),
+      },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-badge").exists()).toBe(false);
+  });
+
+  it("shows slash command badge (blue) when command in useSlashCommands history", () => {
+    // 通过 recordCommand 填充模块级 recentCommands（localStorage 预置不更新模块 ref）
+    useSlashCommands().recordCommand("/continue-session");
+    useSlashCommands().recordCommand("/export-session");
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: makeMsg({ role: "user", content: "/continue-session 继续" }),
+      },
+      global: { plugins: [i18n] },
+    });
+    const badge = wrapper.find(".msg-badge");
+    expect(badge.exists()).toBe(true);
+    expect(badge.text()).toBe("/continue-session");
+    expect(badge.classes()).toContain("msg-badge--command");
+    expect(wrapper.find(".user-bubble").classes()).toContain("user-bubble--command");
+  });
+
+  it("unknown slash command (not in history) shows no badge", () => {
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: makeMsg({ role: "user", content: "/unknown-cmd foo" }),
+      },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-badge").exists()).toBe(false);
+  });
+
+  it("@agent 优先于斜杠命令（同时存在时显示 @agent 徽标）", () => {
+    useSlashCommands().recordCommand("/continue-session");
+    const wrapper = mount(MessageBubble, {
+      props: {
+        message: makeMsg({ role: "user", content: "/continue-session 请@军师！" }),
+      },
+      global: { plugins: [i18n] },
+    });
+    const badge = wrapper.find(".msg-badge");
+    expect(badge.text()).toBe("@军师");
+    expect(badge.classes()).toContain("msg-badge--agent");
   });
 });

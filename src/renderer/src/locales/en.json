@@ -100,7 +100,11 @@
     "aboutTitle": "About Fractal",
     "aboutSubtitle": "Fractal — Smart Bridge for OpenCode",
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · Multi-provider API",
-    "aboutCopyright": "© 2026 Fractal contributors · MIT"
+    "aboutCopyright": "© 2026 Fractal contributors · MIT",
+    "turnComplete": "Turn complete",
+    "timelineSummary": "Summary",
+    "todoUpdate": "Update todos",
+    "subTaskUnavailable": "Subtask details unavailable"
   },
   "provider": {
     "anthropic": "Anthropic",
