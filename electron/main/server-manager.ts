@@ -24,6 +24,9 @@ export interface ServerInfo {
   port?: number
 }
 
+/** 8800 冲突降噪标记（模块级：跨 spawn 重试只提示一次）——官方桌面端占用 8800 时 serve v2 server 必失败，非致命 */
+let v2ConflictHinted = false
+
 /** 解析 serve listening 日志行提取 v1 端口（--port 0 随机分配后 serve 输出 listening 行）——
  * 分形不再预分配 v1 端口：serve --port 固定值时 v2 server 固定 8800 且 OPENCODE_PORT 不生效
  * （2026-08-09 实测：与官方桌面端 8800 冲突即崩溃）；--port 0 时 v2 跟随 OPENCODE_PORT、v1 随机由本函数解析 */
@@ -443,7 +446,16 @@ async function startServer(): Promise<StartServerResult> {
         const utf8 = d.toString('utf8').replace(/\u0000/g, '')
         const txt = utf8.includes('\ufffd') ? d.toString('utf16le').replace(/\u0000/g, '') : utf8
         serveStderrTail = (serveStderrTail + txt).slice(-16384)
-        if (txt.trim()) console.error(`[serve] ${txt.trim().slice(0, 500)}`)
+        // 8800 冲突降噪：官方桌面端占用 8800 时 serve 的 v2 server 启动必失败（非致命——分形走 v1 API 不受影响）。
+        // 控制台只提示一次友好文案（不再裸刷错误堆栈）；serve.log 保留原文（诊断面板仍可见完整错误）
+        if (!v2ConflictHinted && /Failed to start server\. Is port \d+ in use/.test(txt)) {
+          v2ConflictHinted = true
+          console.error(
+            '[serve] 检测到 8800 端口被占用（通常为 OpenCode 官方桌面端）——serve 的 v2 API 服务不可用；分形使用 v1 API，功能不受影响'
+          )
+        } else if (txt.trim()) {
+          console.error(`[serve] ${txt.trim().slice(0, 500)}`)
+        }
         // 落盘写完整文本（[HH:mm:ss] 前缀 + 10MB 轮转），console 的 500 截断不影响落盘
         appendServeLog(serveLogFile, txt)
         // 端口解析（一次）：listening 行 → v1 实际端口（serve --port 0 随机分配）
