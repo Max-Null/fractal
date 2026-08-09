@@ -52,6 +52,8 @@ export interface ContentBlock {
   type: "text" | "thinking" | "tool_use" | "tool_result";
   /** text/thinking 块的文本内容 */
   content?: string;
+  /** thinking 块的思考耗时（毫秒）——历史路径透传 serve ReasoningPart.time，流式仍靠相邻工具块回填 */
+  durationMs?: number;
   /** tool_use 块的工具信息 */
   toolUse?: ToolUse;
   /** tool_result 块的执行结果 */
@@ -388,7 +390,8 @@ export const useChatStore = defineStore("chat", () => {
       }
       if (event.tool_use) {
         for (const tu of event.tool_use) {
-          last.toolUses.push({ id: tu.id, name: tu.name, input: tu.input || {} });
+          // 后台会话透传服务端耗时（2026-08-10：切回主会话缓存命中不拉历史 → 客户端计时不可用）
+          last.toolUses.push({ id: tu.id, name: tu.name, input: tu.input || {}, startedAt: tu.startedAt });
         }
       }
       if (event.input_tokens != null) last.inputTokens = event.input_tokens;
@@ -402,6 +405,7 @@ export const useChatStore = defineStore("chat", () => {
         if (tu) {
           tu.result = tr.content;
           tu.isError = tr.is_error;
+          if (tr.executionDurationMs !== undefined) tu.executionDurationMs = tr.executionDurationMs;
         }
         if (last.contentBlocks) {
           last.contentBlocks.push({

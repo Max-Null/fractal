@@ -214,16 +214,15 @@ describe("NodeCard", () => {
     expect(tx.find(".node-card-chevron").exists()).toBe(false);
   });
 
-  it("text 节点有 durationMs → 耗时显示；无 → 不显示（不虚构）", () => {
+  it("text 节点不显示耗时（2026-08-10 用户拍板：demo 中耗时只在节点标题行，text 正文无）", () => {
     const withDur = mountCard(node({ kind: "text", text: "正文", durationMs: 3200 }));
-    expect(withDur.text()).toContain("⏱3.2s");
-    const noDur = mountCard(node({ kind: "text", text: "正文" }));
-    expect(noDur.text()).not.toContain("⏱");
+    expect(withDur.text()).not.toContain("⏱");
+    expect(withDur.text()).toBe("正文");
   });
 
-  // ═══ todo 变体（D11 单行无展开）═══
+  // ═══ todo 变体（2026-08-10 用户拍板：复用 TodoRecordCard——单行摘要默认收起，点击展开 chips 列表）═══
 
-  it("todo 变体：head 行 + 待办列表（状态图标+标题），无展开交互", async () => {
+  it("todo 变体：TodoRecordCard 折叠摘要（标题 + 正在：xxx），默认不渲染列表，点击展开 chips", async () => {
     const w = mountCard(node({
       key: "t2",
       kind: "tool",
@@ -233,33 +232,38 @@ describe("NodeCard", () => {
         input: { todos: [{ content: "写 README", status: "in_progress" }, { content: "发布", status: "pending" }, { content: "完成", status: "completed" }] },
       },
     }));
+    // 折叠摘要：标题「Update todos」+ 正在：进行中任务 + 默认不渲染列表
     expect(w.text()).toContain("Update todos");
-    // head 行右侧不渲染 chevron（todo 无展开交互 D11）
+    expect(w.text()).toContain("正在：写 README");
+    expect(w.find(".todo-record-card__list").exists()).toBe(false);
+    // 不使用 NodeCard chevron（TodoRecordCard 自带 ▾ 箭头）
     expect(w.find(".node-card-chevron").exists()).toBe(false);
-    // 列表：每项状态图标 + 标题（反馈 #2：展示待办列表本身，非工具卡片）
-    const items = w.findAll(".node-card-todo-item");
-    expect(items).toHaveLength(3);
-    expect(items[0].text()).toContain("●");
-    expect(items[0].text()).toContain("写 README");
-    expect(items[1].text()).toContain("☐");
-    expect(items[1].text()).toContain("发布");
-    expect(items[2].text()).toContain("☑");
-    expect(items[2].text()).toContain("完成");
-    // 点击标题行不展开（D11：无展开交互，不 emit update:expanded）
-    await w.find(".node-card-head--todo").trigger("click");
-    expect(w.emitted("update:expanded")).toBeUndefined();
+    // 点击展开：chips 列表 3 项（状态 + 标题）
+    await w.find(".todo-record-card__header").trigger("click");
+    const chips = w.findAll(".todo-record-chip");
+    expect(chips).toHaveLength(3);
+    expect(chips[0].classes()).toContain("todo-record-chip--in_progress");
+    expect(chips[0].text()).toContain("写 README");
+    expect(chips[2].classes()).toContain("todo-record-chip--completed");
+    expect(chips[2].text()).toContain("完成");
+    // 再点收起
+    await w.find(".todo-record-card__header").trigger("click");
+    expect(w.find(".todo-record-card__list").exists()).toBe(false);
     // 展开区不渲染（input/result 区）
     expect(w.text()).not.toContain("Input");
   });
 
-  it("todo 变体无 todos 字段 → 降级单行（无列表）", () => {
+  it("todo 变体无 todos 字段 → 摘要「正在：」+ 展开无列表", async () => {
     const w = mountCard(node({
       key: "t3",
       kind: "tool",
       tool: { id: "t3", name: "todowrite", input: {} },
     }));
-    expect(w.find(".node-card-todo-list").exists()).toBe(false);
     expect(w.text()).toContain("Update todos");
+    expect(w.find(".todo-record-card__list").exists()).toBe(false);
+    await w.find(".todo-record-card__header").trigger("click");
+    expect(w.find(".todo-record-card__list").exists()).toBe(true);
+    expect(w.findAll(".todo-record-chip")).toHaveLength(0);
   });
 
   // ═══ subtask 变体（D14 复用 SubTaskCard）═══

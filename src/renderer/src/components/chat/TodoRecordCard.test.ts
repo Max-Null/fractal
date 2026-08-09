@@ -26,9 +26,9 @@ const baseTodos: TodoItem[] = [
   { content: "收尾", status: "completed", activeForm: "" },
 ];
 
-function mountCard(endedAt = 0, todos: TodoItem[] = baseTodos): VueWrapper {
+function mountCard(endedAt = 0, todos: TodoItem[] = baseTodos, extraProps = {}): VueWrapper {
   return mount(TodoRecordCard, {
-    props: { endedAt, todos },
+    props: { endedAt, todos, ...extraProps },
     global: { plugins: [i18n] },
   });
 }
@@ -69,5 +69,44 @@ describe("TodoRecordCard", () => {
   it("时间格式化：endedAt=0（消息无时间戳）→ '--:--'", () => {
     const wrapper = mountCard(0);
     expect(wrapper.find(".todo-record-card__time").text()).toBe("--:--");
+  });
+
+  // ═══ 变体 props（2026-08-10：todo 更新节点复用）═══
+
+  it("title 覆盖：默认「待办记录」→ 传 title 显示「更新待办」", () => {
+    const w = mountCard(0, baseTodos, { title: "Update todos" });
+    expect(w.find(".todo-record-card__title").text()).toBe("Update todos");
+  });
+
+  it("summaryText 覆盖：默认 n/m 完成 → 传「正在：xxx」摘要（不渲染 count）", () => {
+    const w = mountCard(0, baseTodos, { summaryText: "正在：写 README" });
+    expect(w.find(".todo-record-card__summary").text()).toBe("正在：写 README");
+    expect(w.find(".todo-record-card__count").exists()).toBe(false);
+  });
+
+  it("timeText 覆盖：默认 endedAt HH:mm → 传工具耗时（0.3s）", () => {
+    const w = mountCard(0, baseTodos, { timeText: "0.3s" });
+    expect(w.find(".todo-record-card__time").text()).toBe("0.3s");
+  });
+
+  it("status 标记：ok=✓ / error=✗（错误标珊瑚色类）", () => {
+    const ok = mountCard(0, baseTodos, { status: "ok" });
+    expect(ok.find(".todo-record-card__status").text()).toBe("✓");
+    const err = mountCard(0, baseTodos, { status: "error" });
+    expect(err.find(".todo-record-card__status").text()).toBe("✗");
+    expect(err.find(".todo-record-card__status").classes()).toContain("todo-record-card__status--error");
+  });
+
+  it("busy：渲染三连点（进行中指示）", () => {
+    const w = mountCard(0, baseTodos, { busy: true });
+    expect(w.findAll(".todo-record-card__dots i")).toHaveLength(3);
+    const idle = mountCard(0, baseTodos);
+    expect(idle.find(".todo-record-card__dots").exists()).toBe(false);
+  });
+
+  it("busy + status 同时传 → 不渲染状态标记（进行中不配完成符号，制图师截图反馈）", () => {
+    const w = mountCard(0, baseTodos, { busy: true, status: "ok" });
+    expect(w.find(".todo-record-card__status").exists()).toBe(false);
+    expect(w.findAll(".todo-record-card__dots i")).toHaveLength(3);
   });
 });

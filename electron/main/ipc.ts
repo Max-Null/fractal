@@ -12,7 +12,7 @@ import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
 import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
-import { subscribeEvents } from './events'
+import { subscribeEvents, positiveDuration, type ToolStateTime } from './events'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig, resolveSmallModel } from './oc-config'
 import { applyModelAliases } from './preset'
@@ -1010,31 +1010,55 @@ function filePartToAttachment(p: { filename?: string; url: string; source?: { pa
 
 /** assistant 消息 parts → 前端 contentBlocks 时间线（按 parts 原序构建——thinking 与 text 交错不再聚合，保真实输出序） */
 function buildHistoryContentBlocks(
-  parts: Array<{ type: string; text?: string; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
+  parts: Array<{
+    type: string
+    text?: string
+    callID?: string
+    tool?: string
+    /** part 顶层 time：reasoning/text 的耗时区间（SDK ReasoningPart.time） */
+    time?: { start?: number; end?: number }
+    state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string; time?: { start?: number; end?: number } }
+  }>
 ): Array<{
   type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
   content?: string
-  toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+  durationMs?: number
+  toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; startedAt?: number; executionDurationMs?: number }
   toolResult?: { toolUseId: string; content: string; isError?: boolean }
 }> {
   const blocks: Array<{
     type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
     content?: string
-    toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean }
+    durationMs?: number
+    toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; startedAt?: number; executionDurationMs?: number }
     toolResult?: { toolUseId: string; content: string; isError?: boolean }
   }> = []
   for (const p of parts) {
     if (p.type === 'reasoning') {
       // 思考 part → thinking 块（NodeTimeline 识别用；相邻 thinking 由 buildTurnNodes 回合级合并）
       const text = p.text ?? ''
-      if (text) blocks.push({ type: 'thinking', content: text })
+      if (text) {
+        // 思考耗时 = ReasoningPart.time.end - start（end 可选——缺失则不显示耗时）
+        const durationMs = positiveDuration(p.time?.start, p.time?.end)
+        blocks.push({ type: 'thinking', content: text, ...(durationMs !== undefined ? { durationMs } : {}) })
+      }
     } else if (p.type === 'tool') {
       // 工具块：仅完成/错误态（pending/running 是流式中间态，历史消息取终态）
       if (!p.callID || !p.tool) continue
       const status = p.state?.status
       if (status !== 'completed' && status !== 'error') continue
       const isError = status === 'error'
-      const toolUse = { id: p.callID, name: p.tool, input: p.state?.input ?? {}, result: isError ? p.state?.error ?? '' : p.state?.output ?? '', isError }
+      // 工具耗时 = ToolState.time.end - start（两端齐全才算）
+      const executionDurationMs = positiveDuration(p.state?.time?.start, (p.state as ToolStateTime | undefined)?.time?.end)
+      const toolUse = {
+        id: p.callID,
+        name: p.tool,
+        input: p.state?.input ?? {},
+        result: isError ? p.state?.error ?? '' : p.state?.output ?? '',
+        isError,
+        startedAt: p.state?.time?.start,
+        ...(executionDurationMs !== undefined ? { executionDurationMs } : {}),
+      }
       blocks.push({ type: 'tool_use', toolUse })
       // 工具结果块紧跟对应工具卡片（MessageBubble 渲染 tool_use 内嵌结果，tool_result 块保证数据完整性）
       blocks.push({ type: 'tool_result', toolResult: { toolUseId: p.callID, content: toolUse.result, isError } })
@@ -1146,15 +1170,23 @@ export function toMessageData(sm: SessionMessage): {
       .filter(Boolean)
       .join('\n')
     // 工具调用：仅终态（completed/error），id=callID、name=tool、input=state.input、result=output/error
+    // 耗时 = ToolState.time.end - start（两端齐全才算；历史恢复时客户端计时不可用，必须服务端透传）
     const toolUses = parts
       .filter((p) => p.type === 'tool' && p.callID && p.tool && (p.state?.status === 'completed' || p.state?.status === 'error'))
-      .map((p) => ({
-        id: p.callID!,
-        name: p.tool!,
-        input: p.state?.input ?? {},
-        result: p.state?.status === 'error' ? p.state?.error ?? '' : p.state?.output ?? '',
-        isError: p.state?.status === 'error',
-      }))
+      .map((p) => {
+        // ToolState 联合含 pending（无 time）→ 断言取时间字段
+        const toolTime = (p.state as ToolStateTime | undefined)?.time
+        const duration = positiveDuration(toolTime?.start, toolTime?.end)
+        return {
+          id: p.callID!,
+          name: p.tool!,
+          input: p.state?.input ?? {},
+          result: p.state?.status === 'error' ? p.state?.error ?? '' : p.state?.output ?? '',
+          isError: p.state?.status === 'error',
+          startedAt: toolTime?.start,
+          ...(duration !== undefined ? { executionDurationMs: duration } : {}),
+        }
+      })
     const contentBlocks = buildHistoryContentBlocks(parts)
     // 尽力而为的统计：durationMs 用消息 completed-created 差；tokens 取 SDK 顶层字段；
     // cost 在 step-finish part 上（SDK AssistantMessage.tokens 无 cost 字段，阶段 0 实测）

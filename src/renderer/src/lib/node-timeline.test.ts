@@ -283,6 +283,35 @@ describe("buildTurnNodes", () => {
     expect(nodes[0].kind).toBe("thinking");
     expect(nodes[0].durationMs).toBe(1500);
   });
+
+  it("thinking 节点 durationMs 直接取块自带值（历史路径 serve ReasoningPart.time 透传，2026-08-10）", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: [
+            { type: "thinking", content: "历史思考", durationMs: 900 },
+            { type: "text", content: "回答" },
+          ],
+        }),
+      ],
+    });
+    expect(nodes[0].kind).toBe("thinking");
+    expect(nodes[0].durationMs).toBe(900);
+    // 块自带值与相邻工具块回填不冲突：已有时不回填（node-timeline 的 undefined 检查）
+    const merged = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: [
+            { type: "thinking", content: "思考", durationMs: 900 },
+            { type: "tool_use", toolUse: { id: "t1", name: "Bash", input: {}, thinkingDurationMs: 1500 } },
+          ],
+        }),
+      ],
+    });
+    expect(merged[0].durationMs).toBe(900);
+  });
 });
 
 // ── groupTurns 回合分组（D1：user 开新回合，assistant 归当前回合）──

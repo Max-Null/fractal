@@ -4,7 +4,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import {
-  Brain, Globe, FileText, Pencil, Terminal, Wrench, SquareCheck, Flag, ChevronDown,
+  Brain, Globe, FileText, Pencil, Terminal, Wrench, Flag, ChevronDown,
 } from "lucide-vue-next";
 import type { Component } from "vue";
 import type { TimelineNode } from "@/lib/node-timeline";
@@ -12,6 +12,7 @@ import { toolSummary, thinkingSummary } from "@/lib/nodeSummary";
 import type { SubTask, TodoItem } from "@/stores/chat";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 import SubTaskCard from "./SubTaskCard.vue";
+import TodoRecordCard from "./TodoRecordCard.vue";
 
 const { t } = useI18n();
 
@@ -40,7 +41,7 @@ let nowTimer: ReturnType<typeof setInterval> | null = null;
 onMounted(() => { nowTimer = setInterval(() => { now.value = Date.now(); }, 1000); });
 onUnmounted(() => { if (nowTimer) clearInterval(nowTimer); });
 
-/** todo 变体判定：tool 节点工具名为 todowrite（D11 单行无展开） */
+/** todo 变体判定：tool 节点工具名为 todowrite（2026-08-10 用户拍板：复用 TodoRecordCard 折叠卡，样式与回合记录节点统一） */
 const isTodo = computed(() =>
   props.node.kind === "tool" && String(props.node.tool?.name).toLowerCase() === "todowrite"
 );
@@ -48,26 +49,34 @@ const isTodo = computed(() =>
 /** summary 变体判定：回合最后 text 节点（D7） */
 const isSummaryNode = computed(() => props.node.kind === "text" && props.node.isSummary);
 
-/** 展开判定：text/summary 恒展开；todo 无展开；thinking/tool 受控 */
+/** 展开判定：text/summary 恒展开；todo 由 TodoRecordCard 内部状态管理（不参与受控展开）；thinking/tool 受控 */
 const isExpanded = computed(() => {
   if (props.node.kind === "text" || isSummaryNode.value) return true;
   if (isTodo.value) return false;
   return !!props.expanded;
 });
 
-/** 可展开判定：thinking/tool（D5/D6 可点击收起展开）；chevron 仅在可展开节点显示 */
+/** 可展开判定：thinking/tool（D5/D6 可点击收起展开）；chevron 仅在可展开节点显示；todo 走 TodoRecordCard 自带 ▾ */
 const isCollapsible = computed(() =>
   props.node.kind === "thinking" || (props.node.kind === "tool" && !isTodo.value)
 );
 
-/** todo 变体待办列表（D11 适配）：todowrite input.todos 数组——信息型展示，不是工具卡片 */
+/** todo 变体待办列表：todowrite input.todos 数组——信息型展示，不是工具卡片 */
 const todoItems = computed<TodoItem[]>(() => {
   if (!isTodo.value) return [];
   const todos = (props.node.tool?.input as { todos?: unknown } | undefined)?.todos;
   return Array.isArray(todos) ? (todos as TodoItem[]) : [];
 });
 
-/** 标题行点击：thinking/tool 可展开收起（D5/D6）；todo 无展开交互（D11） */
+/** todo 变体完成态：映射 statusMark → TodoRecordCard status（ok/error；无 result 时 undefined=无标记） */
+const todoStatus = computed<"ok" | "error" | undefined>(() => {
+  if (!isTodo.value || !props.node.tool) return undefined;
+  if (props.node.tool.isError) return "error";
+  if (props.node.tool.result !== undefined) return "ok";
+  return undefined;
+});
+
+/** 标题行点击：thinking/tool 可展开收起（D5/D6）；todo 展开由 TodoRecordCard header 内部处理 */
 function toggle() {
   if (props.node.kind !== "thinking" && props.node.kind !== "tool") return;
   if (isTodo.value) return;
@@ -102,19 +111,9 @@ const durationLabel = computed(() => {
     return "";
   }
   if (n.kind === "thinking" && n.durationMs) return (n.durationMs / 1000).toFixed(1) + "s";
-  if (n.kind === "text" && n.durationMs) return (n.durationMs / 1000).toFixed(1) + "s";
   return "";
 });
 
-/** 待办项状态图标（D11 对齐 TodoPanel）：pending 空框 / in_progress 实心 / completed 对勾 / cancelled 叉 */
-function todoStatusIcon(status: string): string {
-  switch (status) {
-    case "completed": return "☑";
-    case "in_progress": return "●";
-    case "cancelled": return "✕";
-    default: return "☐";
-  }
-}
 
 /** 工具状态标记：错误 ✗（珊瑚）/ 有结果 ✓（绿）/ 其余空（进行中由 busy 三连点接管） */
 const statusMark = computed(() => {
@@ -145,6 +144,9 @@ function formatJSON(obj: unknown): string {
       'node-card--busy': busy,
       'node-card--summary': isSummaryNode,
       'node-card--todo': isTodo,
+      // 2026-08-10 统一边框：按变体加（text 无边框；subtask 由 SubTaskCard 自带卡片）
+      'node-card--thinking': node.kind === 'thinking',
+      'node-card--tool': node.kind === 'tool',
     }"
   >
     <!-- ═══ thinking：标题行（收起态只渲染标题行——流式性能 D17）+ 点击展开全文 ═══ -->
@@ -165,44 +167,30 @@ function formatJSON(obj: unknown): string {
       <div v-if="isExpanded" class="node-card-body node-card-body--thinking">{{ node.text }}</div>
     </template>
 
-    <!-- ═══ text / summary：无标题行直接正文（始终展开）；有 durationMs 显示耗时 ═══ -->
+    <!-- ═══ text / summary：无标题行直接正文（始终展开）；2026-08-10 用户拍板：text 不显示耗时（demo 中耗时只在节点标题行） ═══ -->
     <div v-else-if="node.kind === 'text'" class="node-card-text">
       <!-- D7 总结节点：绿底渐变 + Flag + 总结（视觉强调回合最终产出） -->
       <div v-if="isSummaryNode" class="node-card-summary-head">
         <Flag class="node-card-icon" :size="13" />
         <span class="node-card-label">{{ t('chat.timelineSummary') }}</span>
-        <span v-if="durationLabel" class="node-card-stat node-card-stat--summary">⏱{{ durationLabel }}</span>
       </div>
       <MarkdownRenderer :content="node.text ?? ''" />
-      <!-- 反馈 #5：普通 text 节点有 durationMs 则显示耗时（无精确数据省略，不虚构） -->
-      <span v-if="durationLabel && !isSummaryNode" class="node-card-stat node-card-stat--text">⏱{{ durationLabel }}</span>
     </div>
 
-    <!-- ═══ tool（非 todo）/ todo（D11 待办列表变体，非工具卡片样式）═══ -->
+    <!-- ═══ tool（非 todo）/ todo（2026-08-10：复用 TodoRecordCard 折叠卡——单行「正在：xxx」+ 点击展开 chips 列表，
+         样式与回合结束记录节点统一；busy 三连点 / ✓✗ 状态 / 工具耗时 由新 props 透传）═══ -->
     <template v-else-if="node.kind === 'tool' && node.tool">
-      <!-- todo 变体：展示 todowrite input 的待办列表本身（序号+状态图标+标题，轻量对齐 TodoPanel）；
-           无 todos 字段降级单行「更新待办」；无展开交互（D11 保持） -->
       <div v-if="isTodo" class="node-card-todo">
-        <div class="node-card-head node-card-head--todo" @click="toggle">
-          <span class="node-card-head-left">
-            <SquareCheck class="node-card-icon" :size="13" />
-            <span class="node-card-label">{{ t('chat.todoUpdate') }}</span>
-            <span class="node-card-snippet">
-              {{ todoItems.length ? toolSummary(node.tool.name, node.tool.input) : '' }}
-            </span>
-          </span>
-          <span class="node-card-head-right">
-            <span v-if="statusMark" class="node-card-status">{{ statusMark }}</span>
-            <span v-if="durationLabel" class="node-card-stat">⚡{{ durationLabel }}</span>
-          </span>
-        </div>
-        <!-- 待办列表：状态图标 + 标题；无 todos 时无列表（标题行降级） -->
-        <ul v-if="todoItems.length" class="node-card-todo-list">
-          <li v-for="(t, i) in todoItems" :key="i" class="node-card-todo-item" :class="'node-card-todo-item--' + t.status">
-            <span class="node-card-todo-status">{{ todoStatusIcon(t.status) }}</span>
-            <span class="node-card-todo-text">{{ t.content }}</span>
-          </li>
-        </ul>
+        <TodoRecordCard
+          :todos="todoItems"
+          :ended-at="0"
+          embedded
+          :title="t('chat.todoUpdate')"
+          :summary-text="toolSummary(node.tool.name, node.tool.input)"
+          :time-text="durationLabel"
+          :busy="busy"
+          :status="todoStatus"
+        />
       </div>
 
       <!-- 普通工具节点：标题行（icon+工具名+梗概 左 / 状态+耗时+三连点+chevron 右） -->
@@ -273,6 +261,21 @@ function formatJSON(obj: unknown): string {
   background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(16, 185, 129, 0.04));
   border-color: rgba(34, 197, 94, 0.18);
   padding: 2px 10px;
+}
+
+/* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo 统一卡片边框；
+   subtask 由 SubTaskCard 自带边框；text/summary 无边框正文） */
+.node-card--thinking,
+.node-card--tool,
+.node-card--todo {
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: var(--bg-root);
+}
+/* tool 内部容器不再重复边框（根已提供） */
+.node-card--tool .node-card-tool {
+  border: none;
+  background: transparent;
 }
 
 /* ── 标题行（D5 右对齐布局）：左侧 图标+名称+梗概（flex:1 省略） / 右侧 状态区（flex-shrink:0） ── */
@@ -423,44 +426,12 @@ function formatJSON(obj: unknown): string {
   overflow-y: auto;
 }
 
-/* ── todo 变体（D11 适配：待办列表信息，非工具卡片样式；轻量对齐 TodoPanel chip 体系） ── */
+/* ── todo 变体（2026-08-10 用户拍板：复用 TodoRecordCard embedded——单行摘要 + 点击展开 chips 列表，
+     样式与回合结束记录节点统一；此处仅保留节点容器边距微调） ── */
 .node-card-todo {
   border-radius: 6px;
-  border: 1px solid var(--border-dim);
-  background: var(--bg-elevated);
   margin-bottom: 1px;
 }
-.node-card-todo .node-card-head { padding: 5px 10px 3px; }
-/* 待办列表：序号状态图标 + 标题（completed 蓝 / in_progress 琥珀 / pending 灰 / cancelled 删线） */
-.node-card-todo-list {
-  list-style: none;
-  margin: 0;
-  padding: 2px 10px 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.node-card-todo-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  line-height: 1.5;
-  min-width: 0;
-}
-.node-card-todo-status { flex-shrink: 0; font-size: 10px; width: 12px; text-align: center; }
-.node-card-todo-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-secondary);
-}
-.node-card-todo-item--completed .node-card-todo-status { color: var(--accent); }
-.node-card-todo-item--completed .node-card-todo-text { color: var(--text-muted); }
-.node-card-todo-item--in_progress .node-card-todo-status { color: var(--amber); }
-.node-card-todo-item--in_progress .node-card-todo-text { color: var(--text-bright); }
-.node-card-todo-item--cancelled { opacity: 0.5; }
-.node-card-todo-item--cancelled .node-card-todo-text { text-decoration: line-through; }
 
 /* ── subtask 容器：时间线圆点/竖线对齐由 NodeTimeline 负责，这里只做边距微调 ── */
 .node-card-subtask { padding: 2px 0; }

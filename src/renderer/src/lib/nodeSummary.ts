@@ -25,6 +25,15 @@ function globPatternOf(input: unknown): string {
   return "";
 }
 
+/** grep 匹配模式：pattern 字段（grep 工具必填；path/include 次要不展示） */
+function grepPatternOf(input: unknown): string {
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (typeof obj.pattern === "string") return obj.pattern.split("\n")[0];
+  }
+  return "";
+}
+
 /** question 问题文本：questions 数组首项 question 字段（AskUserQuestion 工具，无 questions 则取 description） */
 function questionTextOf(input: unknown): string {
   if (input && typeof input === "object") {
@@ -68,6 +77,9 @@ export function toolSummary(name: string, input?: unknown): string {
     case "glob":
       // 匹配模式（patterns 数组首项 / pattern 单值）
       return globPatternOf(input).slice(0, 60);
+    case "grep":
+      // 匹配模式（grep 工具必填 pattern 字段；2026-08-10 补——此前收起态无梗概）
+      return grepPatternOf(input).slice(0, 60);
     case "list":
       // 目录路径首行
       return firstLineOf(input).slice(0, 60);

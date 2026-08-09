@@ -681,6 +681,45 @@ describe("buildContentBlocks", () => {
     expect(result[0].toolResult!.toolUseId).toBe("tr_1");
   });
 
+  it("工具耗时服务端透传优先：tool_use.startedAt / tool_results.executionDurationMs 覆盖客户端计时（2026-08-10）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-t");
+
+    chat.addUserMessage("跑工具");
+    chat.startAssistantMessage();
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // assistant 事件：服务端 ToolState.time.start → startedAt（客户端计时会被忽略）
+    listeners.get("engine:event")?.({
+      type: "assistant",
+      session_id: "ses-t",
+      text: "",
+      thinking: "",
+      tool_use: [{ id: "t1", name: "Bash", input: {}, startedAt: 1000 }],
+      content_blocks: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }],
+    });
+    expect(chat.currentAssistantMsg?.toolUses[0].startedAt).toBe(1000);
+
+    // user 事件：服务端 end-start → executionDurationMs（若走客户端会得到 Date.now() 差值 ≈ 0-2ms）
+    listeners.get("engine:event")?.({
+      type: "user",
+      session_id: "ses-t",
+      text: "",
+      thinking: "",
+      tool_results: [{ tool_use_id: "t1", content: "ok", is_error: false, executionDurationMs: 2000 }],
+    });
+    expect(chat.currentAssistantMsg?.toolUses[0].executionDurationMs).toBe(2000);
+    // syncBlockTimings 同步到 contentBlocks 工具块
+    const block = chat.currentAssistantMsg?.contentBlocks?.find((b) => b.type === "tool_use");
+    expect(block?.toolUse?.startedAt).toBe(1000);
+    expect(block?.toolUse?.executionDurationMs).toBe(2000);
+
+    stopListening();
+  });
+
   it("existing 中的隔断块不影响同类型 startsWith 替换", () => {
     // 场景：第一次事件产生了 [text, tool_use]，
     // 第二次 CC 完整事件携带 [text(同), tool_use(同), text(新)]

@@ -149,7 +149,8 @@ export function useStreamProcessor() {
   }
   function markToolExecStart(tool: ToolUse) {
     toolExecStart = Date.now();
-    tool.startedAt = toolExecStart;  // 供 MessageBubble 显示实时计时
+    // 服务端透传 startedAt（ToolState.time.start）优先；兜底客户端计时
+    if (!tool.startedAt) tool.startedAt = toolExecStart;  // 供 MessageBubble 显示实时计时
     lastToolUse = tool;
   }
 
@@ -254,6 +255,7 @@ export function useStreamProcessor() {
                 name: tu.name,
                 input: tu.input,
                 thinkingDurationMs: thinkingDur,
+                startedAt: tu.startedAt,  // 服务端 ToolState.time.start（历史/恢复场景客户端计时不可用）
               };
               chat.addToolUse(toolUse);
               markToolExecStart(toolUse);
@@ -308,9 +310,18 @@ export function useStreamProcessor() {
         case "user": {
           if (data.tool_results && chat.currentAssistantMsg) {
             for (const tr of data.tool_results) {
-              // 结算对应工具的执行耗时（从 tool_use 发出到 tool_result 到达）
+              // 结算对应工具的执行耗时：优先服务端透传（按 tool_use_id 定位——多工具流水线交错/
+              // 重连重放时 lastToolUse 单指针可能指向别的工具，此时只信任服务端值）；
+              // 兜底客户端计时（从 tool_use 发出到 tool_result 到达）
+              const target = chat.currentAssistantMsg.toolUses.find((tu) => tu.id === tr.tool_use_id);
+              if (target) {
+                if (tr.executionDurationMs !== undefined) {
+                  target.executionDurationMs = tr.executionDurationMs;
+                } else if (toolExecStart && lastToolUse?.id === tr.tool_use_id) {
+                  target.executionDurationMs = Date.now() - toolExecStart;
+                }
+              }
               if (toolExecStart && lastToolUse?.id === tr.tool_use_id) {
-                lastToolUse.executionDurationMs = Date.now() - toolExecStart;
                 toolExecStart = 0;
                 lastToolUse = null;
               }

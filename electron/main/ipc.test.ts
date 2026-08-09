@@ -159,9 +159,9 @@ function makeMessage(role: 'user' | 'assistant', parts: unknown[], extra: Record
   }
 }
 
-/** 构造 serve text part（可指定 synthetic——serve 回显占位标记） */
-function textPart(text: string, opts: { synthetic?: boolean; type?: string } = {}): Record<string, unknown> {
-  return { type: opts.type ?? 'text', text, ...(opts.synthetic ? { synthetic: true } : {}) }
+/** 构造 serve text part（可指定 synthetic——serve 回显占位标记；time——part 耗时区间） */
+function textPart(text: string, opts: { synthetic?: boolean; type?: string; time?: { start: number; end?: number } } = {}): Record<string, unknown> {
+  return { type: opts.type ?? 'text', text, ...(opts.synthetic ? { synthetic: true } : {}), ...(opts.time ? { time: opts.time } : {}) }
 }
 
 describe('toMessageData（G2 完整还原）', () => {
@@ -193,7 +193,7 @@ describe('toMessageData（G2 完整还原）', () => {
 
   it('assistant 消息：reasoning→thinking、text→content、tool→toolUses、contentBlocks 时间线重建', () => {
     const sm = makeMessage('assistant', [
-      textPart('The user is asking', { type: 'reasoning' }), // 真实报文中 reasoning part 无 text 空起步，此处用样例简化
+      textPart('The user is asking', { type: 'reasoning', time: { start: 1786029595000, end: 1786029596000 } }), // 真实报文中 reasoning part 无 text 空起步，此处用样例简化
       {
         type: 'tool',
         callID: 'call_1',
@@ -242,10 +242,14 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(parsed.toolUses).toHaveLength(2)
     expect(parsed.toolUses[0]).toMatchObject({ id: 'call_1', name: 'Bash', result: 'file1.txt\nfile2.txt', isError: false })
     expect(parsed.toolUses[1]).toMatchObject({ id: 'call_2', name: 'Read', result: 'ENOENT: no such file', isError: true })
+    // 2026-08-10 耗时透传：ToolState.time → startedAt / executionDurationMs（历史恢复不依赖客户端计时）
+    expect(parsed.toolUses[0]).toMatchObject({ startedAt: 1786029596000, executionDurationMs: 100 })
+    expect(parsed.toolUses[1]).toMatchObject({ startedAt: 1786029596200, executionDurationMs: 100 })
     // contentBlocks 时间线：thinking → tool_use → tool_result（紧跟工具卡片）→ text
     expect(parsed.contentBlocks.map((b) => b.type)).toEqual(['thinking', 'tool_use', 'tool_result', 'tool_use', 'tool_result', 'text'])
-    expect(parsed.contentBlocks[0]).toMatchObject({ type: 'thinking', content: 'The user is asking' })
+    expect(parsed.contentBlocks[0]).toMatchObject({ type: 'thinking', content: 'The user is asking', durationMs: 1000 })
     expect(parsed.contentBlocks[1].toolUse?.id).toBe('call_1')
+    expect(parsed.contentBlocks[1].toolUse).toMatchObject({ startedAt: 1786029596000, executionDurationMs: 100 })
     expect(parsed.contentBlocks[2].toolResult).toMatchObject({ toolUseId: 'call_1', content: 'file1.txt\nfile2.txt', isError: false })
     expect(parsed.contentBlocks[5]).toMatchObject({ type: 'text', content: '你好' })
     // 统计尽力而为：durationMs = completed - created；tokens/cost 从 SDK 顶层字段

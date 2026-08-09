@@ -131,9 +131,10 @@ function mountChatPanel(): VueWrapper {
         // stub 渲染 data-todo-panel 标记：方案 A「按需显示」测试断言 TodoPanel 是否被渲染（v-if 控制存在性）
         TodoPanel: { template: "<div class='todo-panel-stub' />" },
         // 待办记录卡 stub：记录卡渲染测试只断言数量与 todos 传递（卡片自身行为在 TodoRecordCard.test 覆盖）
+        // data-title 区分：回合记录卡不传 title（空）vs todo 更新节点卡传「更新待办」（2026-08-10 节点复用后）
         TodoRecordCard: {
-          props: ["endedAt", "todos"],
-          template: "<div class='todo-record-card-stub'>todos={{ todos.length }}</div>",
+          props: ["endedAt", "todos", "title"],
+          template: "<div class='todo-record-card-stub' :data-title='title ?? \"\"'>todos={{ todos.length }}</div>",
         },
         // 子任务可视化：测试聚焦弹窗/审批交互，子任务卡片/弹窗 stub（真实组件在 ChatPanel 专项测试覆盖）
         // stub 渲染 subtask.summary：预拉摘要注入卡片后可在文本中断言
@@ -797,8 +798,12 @@ describe("ChatPanel 弹窗", () => {
     await flush();
 
     const cards = wrapper.findAll(".todo-record-card-stub");
-    expect(cards).toHaveLength(1);
-    expect(cards[0].text()).toContain("todos=2");
+    // 回合记录卡（title 空）1 个——todo 更新节点卡（title 非空）不算
+    const recordCards = cards.filter((c) => c.attributes("data-title") === "");
+    expect(recordCards).toHaveLength(1);
+    expect(recordCards[0].text()).toContain("todos=2");
+    // 更新节点卡并存（todowrite 工具节点本身也渲染 TodoRecordCard，title 非空）
+    expect(cards.length).toBe(2);
   });
 
   it("消息流中 todowrite 部分完成 → 不渲染记录卡", async () => {
@@ -818,7 +823,10 @@ describe("ChatPanel 弹窗", () => {
     chat.finishAssistantMessage();
     await flush();
 
-    expect(wrapper.find(".todo-record-card-stub").exists()).toBe(false);
+    const cards = wrapper.findAll(".todo-record-card-stub");
+    // 部分完成 → 回合记录卡（title 空）不渲染；更新节点卡（title 非空）照常存在
+    expect(cards.filter((c) => c.attributes("data-title") === "")).toHaveLength(0);
+    expect(cards.some((c) => c.attributes("data-title") !== "")).toBe(true);
   });
 
   it("恢复历史：loadFullHistory 含全完成 todowrite → 记录卡随消息渲染", async () => {
@@ -845,8 +853,9 @@ describe("ChatPanel 弹窗", () => {
     await flush();
 
     const cards = wrapper.findAll(".todo-record-card-stub");
-    expect(cards).toHaveLength(1);
-    expect(cards[0].text()).toContain("todos=1");
+    const recordCards = cards.filter((c) => c.attributes("data-title") === "");
+    expect(recordCards).toHaveLength(1);
+    expect(recordCards[0].text()).toContain("todos=1");
   });
 
   // ── 回合分组 + 平铺收敛（3b 时间线化：D1 回合级 / D13 平铺收敛）──
@@ -897,6 +906,30 @@ describe("ChatPanel 弹窗", () => {
     expect(wrapper.findAll(".node-timeline")).toHaveLength(1);
   });
 
+  it("左右对话布局（制图师截图反馈）：助手回合包在 .assistant-col 左侧列（头像「分」+ 时间线），与用户右侧气泡呼应", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    const wrapper = mountChatPanel();
+    await flush();
+
+    // 无助手回复 → 不渲染 assistant-col
+    chat.addUserMessage("你好");
+    await flush();
+    expect(wrapper.find(".assistant-col").exists()).toBe(false);
+
+    // 有助手回复 → assistant-col 含头像 + NodeTimeline
+    chat.startAssistantMessage();
+    chat.appendText("你好，我是分形");
+    chat.finishAssistantMessage();
+    await flush();
+    expect(wrapper.find(".assistant-col").exists()).toBe(true);
+    expect(wrapper.find(".assistant-col__avatar").text()).toBe("分");
+    expect(wrapper.find(".assistant-col .node-timeline").exists()).toBe(true);
+    // 用户消息容器与 assistant-col 同属回合容器
+    expect(wrapper.find(".msg-entry .assistant-col").exists()).toBe(true);
+  });
+
   it("平铺收敛：实时 running 子任务只在回合时间线 subtask 节点内渲染（无全局平铺副本）", async () => {
     const chat = useChatStore();
     const session = useSessionStore();
@@ -923,10 +956,10 @@ describe("ChatPanel 弹窗", () => {
     };
     await flush();
 
-    // 收敛后：子智能体卡片只存在于回合时间线（.msg-entry > .node-timeline）内，全 DOM 仅一份
+    // 收敛后：子智能体卡片只存在于回合时间线（.msg-entry > .assistant-col > .node-timeline）内，全 DOM 仅一份
     const stubs = wrapper.findAll(".subtask-card-stub");
     expect(stubs).toHaveLength(1);
-    expect(wrapper.find(".msg-entry .node-timeline .subtask-card-stub").exists()).toBe(true);
+    expect(wrapper.find(".msg-entry .assistant-col .node-timeline .subtask-card-stub").exists()).toBe(true);
     // 原全局平铺位置（TransitionGroup 外的实时平铺）已移除
     expect(wrapper.find(".chat-messages-inner > .subtask-card-stub").exists()).toBe(false);
   });

@@ -262,14 +262,12 @@ describe("NodeTimeline", () => {
     expect(w.emitted("subtask-monitor")).toEqual([["ses_1"]]);
   });
 
-  // ═══ 模型头像（反馈 #1）═══
+  // ═══ 左右对话布局（2026-08-10 用户拍板：去掉模型头像头部——时间线直接开始节点序列，非「分形作为时间线第一个节点」）═══
 
-  it("回合起始渲染模型头像（✦ 品牌字符 + 名称），空回合也显示", () => {
+  it("不渲染模型头像头部（node-timeline-head 已移除），空回合时间线为空", () => {
     const w = mountTimeline({});
-    const head = w.find(".node-timeline-head");
-    expect(head.exists()).toBe(true);
-    expect(head.find(".model-avatar").text()).toBe("✦");
-    expect(head.text()).toContain("Fractal");
+    expect(w.find(".node-timeline-head").exists()).toBe(false);
+    expect(w.find(".model-avatar").exists()).toBe(false);
   });
 
   // ═══ 待办记录结束节点（反馈 #6）═══

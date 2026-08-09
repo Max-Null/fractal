@@ -114,7 +114,8 @@ export function buildTurnNodes(turn: { user: Message; assistants: Message[] }): 
         if (lastKind === b.type) {
           appendBlockContent(nodes[nodes.length - 1], b.content);
         } else {
-          nodes.push({ key: `m${mi}-b${bi}`, kind: b.type, text: b.content || "" });
+          // 历史路径 thinking 块自带 durationMs（serve ReasoningPart.time 透传）；text 块无耗时
+          nodes.push({ key: `m${mi}-b${bi}`, kind: b.type, text: b.content || "", durationMs: b.durationMs });
           lastKind = b.type;
         }
       } else if (b.type === "tool_use") {

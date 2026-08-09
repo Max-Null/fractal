@@ -19,6 +19,8 @@ export interface StreamEvent {
     id: string;
     name: string;
     input: Record<string, unknown>;
+    /** 工具开始执行时间戳（serve ToolState.time.start 透传；流式客户端计时兜底） */
+    startedAt?: number;
   }>;
   /** CC content 块原始顺序（text/thinking/tool_use 交替），用于按时间线渲染 */
   content_blocks?: Array<{
@@ -57,6 +59,8 @@ export interface StreamEvent {
     tool_use_id: string;
     content: string;
     is_error?: boolean;
+    /** 工具执行耗时 ms（serve ToolState.time 透传；流式客户端计时兜底） */
+    executionDurationMs?: number;
   }>;
   /** 子会话活动（type='subtask' 时；serve 广播的子 agent 会话事件，主进程 events.ts 识别） */
   subId?: string;

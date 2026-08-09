@@ -101,13 +101,8 @@ const tokenLabel = computed(() => {
 
 <template>
   <div class="node-timeline">
-    <!-- 模型头像（反馈 #1：对话式面板左侧助手侧品牌头像，回合起始竖线上方）；
-         ✦ 双星品牌字符，accent-soft 圆底 36px；竖线从头像底部连到首个节点 -->
-    <div class="node-timeline-head">
-      <div class="model-avatar" aria-label="model avatar">✦</div>
-      <span class="node-timeline-head-name">{{ t('chat.timelineModelName') }}</span>
-    </div>
-
+    <!-- 2026-08-10 用户拍板：去掉「✦ 模型头像 + 模型名」时间线头部——左右对话布局（用户消息右侧气泡，
+         分形回复时间线直接开始节点序列，位于左侧） -->
     <div
       v-for="(node, i) in nodes"
       :key="node.key"
@@ -159,52 +154,6 @@ const tokenLabel = computed(() => {
 /* ── 时间线容器 ── */
 .node-timeline {
   min-width: 0;
-}
-
-/* ── 模型头像头部（反馈 #1）：✦ 双星品牌字符圆底；竖线从头像底连到首个节点圆点 ── */
-.node-timeline-head {
-  position: relative;
-  min-height: 36px;
-  padding-left: 26px;
-  margin-bottom: 8px;
-  display: flex;
-  align-items: center;
-}
-/* 头像居中于竖线（圆点中心 x=11px）：absolute 向左偏移 (36-11-11)/2 使头像中心对准竖线 */
-.model-avatar {
-  position: absolute;
-  left: -7px;
-  top: 0;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--accent-soft);
-  border: 1px solid var(--accent-line);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 15px;
-  color: var(--accent);
-  flex-shrink: 0;
-  user-select: none;
-}
-.node-timeline-head-name {
-  margin-left: 12px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-/* 连接线：头像底部 → 首个节点圆点中心（穿过 margin + 圆点半高） */
-.node-timeline-head::after {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: 36px;
-  bottom: -20px;
-  width: 2px;
-  background: var(--border-dim);
-  border-radius: 1px;
 }
 
 /* ── 节点项：每项画竖线段（圆点中心 → 下一圆点中心），末项截断（D1） ── */

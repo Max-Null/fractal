@@ -205,6 +205,38 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     expect(user.tool_results).toEqual([{ tool_use_id: 'call_2', content: 'command failed', is_error: true }])
   })
 
+  it('tool part 带 time（running 首次）→ tool_use 携带 startedAt（2026-08-10 服务端耗时透传）', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_t',
+        tool: 'Bash',
+        state: { status: 'running', input: {}, time: { start: 1000, end: 3000 } },
+      }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out[0]).toMatchObject({ type: 'assistant', tool_use: [{ id: 'call_t', name: 'Bash', startedAt: 1000 }] })
+  })
+
+  it('tool part 带 time（completed）→ tool_results 携带 executionDurationMs=end-start', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_t2',
+        tool: 'Bash',
+        state: { status: 'completed', input: {}, output: 'ok', time: { start: 1000, end: 3000 } },
+      }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    const user = out.find((e) => e.type === 'user')
+    if (user?.type !== 'user') throw new Error('期望 user 事件')
+    expect(user.tool_results).toEqual([{ tool_use_id: 'call_t2', content: 'ok', is_error: false, executionDurationMs: 2000 }])
+  })
+
   it('未知 part 类型（file/step 等）→ 不产出 [待实测]', () => {
     const ctx = ctxWithRole('assistant')
     const evt = synthEvent('message.part.updated', {

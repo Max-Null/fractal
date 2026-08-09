@@ -1199,17 +1199,20 @@ watch(
               @fork="handleFork"
               @preview-file="(f) => openFileInPanel(f)"
             />
-            <!-- 助手回合时间线（3b）：节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13）+ 待办记录结束节点（反馈 #6） -->
-            <NodeTimeline
-              v-if="turn.assistants.length"
-              :turn="turn"
-              :subtask-state="chat.subTasks"
-              :history-subtasks="historySubtaskById"
-              :subtask-summary-loader="loadSubTaskSummary"
-              :todo-record="todoRecordForTurn(turn)"
-              @subtask-detail="openSubTaskDetail"
-              @subtask-monitor="(id) => monitorSubTaskId = id"
-            />
+            <!-- 助手回合左侧对话列（左右布局：用户右气泡、分形左时间线）：
+                 头像「分」+ NodeTimeline 限宽左对齐；节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13）+ 待办记录结束节点（反馈 #6） -->
+            <div v-if="turn.assistants.length" class="assistant-col">
+              <span class="assistant-col__avatar" aria-hidden="true">分</span>
+              <NodeTimeline
+                :turn="turn"
+                :subtask-state="chat.subTasks"
+                :history-subtasks="historySubtaskById"
+                :subtask-summary-loader="loadSubTaskSummary"
+                :todo-record="todoRecordForTurn(turn)"
+                @subtask-detail="openSubTaskDetail"
+                @subtask-monitor="(id) => monitorSubTaskId = id"
+              />
+            </div>
           </div>
         </TransitionGroup>
 
@@ -1503,6 +1506,30 @@ watch(
 .scroll-btn-leave-active { transition: all 150ms ease-in; }
 .scroll-btn-enter-from { opacity: 0; transform: translateY(8px) scale(0.9); }
 .scroll-btn-leave-to { opacity: 0; transform: translateY(4px) scale(0.95); }
+
+/* ═══ 左右对话布局（制图师截图反馈）：用户消息右侧气泡（MessageBubble 自有），助手回合左侧列 ═══ */
+/* 助手列：头像「分」+ 时间线；限宽 76% 与用户气泡 72% 呼应，右侧留白保证对话不无限拉长 */
+.assistant-col {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  max-width: 76%;
+}
+/* 模型头像：与 MessageBubble .msg-avatar--assistant 同体系（accent 渐变圆 + 首字「分」） */
+.assistant-col__avatar {
+  width: 2rem;
+  height: 2rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  background: linear-gradient(135deg, var(--accent), #0891b2);
+  border: 1px solid transparent;
+  color: white;
+}
 
 .sticky-question-bar {
   flex-shrink: 0;

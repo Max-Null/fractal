@@ -12,11 +12,27 @@ import { basicAuthHeader } from './oc-sdk'
 // 此处枚举实际消费的 type，保证映射层不会产出前端无法处理的类型）
 // ══════════════════════════════════════════════════════════════════
 
+/**
+ * ToolState 联合的时间字段（SDK：仅 running/completed/error 有 time，pending 无——
+ * 联合类型直接访问会报 TS2339，须先断言为本类型）
+ */
+export type ToolStateTime = { time?: { start?: number; end?: number } }
+
+/**
+ * 耗时差计算（end - start）带保护：serve 时钟异常时 end<start 会出负数，
+ * NodeCard 无负值保护 → 钳到 0；两端任一缺失 → undefined（不显示耗时）
+ */
+export function positiveDuration(start: number | undefined, end: number | undefined): number | undefined {
+  return start !== undefined && end !== undefined ? Math.max(0, end - start) : undefined
+}
+
 /** 工具调用（嵌在 assistant 事件的 tool_use 字段） */
 export interface StreamToolUse {
   id: string
   name: string
   input: Record<string, unknown>
+  /** 工具开始执行时间戳（serve ToolState.time.start；2026-08-10 补——此前流式无耗时） */
+  startedAt?: number
 }
 
 /** 工具执行结果（嵌在 user 事件的 tool_results 字段） */
@@ -24,6 +40,8 @@ export interface StreamToolResult {
   tool_use_id: string
   content: string
   is_error?: boolean
+  /** 工具执行耗时 ms（serve ToolState.time.end - time.start；2026-08-10 补） */
+  executionDurationMs?: number
 }
 
 /** 前端可消费的事件（type 枚举见 useStreamProcessor switch + handleBackgroundStreamEvent） */
@@ -299,14 +317,16 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
             session_id: sessionID,
             text: '',
             thinking: '',
-            tool_use: [{ id: callID, name: toolPart.tool, input: toolPart.state?.input ?? {} }],
+            tool_use: [{ id: callID, name: toolPart.tool, input: toolPart.state?.input ?? {}, startedAt: (toolPart.state as ToolStateTime | undefined)?.time?.start }],
           })
         }
         // 完成态 → 回填工具结果（output 成功 / error 失败）
         if (isToolTerminal(toolPart)) {
           const state = toolPart.state as
-            | { status: 'completed'; output?: string; metadata?: Record<string, unknown> }
-            | { status: 'error'; error?: string; metadata?: Record<string, unknown> }
+            | { status: 'completed'; output?: string; metadata?: Record<string, unknown>; time?: { start?: number; end?: number } }
+            | { status: 'error'; error?: string; metadata?: Record<string, unknown>; time?: { start?: number; end?: number } }
+          // 耗时 = end - start（两端齐全才算；SDK ToolState.time 为可选字段）
+          const duration = positiveDuration(state.time?.start, state.time?.end)
           out.push({
             type: 'user',
             session_id: sessionID,
@@ -317,6 +337,7 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
                 tool_use_id: callID,
                 content: state.status === 'completed' ? (state.output ?? '') : (state.error ?? ''),
                 is_error: state.status === 'error',
+                executionDurationMs: duration,
               },
             ],
           })
