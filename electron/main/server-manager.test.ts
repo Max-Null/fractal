@@ -1,11 +1,11 @@
 // server-manager 测试：单例/状态/生命周期（真 spawn serve 场景，CI 跳过）
 // 说明：startServer 会真 spawn 系统 opencode serve（阶段 0 已实测），本地需已装 OC；
 // CI 环境（无 OC / 慢）用 describe.skipIf(process.env.CI) 保护。
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createServerManager, appendServeLog, closeServeLog, buildServeEnv, type ServerInfo } from './server-manager'
+import { createServerManager, appendServeLog, closeServeLog, buildServeEnv, type ServerInfo, handleServeStderrChunk, getV2Conflict, resetV2Conflict } from './server-manager'
 
 // CI 或无 DEEPSEEK_API_KEY 时不跑真 spawn（serve 冷启动 + 健康检查较慢，且 CI 无 OC）
 const isCi = !!process.env.CI
@@ -155,5 +155,47 @@ describe('appendServeLog（serve stderr 落盘 + 轮转）', () => {
     } finally {
       await fsp.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// ── v2Conflict 状态（8800 冲突判定：stderr 匹配 → 状态置位；resetV2Conflict 供 engine:refresh 重新判定）──
+describe('v2Conflict（8800 端口冲突状态）', () => {
+  beforeEach(() => {
+    // 模块级状态跨用例残留：每个用例前重置（生产由 startServer 实际启动路径重置）
+    resetV2Conflict()
+    vi.restoreAllMocks()
+  })
+
+  it('stderr 匹配端口占用 → getV2Conflict() = true，且命中返回 true', () => {
+    const hit = handleServeStderrChunk('2026-08-09T10:00:00.000Z ERROR Failed to start server. Is port 8800 in use')
+    expect(hit).toBe(true)
+    expect(getV2Conflict()).toBe(true)
+  })
+
+  it('stderr 不匹配（普通错误/日志行）→ 状态保持 false，且命中返回 false', () => {
+    const hit = handleServeStderrChunk('ERROR something else broke')
+    expect(hit).toBe(false)
+    expect(getV2Conflict()).toBe(false)
+    // 非冲突普通行也转发 console（不影响状态）
+    const hit2 = handleServeStderrChunk('loading path')
+    expect(hit2).toBe(false)
+    expect(getV2Conflict()).toBe(false)
+  })
+
+  it('resetV2Conflict → 状态清 false；再次匹配可重新置位（重复冲突场景）', () => {
+    handleServeStderrChunk('Failed to start server. Is port 8800 in use')
+    expect(getV2Conflict()).toBe(true)
+    resetV2Conflict()
+    expect(getV2Conflict()).toBe(false)
+    // 重置后再次冲突 → 重新置位（engine:refresh 重启后 serve 仍被占用）
+    handleServeStderrChunk('Failed to start server. Is port 8800 in use')
+    expect(getV2Conflict()).toBe(true)
+  })
+
+  it('v2Conflict 字段随 getServerInfo 返回（engine:status / engine:getStatus 数据源）', () => {
+    const manager = createServerManager({ userDataDir: tmpdir() })
+    expect(manager.getServerInfo().v2Conflict).toBe(false)
+    handleServeStderrChunk('Failed to start server. Is port 8800 in use')
+    expect(manager.getServerInfo().v2Conflict).toBe(true)
   })
 })

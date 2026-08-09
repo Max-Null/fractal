@@ -5,6 +5,7 @@ import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { createRouter, createMemoryHistory } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
+import { v2Conflict } from "@/composables/useStreamProcessor";
 import AppShell from "./AppShell.vue";
 
 // mock electron-bridge：保留原模块（store 链条其他函数有 catch 兜底），仅覆盖 listSessions 返回可控会话
@@ -73,6 +74,18 @@ const i18n = createI18n({
       },
       session: { new: "新建会话" },
       manage: { title: "管理" },
+      v2: {
+        v2Available: "V2 服务可用",
+        v2Conflict: "V2 服务不可用（8800 被占用）",
+        v2HintBar: "V2 API 服务不可用（端口 8800 被占用）——点右上角 V2 查看详情",
+        v2DialogTitle: "V2 API 状态",
+        v2What: "V2 说明",
+        v2StatusOk: "V2 可用",
+        v2StatusConflict: "V2 不可用",
+        v2StatusReason: "端口 8800 被占用",
+        v2Action: "建议动作",
+      },
+      modal: { close: "关闭" }, // ModalShell 真渲染（断言弹窗内容）需要
     },
   },
 });
@@ -96,6 +109,9 @@ function mountAppShell(): VueWrapper {
         ManagePanel: true,
         ChangelogDialog: true,
         Onboarding: true,
+        // ModalShell 不 stub：断言 V2 弹窗内容（三块 + 无重新检测按钮）；
+        // Teleport stub 掉使其内容留在组件内（否则渲染到 body，wrapper.find 查不到）
+        Teleport: { template: "<div><slot /></div>" },
         "router-view": true,
       },
     },
@@ -118,6 +134,8 @@ function getMenuPaths(wrapper: VueWrapper): string[] {
 describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）", () => {
   beforeEach(() => {
     vi.useFakeTimers(); // boot 停留/轮询均受控（afterEach 恢复真计时器）\n    localStorage.clear();
+    sessionStorage.clear(); // 载入提示条记忆（sb-v2-hint-shown）跨用例清空
+    v2Conflict.value = false; // 模块级 v2 冲突 ref 跨用例重置（useStreamProcessor 更新方为 App.vue 挂载监听）
     // 跳过 Onboarding：标记已跳过，主界面直接渲染
     localStorage.setItem("sb-onboarding-dismissed", "1");
     // 预置本地最近工作区（菜单聚合的 local 部分）
@@ -128,9 +146,10 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     openWorkspaceWindowMock.mockReset();
     revealInExplorerMock.mockReset();
     onInitWorkspaceMock.mockReset(); // 不 reset 会导致 calls[0] 取到上个用例的旧回调（闭包旧 pinia 实例）
-    // 引擎就绪门禁默认放行：getEngineStatus 首查立即返回 running（串行链等待逻辑见 waitEngineReady）
+    // 引擎就绪门禁默认放行：getEngineStatus 首查立即返回 running（串行链等待逻辑见 waitEngineReady）；
+    // v2Conflict 字段为 EngineStatus 类型必填，默认 false（v2 冲突相关用例单独置 true）
     getEngineStatusMock.mockReset();
-    getEngineStatusMock.mockResolvedValue({ running: true });
+    getEngineStatusMock.mockResolvedValue({ running: true, v2Conflict: false });
     // 新窗口打开默认成功（.then 链依赖 Promise 形状；断言失败场景的用例单独 mockRejectedValue）
     openWorkspaceWindowMock.mockResolvedValue(undefined);
     // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
@@ -321,5 +340,56 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     await vi.advanceTimersByTimeAsync(1_400);
     expect(wrapper.find(".ws-pill-arrow").exists()).toBe(true);
     expect(wrapper.find(".boot-timeout").exists()).toBe(false);
+  });
+
+  it("载入完成且 v2 冲突且未提示过 → 顶部提示条显示 + sessionStorage 记忆 + 3s 自动消失", async () => {
+    v2Conflict.value = true;
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留（进入主界面）
+
+    // D3 提示条（复用 .ws-alert 机制）：冲突且本会话未提示过 → 显示一次
+    expect(wrapper.find(".ws-alert").exists()).toBe(true);
+    expect(wrapper.find(".ws-alert").text()).toContain("V2 API 服务不可用");
+    expect(sessionStorage.getItem("sb-v2-hint-shown")).toBe("1");
+
+    // 3s 自动消失（alertText watch setTimeout 清除）
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(wrapper.find(".ws-alert").exists()).toBe(false);
+  });
+
+  it("载入完成 v2 冲突但已提示过（sessionStorage 记忆）→ 不再显示提示条", async () => {
+    v2Conflict.value = true;
+    sessionStorage.setItem("sb-v2-hint-shown", "1");
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    expect(wrapper.find(".ws-alert").exists()).toBe(false);
+  });
+
+  it("载入完成 v2 可用（无冲突）→ 不显示 v2 提示条", async () => {
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    expect(wrapper.find(".ws-alert").exists()).toBe(false);
+  });
+
+  it("点击 V2 badge 打开弹窗 → 三块内容渲染（说明/状态/建议动作）且无「重新检测」按钮", async () => {
+    v2Conflict.value = true;
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    await wrapper.find(".v2-badge").trigger("click");
+    await flushPromises();
+
+    // 弹窗打开：ModalShell 真渲染（VTU 默认 stub Teleport，内容留在组件内可断言）
+    expect(wrapper.find(".v2-dialog").exists()).toBe(true);
+    // 三块：V2 说明 / 不可用状态（含原因）/ 建议动作
+    expect(wrapper.text()).toContain("V2 说明");
+    expect(wrapper.text()).toContain("V2 不可用");
+    expect(wrapper.text()).toContain("端口 8800 被占用");
+    expect(wrapper.text()).toContain("建议动作");
+    // 无「重新检测」按钮（顶栏刷新已覆盖，弹窗不重复）
+    expect(wrapper.find(".v2-dialog-retry").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("重新检测");
   });
 });

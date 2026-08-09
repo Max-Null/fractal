@@ -1,13 +1,17 @@
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 import { useChatStore, FULL_HISTORY_LIMIT, type ToolUse, type ContentBlock, type ToolResult } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
-import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent, type EngineStatus } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 
 let unlisten: (() => void) | null = null;
 let unlistenStatus: (() => void) | null = null;
+
+/** v2 API 冲突状态（模块级共享单例：App.vue 的 startListening 更新，AppShell 读取——composable 内局部 ref 会随实例各自独立） */
+export const v2Conflict = ref(false);
 
 function notifyComplete(durationMs?: number, inputTokens?: number, outputTokens?: number) {
   if (!("Notification" in window)) return;
@@ -413,6 +417,7 @@ export function useStreamProcessor() {
     // 不再拉列表避免双拉（2026-08-09 串行重构）；engine:status 监听的 running 补拉保留
     getEngineStatus()
       .then((info) => {
+        v2Conflict.value = !!info?.v2Conflict;
         session.setServing(!!info?.running);
         if (info?.running) {
           const settings = useSettingsStore();
@@ -425,7 +430,9 @@ export function useStreamProcessor() {
 
     // serve 运行状态（主进程 server-manager onStatusChange → engine:status），前端连接指示
     unlistenStatus = window.electronBridge.on("engine:status", (payload) => {
-      const info = payload as { running?: boolean };
+      const info = payload as EngineStatus;
+      // v2 冲突状态缓存：engine:refresh（重新检测）后主进程广播新值，badge/载入提示条读此 ref
+      v2Conflict.value = !!info?.v2Conflict;
       session.setServing(!!info?.running);
       debugLog.add(`🔌 engine status: running=${info?.running}`, session.activeSessionId);
       // 思考强度 variant 重拉：启动早期 serve 未就绪时 watch(model) 的拉取失败（modelVariants=[]），
@@ -471,5 +478,5 @@ export function useStreamProcessor() {
     if (unlistenStatus) { unlistenStatus(); unlistenStatus = null; }
   }
 
-  return { startListening, stopListening };
+  return { v2Conflict, startListening, stopListening };
 }

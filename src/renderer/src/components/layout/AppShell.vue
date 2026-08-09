@@ -19,6 +19,9 @@ import { useSessionStore } from "@/stores/session";
 import { useChatStore, FULL_HISTORY_LIMIT } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
 import { usePanelLayout, PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
+import { v2Conflict } from "@/composables/useStreamProcessor";
+import V2Badge from "@/components/shared/V2Badge.vue";
+import ModalShell from "@/components/shared/ModalShell.vue";
 
 const { t } = useI18n();
 const router = useRouter();
@@ -131,6 +134,10 @@ async function handleRefresh() {
     alertText.value = "";
   }
 }
+
+// V2 API 状态弹窗（badge 点击打开）：纯展示 v2 server 说明/当前状态/建议动作——
+// 不内置「重新检测」按钮（顶栏刷新按钮已提供 engine:refresh 重启重判，避免重复）
+const v2DialogOpen = ref(false);
 
 // 第四列：文件预览/编辑面板
 const panelFile = ref<{ name: string; path: string } | null>(null);
@@ -505,6 +512,12 @@ onMounted(async () => {
     bootStage.value = 'done'; bootPercent.value = 100; pushBootLog(t('boot.done'));
     // 让用户看到 100% + 淡出动画：解除前停留片刻（否则同帧切换，进度停在 92% 一闪而过，2026-08-09）
     await new Promise((r) => setTimeout(r, 400));
+    // D3 载入提示条：进入主界面时 v2 冲突且本次会话未提示过 → 顶部提示一次（sessionStorage 记忆，
+    // 3s 自动消失走 alertText watch；不打断首次进入——轻量提示而非弹窗）
+    if (v2Conflict.value && !sessionStorage.getItem('sb-v2-hint-shown')) {
+      sessionStorage.setItem('sb-v2-hint-shown', '1');
+      alertText.value = t('v2.v2HintBar');
+    }
     initializing.value = false;
     document.addEventListener("keydown", onGlobalKeydown);
     panelLayout.setupObserver(); // ResizeObserver 监听容器宽度变化，自动 clamp 右侧面板
@@ -628,6 +641,9 @@ async function openFilePanelTo(_path: string) {
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
           </svg>
         </button>
+
+        <!-- V2 API 状态胶囊（D4：主题按钮旁；冲突时 coral 色，点击弹详情） -->
+        <V2Badge :conflict="v2Conflict" @open="v2DialogOpen = true" />
 
         <!-- 刷新引擎（重启 serve，配置/预置变更生效） -->
         <button
@@ -790,6 +806,30 @@ async function openFilePanelTo(_path: string) {
     <CommandPalette @command="handleCommand" />
     <ChangelogDialog />
     <ManagePanel :open="showManagePanel" @close="showManagePanel = false" />
+
+    <!-- V2 API 状态弹窗（badge 点击打开；ModalShell 自带关闭） -->
+    <ModalShell :open="v2DialogOpen" size="md" position="center" @close="v2DialogOpen = false">
+      <template #header>{{ t('v2.v2DialogTitle') }}</template>
+      <div class="v2-dialog">
+        <p class="v2-dialog-section">{{ t('v2.v2What') }}</p>
+        <div class="v2-dialog-section">
+          <!-- 当前状态：可用（accent 绿）/ 不可用（coral 红 + 原因） -->
+          <div v-if="!v2Conflict" class="v2-dialog-status v2-dialog-status--ok">
+            <span class="v2-dialog-dot" />{{ t('v2.v2StatusOk') }}
+          </div>
+          <template v-else>
+            <div class="v2-dialog-status v2-dialog-status--conflict">
+              <span class="v2-dialog-dot" />{{ t('v2.v2StatusConflict') }}
+            </div>
+            <p class="v2-dialog-reason">{{ t('v2.v2StatusReason') }}</p>
+          </template>
+        </div>
+        <!-- 仅不可用时：建议动作（重新检测走顶栏刷新按钮，弹窗不重复提供） -->
+        <div v-if="v2Conflict" class="v2-dialog-section v2-dialog-actions">
+          {{ t('v2.v2Action') }}
+        </div>
+      </div>
+    </ModalShell>
   </div>
 </template>
 
@@ -958,6 +998,48 @@ async function openFilePanelTo(_path: string) {
 @keyframes icon-btn-spin {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
+}
+
+/* ── V2 API 状态弹窗（ModalShell body 内容）── */
+.v2-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+.v2-dialog-section {
+  margin: 0;
+}
+.v2-dialog-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.v2-dialog-status--ok {
+  color: var(--accent);
+}
+.v2-dialog-status--conflict {
+  color: var(--coral);
+}
+.v2-dialog-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.v2-dialog-reason {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+.v2-dialog-actions {
+  /* 建议动作区：顶部分隔线与正文区分；无按钮（重新检测复用顶栏刷新） */
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+  font-size: 12.5px;
 }
 
 /* 目录选择提示条：吸顶显示，accent 底白字，3s 自动消失 */

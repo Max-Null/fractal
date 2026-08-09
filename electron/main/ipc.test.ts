@@ -555,6 +555,23 @@ describe('logs:readServeLog / app:getInfo handler', () => {
     expect(r.ok).toBe(false)
     expect(r.error).toContain('serve 连续 3 次启动失败')
   })
+
+  it('engine:getStatus：未注入 serverManager → 降级返回 { running:false, v2Conflict:false }', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:getStatus')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { running: boolean; v2Conflict: boolean }
+    expect(r).toEqual({ running: false, v2Conflict: false })
+  })
+
+  it('engine:getStatus：注入 serverManager → 透传 getServerInfo（含 v2Conflict 字段）', async () => {
+    const getServerInfo = vi.fn(() => ({ running: true, baseURL: 'http://127.0.0.1:58143', v2Conflict: true }))
+    registerIpcHandlers({ getServerInfo } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:getStatus')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { running: boolean; v2Conflict: boolean }
+    expect(r).toEqual({ running: true, baseURL: 'http://127.0.0.1:58143', v2Conflict: true })
+  })
 })
 
 // ── settings:saveProviderConfig / settings:loadProviderConfigs（多 provider 扩展：deepseek + moonshotai-cn）──

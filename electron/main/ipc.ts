@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { type ServerManager, getEngineVersion } from './server-manager'
+import { type ServerManager, getEngineVersion, getV2Conflict } from './server-manager'
 import { getPresetVersion } from './preset'
 import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
@@ -456,7 +456,7 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   )
 
-  ipcMain.handle('engine:getStatus', () => serverManager?.getServerInfo() ?? { running: false })
+  ipcMain.handle('engine:getStatus', () => serverManager?.getServerInfo() ?? { running: false, v2Conflict: getV2Conflict() })
 
   ipcMain.handle('settings:loadProviderConfigs', async () => {
     const cfg = await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})
