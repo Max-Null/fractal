@@ -147,7 +147,8 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
     expect(kimi.options.apiKey).toBe('')
     // ds-anthropic：侦查兵专用 provider（Anthropic 端点 + deepseek 同 key + 同 models）
-    const anthropic = (cfg.provider as Record<string, unknown>)['ds-anthropic'] as { options: { apiKey: string; baseURL: string } }
+    const anthropic = (cfg.provider as Record<string, unknown>)['ds-anthropic'] as { npm?: string; options: { apiKey: string; baseURL: string } }
+    expect(anthropic.npm).toBe('@ai-sdk/anthropic')
     expect(anthropic.options.apiKey).toBe('sk-test')
     expect(anthropic.options.baseURL).toBe('https://api.deepseek.com/anthropic')
     // deepseek ����Ӱ�죨˫ provider ���棩

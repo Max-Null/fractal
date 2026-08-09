@@ -183,7 +183,10 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   }
   // ds-anthropic：侦查兵专用（Anthropic 兼容端点自带 web_search 工具，2026-08-09 同步 oc-plus）
   // baseURL 指向 Anthropic 兼容端点；key 复用 deepseek（同一账户）；models 同 deepseek 定义（flash/pro）
+  // npm 必须显式声明 @ai-sdk/anthropic：OpenCode 自定义 provider 缺 npm 时默认按 OpenAI 兼容协议
+  // 请求 baseURL + /chat/completions——DeepSeek 该路径不存在返回 404，侦查兵零输出（2026-08-10 实测）
   provider['ds-anthropic'] = {
+    npm: '@ai-sdk/anthropic',
     options: { apiKey: opts.apiKey, baseURL: 'https://api.deepseek.com/anthropic' },
     models: MANAGED_MODEL_LIMITS,
   }
