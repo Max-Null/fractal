@@ -213,6 +213,61 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     expect(mapServeEvent(running2, ctx)).toHaveLength(0)
   })
 
+  it('task 工具：state.metadata.sessionId 合并进 input.metadata（前端 subtask 节点归属查询键，2026-08-10）', () => {
+    const ctx = ctxWithRole('assistant')
+    // running 态 serve 即带 metadata.sessionId（1.18.15 实测），input 里没有
+    const running = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_task',
+        tool: 'task',
+        state: {
+          status: 'running',
+          input: { description: '查天气', prompt: '请搜索…', subagent_type: '侦查兵' },
+          metadata: { parentSessionId: 'ses_test', sessionId: 'ses_sub_1' },
+        },
+      }),
+    })
+    const out = mapServeEvent(running, ctx)
+    expect(out[0]).toMatchObject({
+      type: 'assistant',
+      tool_use: [
+        {
+          id: 'call_task',
+          input: {
+            description: '查天气',
+            prompt: '请搜索…',
+            subagent_type: '侦查兵',
+            metadata: { sessionId: 'ses_sub_1' },
+          },
+        },
+      ],
+    })
+  })
+
+  it('task 工具 metadata 合并不覆盖 input 自带 metadata（键级合并）', () => {
+    const ctx = ctxWithRole('assistant')
+    const running = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_task2',
+        tool: 'task',
+        state: {
+          status: 'running',
+          input: { description: '查', metadata: { extra: 1 } },
+          metadata: { sessionId: 'ses_sub_2' },
+        },
+      }),
+    })
+    const out = mapServeEvent(running, ctx)
+    expect(out[0]).toMatchObject({
+      type: 'assistant',
+      tool_use: [{ id: 'call_task2', input: { metadata: { extra: 1, sessionId: 'ses_sub_2' } } }],
+    })
+  })
+
   it('tool 耗时用首次 start（time.start 每次 running 更新都变 → end-末次 start 是假象，2026-08-10）', () => {
     const ctx = ctxWithRole('assistant')
     const run1 = synthEvent('message.part.updated', {

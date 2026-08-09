@@ -363,6 +363,13 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         ctx.partCallIDs.set(part.id, callID)
         // 输入累积：serve 增量发送工具输入（updated 部分 + delta field='input'），合并保证最新完整
         const mergedInput = { ...(ctx.toolInputs.get(callID) ?? {}), ...(toolPart.state?.input ?? {}) }
+        // task 工具：state.metadata.sessionId 是子会话 ID（前端 subtask 节点归属查询键）——
+        // serve 只在 state.metadata 携带、input 里没有；合并进 input.metadata 供 extractTaskId 提取
+        // （实测 1.18.15：running 态即有 metadata.sessionId；缺则前端 subtask 卡查不到详情显示占位）
+        const meta = (toolPart.state as { metadata?: { sessionId?: string } } | undefined)?.metadata
+        if (toolPart.tool === 'task' && meta?.sessionId) {
+          mergedInput.metadata = { ...(mergedInput.metadata as Record<string, unknown> | undefined), sessionId: meta.sessionId }
+        }
         ctx.toolInputs.set(callID, mergedInput)
         // 首次见该 callID → 创建工具卡片（pending/running/completed 的首次都算，后续不再重复）；
         // 后续 part.updated 若 input 变化（serve 状态流转逐步带完整 input）→ 补发 tool_use（upsert 幂等），

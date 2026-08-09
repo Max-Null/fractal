@@ -261,6 +261,34 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(data.token_usage).toBe(JSON.stringify({ input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } }))
   })
 
+  it('assistant 消息：task 工具 state.metadata.sessionId 合并进 input.metadata（历史 subtask 节点归属键）', () => {
+    const sm = makeMessage('assistant', [
+      {
+        type: 'tool',
+        callID: 'call_task',
+        tool: 'task',
+        state: {
+          status: 'completed',
+          input: { description: '查天气', prompt: '请搜索…', subagent_type: '侦查兵' },
+          output: '<task id="ses_sub_9" state="completed">\n<task_result>结果</task_result>',
+          metadata: { parentSessionId: 'ses_main', sessionId: 'ses_sub_9' },
+          time: { start: 1786029597000, end: 1786029598000 },
+        },
+      },
+    ])
+    const data = toMessageData(sm)
+    const parsed = JSON.parse(data.content) as {
+      toolUses: Array<{ id: string; name: string; input: Record<string, unknown> }>
+      contentBlocks: Array<{ type: string; toolUse?: { id: string; input: Record<string, unknown> } }>
+    }
+    // toolUses 与 contentBlocks 双通道都合并 metadata.sessionId（前端 extractTaskId 依赖）
+    expect(parsed.toolUses[0].input).toMatchObject({
+      description: '查天气',
+      metadata: { sessionId: 'ses_sub_9' },
+    })
+    expect(parsed.contentBlocks[0].toolUse?.input).toMatchObject({ metadata: { sessionId: 'ses_sub_9' } })
+  })
+
   it('assistant 消息：synthetic text part 被排除（serve 回显占位，非真实内容）', () => {
     const sm = makeMessage('assistant', [
       textPart('真实回答'),

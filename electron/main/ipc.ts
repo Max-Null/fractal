@@ -1050,10 +1050,17 @@ function buildHistoryContentBlocks(
       const isError = status === 'error'
       // 工具耗时 = ToolState.time.end - start（两端齐全才算）
       const executionDurationMs = positiveDuration(p.state?.time?.start, (p.state as ToolStateTime | undefined)?.time?.end)
+      // task 工具：state.metadata.sessionId 是子会话 ID（与 events.ts 流式路径同规则），
+      // 历史还原同样需要合并进 input.metadata——否则历史 subtask 节点 taskId 提取失败（D6 占位）
+      const input: Record<string, unknown> = p.state?.input ?? {}
+      const meta = (p.state as { metadata?: { sessionId?: string } } | undefined)?.metadata
+      if (p.tool === 'task' && meta?.sessionId) {
+        input.metadata = { ...(input.metadata as Record<string, unknown> | undefined), sessionId: meta.sessionId }
+      }
       const toolUse = {
         id: p.callID,
         name: p.tool,
-        input: p.state?.input ?? {},
+        input,
         result: isError ? p.state?.error ?? '' : p.state?.output ?? '',
         isError,
         startedAt: p.state?.time?.start,
