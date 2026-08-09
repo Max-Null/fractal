@@ -22,9 +22,37 @@ export const MANAGED_MODEL_LIMITS: Record<string, { context: number; output: num
 /**
  * 默认小模型（轻量任务专用：标题生成/会话摘要/输入消息润色）。
  * OC 语义：small_model 未配置 → Provider.getSmallModel 解析失败 → ensureTitle 静默失败（oc 已知 #14807，标题永远「新会话」）。
- * 受管字段（写死与配置同步——设置页无 small_model 入口，改这里 + ensureConfig 即全局生效）。
+ * 默认值兜底——设置页「轻量模型」下拉显式选择后经 resolveSmallModel 覆盖（LOW 槽位统一）。
  */
 export const SMALL_MODEL = 'deepseek/deepseek-v4-flash'
+
+/**
+ * 解析轻量任务模型（LOW 槽位）：读设置页写入 settings.json 的 smallModel 字段。
+ * - settings.json 不存在 / JSON.parse 失败 → SMALL_MODEL 常量（标题生成等轻量任务不能断，兜底）
+ * - smallModel 字段缺失 → SMALL_MODEL 常量（无用户意图，用默认小模型）
+ * - smallModel = '' → 返回 ''（用户显式选「跟随主模型」，ensureConfig 据此不写 small_model 字段）
+ * - smallModel = 显式模型全名（deepseek/deepseek-v4-flash | pro）→ 该值
+ * 不 import settings 模块：settings.ts 依赖 oc-config（ensureConfig 联动），反向 import 会循环依赖；
+ * 分形自己写的 settings.json 是纯 JSON（非 JSONC），直接 fsp.readFile + JSON.parse 即可。
+ */
+export async function resolveSmallModel(userDataDir: string): Promise<string> {
+  let raw: string
+  try {
+    raw = await fsp.readFile(join(userDataDir, 'settings.json'), 'utf-8')
+  } catch {
+    // 文件不存在 → 从未配置过 → 默认小模型
+    return SMALL_MODEL
+  }
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const value = parsed?.smallModel
+    // 字段缺失 → 默认小模型；显式字符串（含 '' 跟随主模型）原样返回——'' 由 ensureConfig 判定不写
+    return typeof value === 'string' ? value : SMALL_MODEL
+  } catch {
+    // 文件损坏 → 默认小模型（解析失败不阻断配置写入）
+    return SMALL_MODEL
+  }
+}
 
 /**
  * 多模态模型（VISION 槽位）：制图师等图像能力 agent 专用
@@ -114,9 +142,14 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认
   cfg.model = 'deepseek/deepseek-v4-pro'
-  // small_model：标题生成等轻量任务专用（serve 首条消息后异步 ensureTitle 用 title agent + small_model；
-  // 未配置 → getSmallModel 解析失败 → 静默失败（oc 已知 #14807）→ 标题永远「新会话」——2026-08-09 实测修复）
-  cfg.small_model = SMALL_MODEL
+  // small_model：轻量任务模型（标题生成等）——跟随设置页「轻量模型」下拉选择（LOW 槽位统一）。
+  // 空值 = 用户选「跟随主模型」：不写 small_model 字段，OC 用主模型兜底（同时删除旧值防上次显式选择残留）
+  const smallModel = await resolveSmallModel(userDataDir)
+  if (smallModel) {
+    cfg.small_model = smallModel
+  } else {
+    delete cfg.small_model
+  }
   // 权限规则按模式生成（受管字段覆盖，用户自定义规则由设置面板二次调整）；
   // userDataDir 注入 settings.json 目录例外（阶段 6：agent 可自检自改配置的前提，方案 3.8.4）
   cfg.permission = buildPermissionRule(opts.permissionMode, userDataDir) as Record<string, unknown>

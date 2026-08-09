@@ -19,6 +19,7 @@
     "preset.mcp.filesystem": { "type": "boolean", "default": true, "description": "预置文件系统 MCP 开关" },
     "engine.opencodePath": { "type": "string", "default": "", "description": "OC 可执行文件路径：空 = 使用内置 sidecar" },
     "engine.logLevel": { "type": "string", "enum": ["DEBUG", "INFO", "WARN", "ERROR"], "default": "INFO", "description": "引擎日志级别" },
-    "dataMode": { "type": "string", "enum": ["shared", "isolated"], "default": "shared", "description": "会话数据隔离：shared=与其他工具共享 XDG_DATA_HOME / isolated=独立数据目录（切换后重启 serve 生效）" }
+    "dataMode": { "type": "string", "enum": ["shared", "isolated"], "default": "shared", "description": "会话数据隔离：shared=与其他工具共享 XDG_DATA_HOME / isolated=独立数据目录（切换后重启 serve 生效）" },
+    "smallModel": { "type": "string", "enum": ["", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"], "default": "", "description": "轻量任务模型（LOW 槽位）：空=跟随主模型（不写 opencode.json small_model）/ 显式模型全名用于标题生成、会话摘要、消息润色" }
   }
 }

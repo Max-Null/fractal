@@ -180,7 +180,12 @@
     "dataModeDesc": "When enabled, sessions are stored only in this app's data directory, isolated from other tools",
     "dataModeRestarting": "Restarting engine…",
     "dataModeDone": "Engine restarted: isolated session data mode",
-    "dataModeFail": "Engine restart failed, restored original mode"
+    "dataModeFail": "Engine restart failed, restored original mode",
+    "smallModel": "Lightweight Model",
+    "smallModelFollow": "Follow main model (default)",
+    "smallModelFlash": "deepseek-v4-flash · fast",
+    "smallModelPro": "deepseek-v4-pro · stronger reasoning",
+    "smallModelDesc": "Used for lightweight tasks (titles, summaries, message polish); empty = follow main model"
   },
   "session": {
     "new": "New Session",

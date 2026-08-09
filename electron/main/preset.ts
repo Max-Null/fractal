@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL } from './oc-config'
+import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL, resolveSmallModel } from './oc-config'
 
 /** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段 */
 export interface PresetManifest {
@@ -172,7 +172,7 @@ export async function ensurePresetConfig(
   // 双写 jsonc：serve 候选加载 opencode.jsonc 优先于 opencode.json（首启默认文件），只写 json 会被忽略（2026-08-06 实测）
   await fsp.writeFile(getJsoncPath(userDataDir), content, 'utf-8')
 
-  // 模型槽位替换：HIGH 跟随主模型（cfg.model 由 ensureConfig 联动设置页选择）、LOW/VISION 用 oc-config 常量
+  // 模型槽位替换：HIGH 跟随主模型（cfg.model 由 ensureConfig 联动设置页选择）、LOW 跟随设置页轻量模型、VISION 用 oc-config 常量
   await applyModelAliases(userDataDir, cfg.model)
 }
 
@@ -186,7 +186,8 @@ const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: 'high' | 'low' | 'vision
 /**
  * 按槽位规则替换预置 agents 的 model 字段——模型槽位统一由分形配置管理（2026-08-09 定案）：
  * 预置包内的 agent 来自 oc-plus 部署产物（model 写死），设置页改模型后不跟随；这里每次启动幂等覆盖为目标值。
- * 值解析：high 取 cfg.model（设置页选择经 ensureConfig 写入）；low/vision 取 oc-config 常量。
+ * 值解析：high 取 cfg.model（设置页选择经 ensureConfig 写入）；low 取 resolveSmallModel（设置页「轻量模型」选择，
+ * 空=跟随主模型 → SMALL_MODEL 兜底）；vision 取 oc-config 常量。
  * 内容一致时不写盘（避免无谓刷盘）；agents 目录缺失/文件损坏 → 跳过不抛错（预置损坏不阻断启动）。
  */
 export async function applyModelAliases(
@@ -208,9 +209,12 @@ export async function applyModelAliases(
     }
   }
   if (!high) high = 'deepseek/deepseek-v4-pro'
+  // LOW 槽位：设置页「轻量模型」选择优先，空=跟随主模型 → SMALL_MODEL 默认兜底
+  // （agent 的 model 行不能为空串——OC 解析空 model 会报错；ensureConfig 场景才允许空=不写 small_model）
+  const low = (await resolveSmallModel(userDataDir)) || SMALL_MODEL
   const slotValues: Record<'high' | 'low' | 'vision', string> = {
     high,
-    low: SMALL_MODEL,
+    low,
     vision: VISION_MODEL
   }
   try {

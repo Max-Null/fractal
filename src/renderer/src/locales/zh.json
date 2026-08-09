@@ -180,7 +180,12 @@
     "dataModeDesc": "开启后会话只保存在本应用的数据目录，与其他工具隔离",
     "dataModeRestarting": "正在重启引擎…",
     "dataModeDone": "引擎已重启：独立会话数据模式",
-    "dataModeFail": "引擎重启失败，已恢复原模式"
+    "dataModeFail": "引擎重启失败，已恢复原模式",
+    "smallModel": "轻量模型",
+    "smallModelFollow": "跟随主模型（默认）",
+    "smallModelFlash": "deepseek-v4-flash · 轻量快",
+    "smallModelPro": "deepseek-v4-pro · 更强推理",
+    "smallModelDesc": "轻量任务（标题生成/会话摘要/消息润色）使用；空=跟随主模型"
   },
   "session": {
     "new": "新会话",

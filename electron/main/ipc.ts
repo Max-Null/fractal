@@ -14,7 +14,7 @@ import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
-import { ensureConfig, SMALL_MODEL } from './oc-config'
+import { ensureConfig, resolveSmallModel } from './oc-config'
 import { applyModelAliases } from './preset'
 import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
 
@@ -667,8 +667,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       tempId = s.id || ''
       if (!tempId) throw new Error('临时会话创建失败')
       // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
-      // model: SMALL_MODEL（轻量任务模型——2026-08-09 用户指出：polish 正是 small_model 的适用场景，不再写死）+ variant low
-      const [smProvider, smModel] = SMALL_MODEL.split('/')
+      // model: resolveSmallModel（轻量任务模型——标题/润色/未来摘要三处统一走设置页「轻量模型」选择）+ variant low
+      const [smProvider, smModel] = (await resolveSmallModel(app.getPath('userData'))).split('/')
       await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
         agent: 'build',
         model: { providerID: smProvider, modelID: smModel },

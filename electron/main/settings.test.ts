@@ -17,7 +17,7 @@ import {
 import { getConfigPath } from './oc-config'
 
 describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
-  it('包含全部 14 个字段与默认值', () => {
+  it('包含全部 15 个字段与默认值', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'ui.theme': 'dark',
       'ui.language': 'zh',
@@ -33,6 +33,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'engine.opencodePath': '',
       'engine.logLevel': 'INFO',
       'dataMode': 'shared',
+      'smallModel': '',
     })
   })
 
@@ -51,6 +52,14 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['dataMode']).toBeDefined()
     expect(props['dataMode'].enum).toEqual(['shared', 'isolated'])
     expect(props['dataMode'].default).toBe('shared')
+  })
+
+  it('getSchema 含 smallModel（enum 空/两个显式模型全名，default 空=跟随主模型）', () => {
+    const schema = getSchema()
+    const props = schema.properties as Record<string, { enum?: string[]; default?: unknown }>
+    expect(props['smallModel']).toBeDefined()
+    expect(props['smallModel'].enum).toEqual(['', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'])
+    expect(props['smallModel'].default).toBe('')
   })
 })
 
@@ -219,6 +228,21 @@ describe('loadSettings / saveSettings / getConfig（文件读写）', () => {
     await saveSettings(dir, '{ "ui.theme": "light" }')
     // ui.theme 是纯 UI 项，引擎快照未变 → ensureConfig 不执行 → opencode.json 不存在
     await expect(fsp.access(getConfigPath(dir))).rejects.toThrow()
+  })
+
+  it('saveSettings 引擎联动：smallModel 显式值 → 同步 opencode.json 的 small_model', async () => {
+    // 设置页轻量模型选 pro：smallModel 引擎快照变化 → ensureConfig → resolveSmallModel 读新值写入
+    await saveSettings(dir, '{ "smallModel": "deepseek/deepseek-v4-pro" }')
+    const oc = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as { small_model?: string }
+    expect(oc.small_model).toBe('deepseek/deepseek-v4-pro')
+  })
+
+  it('saveSettings 引擎联动：smallModel 从显式值切回空 → opencode.json 删除 small_model（跟随主模型）', async () => {
+    // 先保存显式 pro（触发联动写入），再切回跟随主模型（空）
+    await saveSettings(dir, '{ "smallModel": "deepseek/deepseek-v4-pro" }')
+    await saveSettings(dir, '{ "smallModel": "" }')
+    const oc = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as { small_model?: string }
+    expect(oc.small_model).toBeUndefined()
   })
 })
 

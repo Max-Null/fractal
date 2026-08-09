@@ -378,4 +378,46 @@ describe("settings store", () => {
     const refreshCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "engine:refresh");
     expect(refreshCalls).toHaveLength(0);
   });
+
+  // ── 轻量模型（smallModel，LOW 槽位）──
+
+  it("smallModel 默认空（跟随主模型）", () => {
+    const settings = useSettingsStore();
+    expect(settings.smallModel).toBe("");
+  });
+
+  it("applySettingsJson 同步 smallModel（白名单值生效）", () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ smallModel: "deepseek/deepseek-v4-pro" });
+    expect(settings.smallModel).toBe("deepseek/deepseek-v4-pro");
+    settings.applySettingsJson({ smallModel: "" });
+    expect(settings.smallModel).toBe("");
+  });
+
+  it("applySettingsJson 非法 smallModel 不覆盖（保持当前值）", () => {
+    const settings = useSettingsStore();
+    settings.smallModel = "deepseek/deepseek-v4-pro";
+    settings.applySettingsJson({ smallModel: "gpt-4o" });
+    expect(settings.smallModel).toBe("deepseek/deepseek-v4-pro");
+    settings.applySettingsJson({ smallModel: 42 });
+    expect(settings.smallModel).toBe("deepseek/deepseek-v4-pro");
+  });
+
+  it("persistSmallModel 合并写 settings.json（不覆盖文件其他字段）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    // getSettingsConfig 返回已有字段（ui.theme），persistSmallModel 应保留
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:getConfig") return Promise.resolve({ config: { "ui.theme": "light" } });
+      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
+      return Promise.resolve({});
+    });
+    await settings.persistSmallModel("deepseek/deepseek-v4-flash");
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls).toHaveLength(1);
+    const jsonc = JSON.parse(saveCalls[0]![1].jsoncText);
+    expect(jsonc.smallModel).toBe("deepseek/deepseek-v4-flash");
+    expect(jsonc["ui.theme"]).toBe("light"); // 保留文件其他字段
+  });
 });

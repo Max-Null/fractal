@@ -392,6 +392,32 @@ describe('applyModelAliases', () => {
     expect(zhi).toContain('model: "moonshotai-cn/kimi-k3"')
   })
 
+  it('LOW 槽位跟随设置页轻量模型选择（settings.json smallModel=pro → 工匠/参谋/助理 替换成 pro）', async () => {
+    // 模拟设置页已选 pro：settings.json smallModel=pro（resolveSmallModel 读此值）
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
+    // 补建 LOW 同槽位 agent（beforeEach fixture 仅建 工匠.md 代表 LOW 槽位）
+    await fsp.writeFile(join(getPresetTarget(userData), 'agents', '参谋.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "deepseek/deepseek-v4-pro"')
+    // 参谋同为 LOW 槽位，一并替换
+    const canmou = await fsp.readFile(join(agentsDir, '参谋.md'), 'utf-8')
+    expect(canmou).toContain('model: "deepseek/deepseek-v4-pro"')
+    // HIGH 槽位不受影响（仍用主模型参数值）
+    const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+
+  it('LOW 槽位跟随主模型（settings.json smallModel="" → 用 SMALL_MODEL 默认兜底）', async () => {
+    // 用户选「跟随主模型」：smallModel 显式空 → LOW 槽位回退 SMALL_MODEL（flash）
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+
   it('HIGH 参数缺省时读目标 opencode.json 的 model 字段（设置页选择经 ensureConfig 写入）', async () => {
     // 模拟 ensureConfig 已写入：cfg.model = flash
     await fsp.writeFile(

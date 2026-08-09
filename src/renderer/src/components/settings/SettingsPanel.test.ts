@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { setActivePinia, createPinia } from "pinia";
 import { createI18n } from "vue-i18n";
@@ -47,6 +47,11 @@ const i18n = createI18n({
         dataModeRestarting: "Restarting engine…",
         dataModeDone: "Engine restarted: isolated session data mode",
         dataModeFail: "Engine restart failed, restored original mode",
+        smallModel: "Lightweight Model",
+        smallModelFollow: "Follow main model (default)",
+        smallModelFlash: "deepseek-v4-flash · fast",
+        smallModelPro: "deepseek-v4-pro · stronger reasoning",
+        smallModelDesc: "Used for lightweight tasks (titles, summaries, message polish); empty = follow main model",
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -165,10 +170,13 @@ describe("SettingsPanel", () => {
 
   // ── Dropdown triggers ──
 
-  it("has settings dropdown triggers", () => {
+  it("has settings dropdown triggers", async () => {
     const wrapper = mountPanel();
-    const triggers = wrapper.findAll(".settings-dropdown");
-    expect(triggers.length).toBe(6); // model + lang + theme + font + perm + effort
+    // 折叠态：主设置区 6 个下拉（model + lang + theme + font + perm + effort）
+    expect(wrapper.findAll(".settings-dropdown").length).toBe(6);
+    // 展开高级设置：+ 轻量模型下拉（smallModel）
+    await expandAdvanced(wrapper);
+    expect(wrapper.findAll(".settings-dropdown").length).toBe(7);
   });
 
   // ── Layout ──
@@ -277,5 +285,48 @@ describe("SettingsPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain("Engine restart failed, restored original mode");
     expect(settings.dataMode).toBe("shared");
+  });
+
+  // ── 轻量模型下拉（高级设置区，LOW 槽位）──
+
+  it("renders small model dropdown with label, default option and description in advanced section", async () => {
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    expect(wrapper.text()).toContain("Lightweight Model");
+    expect(wrapper.text()).toContain("Follow main model (default)");
+    expect(wrapper.text()).toContain("Used for lightweight tasks");
+  });
+
+  it("selecting a small model option updates store and saves via settings.json", async () => {
+    const settings = useSettingsStore();
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    // 用 vi.fn 捕获 invoke（persistSmallModel → getSettingsConfig + saveSettingsJson）
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "settings:getConfig") return Promise.resolve({ config: {} });
+      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
+      if (channel === "engine:refresh") return Promise.resolve({ ok: true });
+      if (channel === "session:list") return Promise.resolve([]);
+      return Promise.resolve({});
+    });
+    // 打开轻量模型下拉（当前值「Follow main model」）
+    const smallModelTrigger = wrapper.findAll(".settings-dropdown").find((t) => t.text().includes("Follow main model"));
+    expect(smallModelTrigger).toBeTruthy();
+    await smallModelTrigger!.trigger("click");
+    // 三个选项渲染 + 选择 flash
+    const flashBtn = wrapper.findAll("button").find((b) => b.text().includes("deepseek-v4-flash"));
+    expect(flashBtn).toBeTruthy();
+    await flashBtn!.trigger("click");
+    // flush persistSmallModel 异步链（getSettingsConfig → saveSettingsJson）
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.smallModel).toBe("deepseek/deepseek-v4-flash");
+    // settings.json 写入断言（jsoncText.smallModel = 模型全名）
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
+    expect(jsonc.smallModel).toBe("deepseek/deepseek-v4-flash");
   });
 });

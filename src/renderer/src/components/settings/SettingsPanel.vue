@@ -134,7 +134,7 @@ const activeMode = computed({
 });
 
 // ── 自定义下拉 ──
-type DropdownKind = "lang" | "theme" | "font" | "perm" | "effort" | "model";
+type DropdownKind = "lang" | "theme" | "font" | "perm" | "effort" | "model" | "smallModel";
 const openDropdown = ref<DropdownKind | null>(null);
 function toggleDropdown(k: DropdownKind) {
   openDropdown.value = openDropdown.value === k ? null : k;
@@ -186,6 +186,26 @@ const effortOptions = computed<EffortOption[]>(() => {
 });
 /** effort 空（模型无 variants）时回退第一个可用档，避免 find 非空断言崩溃 */
 const currentEffort = computed(() => effortOptions.value.find(o => o.value === settings.effort) ?? effortOptions.value[0]);
+
+// ── 轻量模型选项（LOW 槽位：标题生成/会话摘要/消息润色；值=模型全名，空=跟随主模型）──
+const smallModelOptions: Array<{ value: string; labelKey: string }> = [
+  { value: "", labelKey: "settings.smallModelFollow" },
+  { value: "deepseek/deepseek-v4-flash", labelKey: "settings.smallModelFlash" },
+  { value: "deepseek/deepseek-v4-pro", labelKey: "settings.smallModelPro" },
+];
+const currentSmallModel = computed(() => smallModelOptions.find(o => o.value === settings.smallModel) ?? smallModelOptions[0]);
+
+/** 选择轻量模型 → 立即写 settings.json（主进程 saveSettings 引擎联动自动同步 opencode.json small_model，无需重启） */
+async function handleSmallModelSelect(v: string) {
+  settings.smallModel = v;
+  closeDropdowns();
+  try {
+    await settings.persistSmallModel(v);
+  } catch {
+    // 写盘失败仅 console 记录（settings.json 不可写仍可运行，仅轻量模型选择重启后不恢复）
+    console.error("[settings] 轻量模型保存 settings.json 失败", v);
+  }
+}
 
 // ── 语言 / 主题选项 ──
 interface SimpleOption<V extends string> { value: V; labelKey: string }
@@ -599,6 +619,41 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
           </button>
           <div v-if="showAdvanced" class="mt-2 p-3 rounded-lg" style="background: var(--bg-elevated); border: 1px solid var(--border-default)">
             <p class="mb-2 text-[10px]" style="color: var(--text-muted)">{{ $t('settings.advancedDesc') }}</p>
+
+            <!-- 轻量模型下拉（LOW 槽位）：写 settings.json smallModel → 主进程引擎联动同步 opencode.json small_model -->
+            <div class="mb-3">
+              <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.smallModel') }}</label>
+              <div
+                class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center select-none transition-colors"
+                :style="{
+                  background: 'var(--bg-elevated)',
+                  border: openDropdown === 'smallModel' ? '1px solid var(--accent)' : '1px solid var(--border-default)'
+                }"
+                @click.stop="toggleDropdown('smallModel')"
+              >
+                <span class="font-medium truncate flex-1">{{ $t(currentSmallModel.labelKey) }}</span>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                  :style="{ opacity: 0.4, transition: 'transform 150ms', transform: openDropdown === 'smallModel' ? 'rotate(180deg)' : '' }">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+                <Transition name="drop-settings">
+                  <div
+                    v-if="openDropdown === 'smallModel'"
+                    class="absolute right-0 top-full mt-1 py-1 rounded-lg z-30 w-full"
+                    style="background: var(--bg-elevated); border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0,0,0,0.35)"
+                  >
+                    <button
+                      v-for="opt in smallModelOptions"
+                      :key="opt.value"
+                      @click="handleSmallModelSelect(opt.value)"
+                      class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-hover)]"
+                      :style="{ background: settings.smallModel === opt.value ? 'var(--accent-glow)' : 'transparent', color: settings.smallModel === opt.value ? 'var(--accent)' : 'var(--text-primary)' }"
+                    >{{ $t(opt.labelKey) }}</button>
+                  </div>
+                </Transition>
+              </div>
+              <div class="text-[10px] mt-1" style="color: var(--text-muted)">{{ $t('settings.smallModelDesc') }}</div>
+            </div>
 
             <!-- 独立会话数据开关：切换 dataMode（写 settings.json → 重启 serve 生效）；isRestarting 时禁用 -->
             <div

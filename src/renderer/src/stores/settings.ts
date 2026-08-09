@@ -167,6 +167,20 @@ export const useSettingsStore = defineStore("settings", () => {
     await saveSettingsJson(JSON.stringify(next, null, 2));
   }
 
+  // ── 轻量模型（settings.json smallModel：LOW 槽位，标题生成/会话摘要/消息润色专用）──
+  // 不进 UI 偏好 watch 数组（同 dataMode 理由）：主题/语言 800ms 防抖写盘会以「当前文件字段 + 主题/语言」重建对象，
+  // smallModel 混入防抖链会以旧值覆盖用户最新选择
+  const smallModel = ref("");
+  /** 可选值白名单（对齐设置页下拉与 settings.schema.json 枚举）：空=跟随主模型 / 两个显式模型全名 */
+  const SMALL_MODEL_OPTIONS = ["", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"];
+
+  /** 合并 smallModel 写 settings.json（读当前显式字段 + 新值，不覆盖文件其他字段） */
+  async function persistSmallModel(v: string) {
+    const r = await getSettingsConfig();
+    const next: Record<string, unknown> = { ...r.config, smallModel: v };
+    await saveSettingsJson(JSON.stringify(next, null, 2));
+  }
+
   /**
    * 切换数据模式：写 settings.json → 重启 serve（数据目录变更生效）→ 清理旧数据目录的会话缓存。
    * 失败回滚（D8 P0 防引擎停摆）：还原旧值再重启一次，二次失败才报错。
@@ -348,6 +362,8 @@ export const useSettingsStore = defineStore("settings", () => {
     if (typeof config["agent.contextLimit"] === "number") contextLimit.value = config["agent.contextLimit"];
     // 数据模式（settings.json 显式字段；非法/缺失保持当前值——agent 工具/GUI 保存三路统一生效）
     if (config["dataMode"] === "isolated" || config["dataMode"] === "shared") dataMode.value = config["dataMode"];
+    // 轻量模型（LOW 槽位）：settings.json 显式字段；白名单外/缺失保持当前值（对齐 schema 枚举）
+    if (typeof config["smallModel"] === "string" && SMALL_MODEL_OPTIONS.includes(config["smallModel"])) smallModel.value = config["smallModel"];
   }
 
   // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
@@ -461,5 +477,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel };
 });

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getConfigPath, ensureConfig, buildPermissionRule, MANAGED_MODEL_LIMITS } from './oc-config'
+import { getConfigPath, ensureConfig, buildPermissionRule, MANAGED_MODEL_LIMITS, resolveSmallModel, SMALL_MODEL } from './oc-config'
 
 describe('getConfigPath', () => {
   it('返回 <userData>/config/opencode/opencode.json（对齐 XDG_CONFIG_HOME 隔离路径）', () => {
@@ -110,6 +110,74 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
     const cfg = JSON.parse(await fsp.readFile(file, 'utf-8')) as Record<string, unknown>
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
+  })
+
+  it('small_model 跟随设置页显式选择（settings.json smallModel=pro → 写入 opencode.json）', async () => {
+    // 模拟设置页已保存：settings.json 显式选 deepseek-v4-pro
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
+    await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    expect(cfg.small_model).toBe('deepseek/deepseek-v4-pro')
+  })
+
+  it('small_model 跟随主模型（settings.json smallModel="" → 不写字段，OC 用主模型兜底）', async () => {
+    // 用户选「跟随主模型」：smallModel 显式空 → ensureConfig 不写 small_model 字段（避免上次显式选择残留）
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
+    await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    expect(cfg.small_model).toBeUndefined()
+  })
+
+  it('small_model 从显式值切回跟随主模型：删除旧字段（不残留上次选择）', async () => {
+    const file = getConfigPath(dir)
+    await fsp.mkdir(join(dir, 'config', 'opencode'), { recursive: true })
+    // 旧配置：small_model 已写 flash（之前显式选择过）
+    await fsp.writeFile(file, JSON.stringify({ small_model: 'deepseek/deepseek-v4-flash' }), 'utf-8')
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
+    await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
+    const cfg = JSON.parse(await fsp.readFile(file, 'utf-8')) as Record<string, unknown>
+    expect(cfg.small_model).toBeUndefined()
+  })
+})
+
+describe('resolveSmallModel（LOW 槽位：读设置页 settings.json smallModel 字段）', () => {
+  let dir: string
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(join(tmpdir(), 'oc-smallmodel-'))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  it('缺省：settings.json 无 smallModel 字段 → SMALL_MODEL 常量', async () => {
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ dataMode: 'isolated' }), 'utf-8')
+    expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
+  })
+
+  it('显式值：settings.json smallModel=pro → 返回 pro 全名', async () => {
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
+    expect(await resolveSmallModel(dir)).toBe('deepseek/deepseek-v4-pro')
+  })
+
+  it('显式空：settings.json smallModel=""（跟随主模型）→ 返回空字符串（ensureConfig 据此不写字段）', async () => {
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
+    expect(await resolveSmallModel(dir)).toBe('')
+  })
+
+  it('损坏容错：settings.json 非法 JSON → SMALL_MODEL 常量（解析失败不抛错）', async () => {
+    await fsp.writeFile(join(dir, 'settings.json'), '{ not valid', 'utf-8')
+    expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
+  })
+
+  it('文件不存在 → SMALL_MODEL 常量（从未配置过，标题生成等轻量任务不能断）', async () => {
+    expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
+  })
+
+  it('字段非字符串（损坏值）→ SMALL_MODEL 常量', async () => {
+    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: 42 }), 'utf-8')
+    expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
   })
 })
 

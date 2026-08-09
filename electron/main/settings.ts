@@ -28,10 +28,13 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   // 会话数据隔离：shared=共享系统 XDG_DATA_HOME（与其他工具同库）/ isolated=独立到 <userData>/data
   // （serve 数据目录跟随 XDG_DATA_HOME；startServer 注入 env 时读此值，见 server-manager.ts）
   'dataMode': 'shared',
+  // 轻量任务模型（LOW 槽位）：空=跟随主模型（不写 opencode.json small_model）/ 显式值=模型全名
+  'smallModel': '',
 }
 
-/** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置） */
-const ENGINE_KEYS = ['deepseek.model', 'agent.permissionMode', 'agent.effort'] as const
+/** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置）
+ * smallModel 含引擎联动：设置页选择 → saveSettings 引擎快照变化 → ensureConfig 重写 small_model（见 oc-config.resolveSmallModel） */
+const ENGINE_KEYS = ['deepseek.model', 'agent.permissionMode', 'agent.effort', 'smallModel'] as const
 
 // ── 内存状态（getConfig 直接返回；load/save/watch 时更新）──
 let currentJsoncText = JSON.stringify(DEFAULT_SETTINGS, null, 2)
