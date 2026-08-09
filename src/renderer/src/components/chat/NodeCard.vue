@@ -260,6 +260,10 @@ function formatJSON(obj: unknown): string {
         @monitor="emit('subtask-monitor', subtask.id)"
         @detail="emit('subtask-detail', subtask)"
       />
+      <!-- 启动中：task 工具已发出但 serve 尚未下发 sessionId（pending 窗口，taskId 为空）→ 委派提示 -->
+      <div v-else-if="!node.taskId" class="node-card-subtask-fallback node-card-subtask-fallback--starting">
+        {{ t('chat.subTaskStarting') }}<span class="node-card-subtask-dots"><i /><i /><i /></span>
+      </div>
       <!-- D6 容错：子会话已删除/超限（实时/历史都查不到）→ 占位保持 task 动作可见 -->
       <div v-else class="node-card-subtask-fallback">{{ t('chat.subTaskUnavailable') }}</div>
     </div>
@@ -491,5 +495,27 @@ function formatJSON(obj: unknown): string {
   color: var(--text-muted);
   opacity: 0.6;
   font-style: italic;
+}
+/* 启动中占位：非斜体正常可读 + 三连点脉冲（委派进行中，区别于错误/缺失的不可用态） */
+.node-card-subtask-fallback--starting {
+  font-style: normal;
+  opacity: 0.85;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.node-card-subtask-dots { display: inline-flex; gap: 3px; }
+.node-card-subtask-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  animation: node-card-dot-bounce 1.2s infinite ease-in-out;
+}
+.node-card-subtask-dots i:nth-child(2) { animation-delay: 0.15s; }
+.node-card-subtask-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes node-card-dot-bounce {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+  30% { transform: translateY(-3px); opacity: 1; }
 }
 </style>

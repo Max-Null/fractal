@@ -106,6 +106,7 @@
     "todoUpdate": "Update todos",
     "todoDone": "Todos done",
     "subTaskUnavailable": "Subtask details unavailable",
+    "subTaskStarting": "Starting subagent",
     "timelineModelName": "Fractal"
   },
   "provider": {

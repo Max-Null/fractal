@@ -19,6 +19,7 @@ const i18n = createI18n({
         todoRecord: "Todos",
         todoRecordDone: "done",
         subTaskUnavailable: "Subtask details unavailable",
+        subTaskStarting: "Starting subagent",
         toolInput: "Input",
         toolOutput: "Output",
         toolError: "Execution error",
@@ -321,6 +322,14 @@ describe("NodeCard", () => {
     const w = mountCard(node({ key: "s1", kind: "subtask", taskId: "ses_ghost" }), { subtask: null });
     expect(w.find(".subtask-stub").exists()).toBe(false);
     expect(w.text()).toContain("Subtask details unavailable");
+  });
+
+  it("subtask 无 taskId（serve 尚未下发 sessionId，启动窗口）→ 启动中提示而非不可用", () => {
+    const w = mountCard(node({ key: "s1", kind: "subtask" }), { subtask: null });
+    expect(w.find(".subtask-stub").exists()).toBe(false);
+    expect(w.text()).toContain("Starting subagent");
+    expect(w.text()).not.toContain("Subtask details unavailable");
+    expect(w.findAll(".node-card-subtask-dots i")).toHaveLength(3);
   });
 
   it("subtask 转发 expand/monitor/detail 事件", async () => {

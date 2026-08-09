@@ -106,6 +106,7 @@
     "todoUpdate": "更新待办",
     "todoDone": "待办完成",
     "subTaskUnavailable": "子任务详情不可用",
+    "subTaskStarting": "正在启动子智能体",
     "timelineModelName": "分形"
   },
   "provider": {
