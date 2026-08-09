@@ -371,7 +371,10 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
 // ── getPresetVersion（设置页「关于」预置包版本；双路径解析复用 getDefaultPresetRoot）──
 describe('getPresetVersion', () => {
   it('源码路径：读取真实交付物 preset.json 的 version（v1.1.0，升级后新增 侦查兵/制图师 agent）', async () => {
-    expect(await getPresetVersion()).toBe('1.1.0')
+    // 动态断言：getPresetVersion 必须与真实交付物 preset.json 的 version 一致（bump 版本时不用改测试）
+    const presetRoot = getDefaultPresetRoot()
+    const realVersion = JSON.parse(await fsp.readFile(join(presetRoot, 'preset.json'), 'utf-8')).version
+    expect(await getPresetVersion()).toBe(realVersion)
   })
 
   it('preset.json 缺失 → 返回 占位符 —（不抛错）', async () => {
