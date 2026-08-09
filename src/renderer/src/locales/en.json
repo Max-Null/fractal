@@ -104,6 +104,7 @@
     "turnComplete": "Done",
     "timelineSummary": "Summary",
     "todoUpdate": "Update todos",
+    "todoDone": "Todos done",
     "subTaskUnavailable": "Subtask details unavailable",
     "timelineModelName": "Fractal"
   },

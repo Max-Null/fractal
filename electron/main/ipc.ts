@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { type ServerManager, getEngineVersion } from './server-manager'
+import { type ServerManager, getEngineVersion, type ServerInfo } from './server-manager'
 import { getPresetVersion } from './preset'
 import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
@@ -1224,13 +1224,32 @@ export function toMessageData(sm: SessionMessage): {
  * 建立 serve SSE 事件转发：每事件经 events.ts mapServeEvent 映射后 send("engine:event")，
  * server-manager 状态变化 send("engine:status")。窗口关闭时清理订阅。
  * 调用方（index.ts）需先 startServer 成功再调本函数。
+ * serve 崩溃重启后自动重建订阅：spawnOnce 每次生成全新随机端口 + 随机凭据（--port 0），
+ * 旧订阅绑旧凭据连不上 → 事件流断 → 前端收不到 result/error 永远卡「思考中」（2026-08-10 实测）
  */
 export async function startEngineEvents(win: BrowserWindow, manager: ServerManager): Promise<void> {
   // 窗口销毁后 win.webContents 访问抛「Object has been destroyed」（2026-08-09 实测闪退）——
   // 提前缓存 webContents id，后续回调/日志/清理一律用缓存值（窗口活着时取的，永远有效）
   const wcId = win.webContents.id
-  const info = manager.getServerInfo()
-  if (info.running && info.baseURL && info.username && info.password) {
+  // 当前订阅状态：stopCurrent 存最近一次订阅的停止函数；bound* 记录已绑定凭据，
+  // serve 重启（running=true 且凭据变化）时据此判断是否需重建
+  let stopCurrent: (() => void) | null = null
+  let boundURL = ''
+  let boundUser = ''
+  let boundPass = ''
+
+  /** 按当前 serve 凭据建立/重建 SSE 订阅（凭据变化才重建——onStatusChange 每次状态变化都触发） */
+  async function establishSubscription(info: ServerInfo): Promise<void> {
+    if (!info.running || !info.baseURL || !info.username || !info.password) return
+    if (boundURL === info.baseURL && boundUser === info.username && boundPass === info.password) return
+    // 停旧订阅（serve 重启后旧连接已死，abort 幂等；窗口 closed 清理只关最新订阅）
+    if (stopCurrent) {
+      stopCurrent()
+      stopCurrent = null
+    }
+    boundURL = info.baseURL
+    boundUser = info.username
+    boundPass = info.password
     const stop = await subscribeEvents({
       baseURL: info.baseURL,
       username: info.username,
@@ -1245,23 +1264,30 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
         console.error('[engine] SSE 订阅错误：', err)
       },
     })
+    stopCurrent = stop
     // 诊断：子会话识别依赖本窗口的活跃会话分桶——打印当前值，serve.log 可见
     //（2026-08-09 实测子会话卡片不显示 = 分桶空导致 isSubSession 短路，靠此日志定位）
     if (!win.isDestroyed()) {
       console.log('[engine] 事件流订阅建立，窗口分桶:', wcId, '=', activeSessionByWebContents.get(wcId) ?? '(空)')
     }
-    // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
-    win.on('closed', () => {
-      activeSessionByWebContents.delete(wcId)
-      stop()
-    })
   }
+
+  // 初始建立（serve 已在运行——index.ts 先 startServer 再调本函数）
+  await establishSubscription(manager.getServerInfo())
   // serve 进程状态（启动/退出/崩溃）→ engine:status，前端连接指示依赖
   manager.onStatusChange((s) => {
     if (!win.isDestroyed()) win.webContents.send('engine:status', s)
+    // serve 重启（崩溃后前端 ready IPC 触发 startServer → running=true 且凭据变化）→ 重建订阅
+    if (s.running) void establishSubscription(s)
   })
   // 主动补发一次当前状态：失败重试场景下 serve 在注册前已 running，
   // onStatusChange 只在状态变化时触发（不会补发）→ 渲染层等不到就绪信号 → 会话列表空（2026-08-08 实测）
   if (!win.isDestroyed()) win.webContents.send('engine:status', manager.getServerInfo())
+  // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
+  win.on('closed', () => {
+    activeSessionByWebContents.delete(wcId)
+    stopCurrent?.()
+    stopCurrent = null
+  })
 }
 

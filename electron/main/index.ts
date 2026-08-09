@@ -119,6 +119,12 @@ function createWindow(workspace?: string): BrowserWindow {
   mainWindow.webContents.on('did-fail-load', (_e, code, desc) => diag(`did-fail-load code=${code} desc=${desc}`))
   mainWindow.webContents.on('render-process-gone', (_e, details) => diag(`render-process-gone reason=${details.reason}`))
 
+  // 调试模式（OC_GUI_DEBUG=1）：加载完成后自动打开 DevTools，方便排查渲染进程报错
+  // （dev 快捷键 F12 由 electron-toolkit 提供，此开关覆盖 prod/无快捷键场景）
+  if (process.env.OC_GUI_DEBUG === '1') {
+    mainWindow.webContents.once('did-finish-load', () => mainWindow.webContents.openDevTools())
+  }
+
   // 新窗口指定工作区：页面 load 完成后主进程主动下发工作区路径。
   // 比 URL query 更可靠（无编码/编码路径问题）；渲染进程 AppShell 监听 window:init-workspace →
   // cwd 切到目标工作区 + 会话列表按工作区过滤。once 保证只下发一次（页面重载不重复触发）

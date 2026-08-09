@@ -51,6 +51,8 @@ export type StreamFrontendEvent =
       session_id?: string
       text: string
       thinking: string
+      /** 思考耗时 ms（serve ReasoningPart.time.end - start；2026-08-10 补——流式 thinking 无耗时） */
+      thinkingDurationMs?: number
       tool_use?: StreamToolUse[]
     }
   | {
@@ -136,12 +138,29 @@ export type StreamFrontendEvent =
  *   用于 delta 事件判定流向（delta 事件本身无 type 字段，靠 partID 反查）
  * - seenToolCallIDs：serve 对工具状态流转发多条 part.updated（pending/running/completed），
  *   前端 addToolUse 不去重——只在首次见 callID 时下发 tool_use，避免重复工具卡片
+ * - toolInputs：工具输入累积（callID → 最新 input）。serve 通过 part.updated 与 delta field='input'
+ *   增量发送工具输入（阶段 0 实测），首次事件 input 可能为空——累积后 tool_use 事件/补发才带完整
+ *   input，前端梗概（read/bash/glob）与 todo 列表（todowrite）才非空
+ * - partCallIDs：partID → callID（tool part 的 part.id 与 callID 是两套 ID；delta 事件只带 partID，
+ *   反查 callID 才能定位累积的 toolInputs 并补发 tool_use）
+ * - sentToolResults：已完成工具只回填一次 tool_results（serve 对同一工具可能发多条 completed 更新）
+ * - sentToolInputs：callID → 已下发 tool_use 的 input JSON。serve 对工具输入走 part.updated 状态流转
+ *   （pending 空 → running 完整 → completed 完整，1.18.15 实测无 delta field='input'），首次见 callID
+ *   时 input 可能为空——后续 input 变化时补发 tool_use（前端 upsert 幂等），梗概/todo 列表才非空
+ * - toolStarts：callID → 首次见到的 state.time.start。serve 的 time.start 在每次 running 更新时都变化，
+ *   completed 的 start 是最后一次（end-start 只算最后一段，如 bash 假象 22ms）——记录首次 start，
+ *   耗时 = 首次 start → completed end 才是真实执行时长
  * - sessionTokens：最近一次 session.updated 携带 tokens，session.idle 时附到 result 事件
  */
 export interface MapContext {
   messageRoles: Map<string, string>
   partTypes: Map<string, string>
   seenToolCallIDs: Set<string>
+  toolInputs: Map<string, Record<string, unknown>>
+  partCallIDs: Map<string, string>
+  sentToolResults: Set<string>
+  sentToolInputs: Map<string, string>
+  toolStarts: Map<string, number>
   sessionTokens: Map<string, { input: number; output: number; cost: number }>
   /** 回合起始时间（session.created 记录），session.idle 时计算 result.duration_ms */
   sessionStartTime: Map<string, number>
@@ -157,6 +176,11 @@ export function createMapContext(now: () => number = Date.now): MapContext {
     messageRoles: new Map(),
     partTypes: new Map(),
     seenToolCallIDs: new Set(),
+    toolInputs: new Map(),
+    partCallIDs: new Map(),
+    sentToolResults: new Set(),
+    sentToolInputs: new Map(),
+    toolStarts: new Map(),
     sessionTokens: new Map(),
     sessionStartTime: new Map(),
     now,
@@ -303,30 +327,59 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         // 思考阶段：text 为思考内容（SDK ReasoningPart.text）
         const thinking = (props?.delta as string | undefined) ?? part.text
         if (!thinking) return []
-        return [{ type: 'assistant', session_id: sessionID, text: '', thinking }]
+        // 全量 updated 携带 reasoning time（delta 无 time）→ 透传思考耗时，
+        // 前端填到 thinking 块供 NodeCard 显示（流式路径不再依赖 tool 块紧邻回填——真实输出
+        // reasoning → text → tool 顺序下紧邻回填永不触发，2026-08-10 制图师反馈）
+        const rPart = part as { time?: { start?: number; end?: number } }
+        const thinkingDurationMs = positiveDuration(rPart.time?.start, rPart.time?.end)
+        return [{ type: 'assistant', session_id: sessionID, text: '', thinking, thinkingDurationMs }]
       }
       if (part.type === 'tool') {
         const toolPart = part as Part & { type: 'tool' }
         const callID = toolPart.callID
         const out: StreamFrontendEvent[] = []
-        // 首次见该 callID → 创建工具卡片（pending/running/completed 的首次都算，后续不再重复）
+        // part.id（prt_xxx）与 callID（call_xxx）两套 ID：delta 事件只带 partID，记录映射供 input 累积反查
+        ctx.partCallIDs.set(part.id, callID)
+        // 输入累积：serve 增量发送工具输入（updated 部分 + delta field='input'），合并保证最新完整
+        const mergedInput = { ...(ctx.toolInputs.get(callID) ?? {}), ...(toolPart.state?.input ?? {}) }
+        ctx.toolInputs.set(callID, mergedInput)
+        // 首次见该 callID → 创建工具卡片（pending/running/completed 的首次都算，后续不再重复）；
+        // 后续 part.updated 若 input 变化（serve 状态流转逐步带完整 input）→ 补发 tool_use（upsert 幂等），
+        // 前端梗概/todo 列表才有数据（1.18.15 实测：无 delta field='input'，input 走 updated 增量）
+        const toolUseEvent: StreamFrontendEvent = {
+          type: 'assistant',
+          session_id: sessionID,
+          text: '',
+          thinking: '',
+          tool_use: [{ id: callID, name: toolPart.tool, input: mergedInput, startedAt: (toolPart.state as ToolStateTime | undefined)?.time?.start }],
+        }
         if (!ctx.seenToolCallIDs.has(callID)) {
           ctx.seenToolCallIDs.add(callID)
-          out.push({
-            type: 'assistant',
-            session_id: sessionID,
-            text: '',
-            thinking: '',
-            tool_use: [{ id: callID, name: toolPart.tool, input: toolPart.state?.input ?? {}, startedAt: (toolPart.state as ToolStateTime | undefined)?.time?.start }],
-          })
+          ctx.sentToolInputs.set(callID, JSON.stringify(mergedInput))
+          out.push(toolUseEvent)
+        } else {
+          const sentJson = ctx.sentToolInputs.get(callID)
+          const mergedJson = JSON.stringify(mergedInput)
+          if (mergedJson !== sentJson) {
+            ctx.sentToolInputs.set(callID, mergedJson)
+            out.push(toolUseEvent)
+          }
         }
-        // 完成态 → 回填工具结果（output 成功 / error 失败）
-        if (isToolTerminal(toolPart)) {
+        // 首次 start 记录：serve 的 time.start 每次 running 更新都变，只取首次（真实执行起点）
+        const curStart = (toolPart.state as ToolStateTime | undefined)?.time?.start
+        if (curStart !== undefined && !ctx.toolStarts.has(callID)) {
+          ctx.toolStarts.set(callID, curStart)
+        }
+        // 完成态 → 回填工具结果（output 成功 / error 失败；同一工具多条 completed 更新只回填一次）
+        if (isToolTerminal(toolPart) && !ctx.sentToolResults.has(callID)) {
+          ctx.sentToolResults.add(callID)
           const state = toolPart.state as
             | { status: 'completed'; output?: string; metadata?: Record<string, unknown>; time?: { start?: number; end?: number } }
             | { status: 'error'; error?: string; metadata?: Record<string, unknown>; time?: { start?: number; end?: number } }
-          // 耗时 = end - start（两端齐全才算；SDK ToolState.time 为可选字段）
-          const duration = positiveDuration(state.time?.start, state.time?.end)
+          // 耗时 = 首次 start → completed end（serve 的 time.start 每次 running 更新都会变，
+          // completed 携带的 start 是最后一次——直接 end-start 只算最后一段（实测 bash 假象 22ms）；
+          // 用 toolStarts 记录的首次 start 才是真实执行时长）
+          const duration = positiveDuration(ctx.toolStarts.get(callID) ?? state.time?.start, state.time?.end)
           out.push({
             type: 'user',
             session_id: sessionID,
@@ -369,7 +422,31 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       if (deltaProps.field === 'text' && partType === 'reasoning') {
         return [{ type: 'assistant', session_id: deltaProps.sessionID, text: '', thinking: deltaProps.delta }]
       }
-      // field==='input'（tool part 输入增量）与其他 field → 暂不产出（前端无消费点 [待实测]）
+      // field==='input'（tool part 输入增量，阶段 0 实测 serve 以 JSON 片段增量发送工具输入）：
+      // 累积到 toolInputs 并按 callID 补发 tool_use（前端 addToolUse upsert 幂等）——
+      // 否则首次 tool_use 事件 input 为空，read/bash/glob 梗概与 todowrite 列表永远空白
+      if (deltaProps.field === 'input' && partType === 'tool') {
+        // 输入增量可能是完整 JSON 或片段；解析失败跳过（等 part.updated 全量兜底）
+        let parsed: Record<string, unknown>
+        try {
+          parsed = JSON.parse(deltaProps.delta)
+        } catch {
+          return []
+        }
+        if (typeof parsed !== 'object' || parsed === null) return []
+        // delta 只带 partID → 反查 callID（updated 未记录映射时无法定位，跳过等 updated 兜底）
+        const callID = ctx.partCallIDs.get(deltaProps.partID)
+        if (!callID) return []
+        const merged = { ...(ctx.toolInputs.get(callID) ?? {}), ...parsed }
+        ctx.toolInputs.set(callID, merged)
+        // 仅当该 callID 已发过 tool_use 卡片才补发更新（未发过由 updated 首次下发兜底）
+        if (ctx.seenToolCallIDs.has(callID)) {
+          const tu = { id: callID, name: '', input: merged }
+          return [{ type: 'assistant', session_id: deltaProps.sessionID, text: '', thinking: '', tool_use: [tu] }]
+        }
+        return []
+      }
+      // 其他 field → 暂不产出（前端无消费点 [待实测]）
       return []
     }
     case 'session.idle': {

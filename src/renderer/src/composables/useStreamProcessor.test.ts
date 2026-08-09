@@ -720,6 +720,38 @@ describe("buildContentBlocks", () => {
     stopListening();
   });
 
+  it("assistant 事件带 thinkingDurationMs → 回填 thinking 块（serve ReasoningPart.time 透传，2026-08-10）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-t");
+
+    chat.addUserMessage("思考题");
+    chat.startAssistantMessage();
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // 流式 thinking 增量（delta 无耗时）
+    listeners.get("engine:event")?.({
+      type: "assistant",
+      session_id: "ses-t",
+      text: "",
+      thinking: "让我想想",
+    });
+    // 全量 updated（带 ReasoningPart.time）→ 耗时透传
+    listeners.get("engine:event")?.({
+      type: "assistant",
+      session_id: "ses-t",
+      text: "",
+      thinking: "让我想想",
+      thinkingDurationMs: 2500,
+    });
+    const block = chat.currentAssistantMsg?.contentBlocks?.find((b) => b.type === "thinking");
+    expect(block?.durationMs).toBe(2500);
+
+    stopListening();
+  });
+
   it("existing 中的隔断块不影响同类型 startsWith 替换", () => {
     // 场景：第一次事件产生了 [text, tool_use]，
     // 第二次 CC 完整事件携带 [text(同), tool_use(同), text(新)]

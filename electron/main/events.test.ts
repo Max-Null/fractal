@@ -130,6 +130,16 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     expect(out[0]).toMatchObject({ type: 'assistant', thinking: '让我想想', text: '' })
   })
 
+  it('reasoning part 带 time → assistant(thinking) 携带 thinkingDurationMs（2026-08-10 服务端思考耗时透传）', () => {
+    const ctx = ctxWithRole('assistant')
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'reasoning', text: '思考完成', time: { start: 1000, end: 2500 } }),
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out[0]).toMatchObject({ type: 'assistant', thinking: '思考完成', thinkingDurationMs: 1500 })
+  })
+
   it('tool part（pending，首次）→ assistant(tool_use) 创建工具卡片', () => {
     const ctx = ctxWithRole('assistant')
     const evt = synthEvent('message.part.updated', {
@@ -169,6 +179,78 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     expect(out).toHaveLength(0)
   })
 
+  it('tool part input 变化（pending {} → running 完整）→ 补发 tool_use（前端 upsert 幂等，2026-08-10）', () => {
+    const ctx = ctxWithRole('assistant')
+    const pending = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'tool', callID: 'call_in', tool: 'Read', state: { status: 'pending', input: {} } }),
+    })
+    const out1 = mapServeEvent(pending, ctx)
+    expect(out1[0]).toMatchObject({ type: 'assistant', tool_use: [{ id: 'call_in', input: {} }] })
+    // serve 状态流转：running 携带完整 input（1.18.15 实测无 delta field='input'）→ 必须补发
+    const running = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_in',
+        tool: 'Read',
+        state: { status: 'running', input: { filePath: 'H:\\a.txt' } },
+      }),
+    })
+    const out2 = mapServeEvent(running, ctx)
+    expect(out2).toHaveLength(1)
+    expect(out2[0]).toMatchObject({ type: 'assistant', tool_use: [{ id: 'call_in', input: { filePath: 'H:\\a.txt' } }] })
+    // 第三次 input 无变化 → 不补发
+    const running2 = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_in',
+        tool: 'Read',
+        state: { status: 'running', input: { filePath: 'H:\\a.txt' } },
+      }),
+    })
+    expect(mapServeEvent(running2, ctx)).toHaveLength(0)
+  })
+
+  it('tool 耗时用首次 start（time.start 每次 running 更新都变 → end-末次 start 是假象，2026-08-10）', () => {
+    const ctx = ctxWithRole('assistant')
+    const run1 = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_dur',
+        tool: 'Bash',
+        state: { status: 'running', input: { command: 'ls' }, time: { start: 1000 } },
+      }),
+    })
+    mapServeEvent(run1, ctx)
+    const run2 = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_dur',
+        tool: 'Bash',
+        state: { status: 'running', input: { command: 'ls' }, time: { start: 2000 } },
+      }),
+    })
+    mapServeEvent(run2, ctx)
+    const completed = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({
+        type: 'tool',
+        callID: 'call_dur',
+        tool: 'Bash',
+        state: { status: 'completed', input: { command: 'ls' }, output: 'ok', time: { start: 3000, end: 3100 } },
+      }),
+    })
+    const out = mapServeEvent(completed, ctx)
+    const user = out.find((e) => e.type === 'user')
+    if (user?.type !== 'user') throw new Error('期望 user 事件')
+    // 首次 start=1000 → 3100-1000=2100；若误用末次 start=3000 则只有 100
+    expect(user.tool_results).toEqual([{ tool_use_id: 'call_dur', content: 'ok', is_error: false, executionDurationMs: 2100 }])
+  })
+
   it('tool part（completed）→ user(tool_results) 回填输出', () => {
     const ctx = ctxWithRole('assistant')
     const completed = synthEvent('message.part.updated', {
@@ -186,6 +268,22 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     expect(user).toBeDefined()
     if (user?.type !== 'user') return
     expect(user.tool_results).toEqual([{ tool_use_id: 'call_1', content: 'file list', is_error: false }])
+  })
+
+  it('同一工具重复 completed updated → tool_results 只回填一次（sentToolResults 去重，2026-08-10）', () => {
+    const ctx = ctxWithRole('assistant')
+    const first = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'tool', callID: 'call_dup', tool: 'Bash', state: { status: 'completed', input: {}, output: '一次' } }),
+    })
+    mapServeEvent(first, ctx)
+    const second = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'tool', callID: 'call_dup', tool: 'Bash', state: { status: 'completed', input: {}, output: '二次' } }),
+    })
+    const out = mapServeEvent(second, ctx)
+    // 非首次 updated：不发 tool_use（已发）；completed 但已回填 → 也不发 tool_results
+    expect(out).toHaveLength(0)
   })
 
   it('tool part（error）→ user(tool_results) is_error=true', () => {
@@ -276,9 +374,37 @@ describe('mapServeEvent 合成事件：message.part.delta（打字机增量）',
     expect(out[0]).toMatchObject({ type: 'assistant', thinking: '让我想想', text: '' })
   })
 
-  it('tool input delta → 不产出（前端无消费点）', () => {
+  it('tool input delta → 累积并按 callID 补发 tool_use（前端 upsert 幂等）', () => {
     const ctx = createMapContext()
     ctx.partTypes.set('prt_tool', 'tool')
+    ctx.partCallIDs.set('prt_tool', 'call_1')
+    ctx.seenToolCallIDs.add('call_1')
+    const evt = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_tool',
+      field: 'input',
+      delta: '{"command":"ls"}',
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'assistant', tool_use: [{ id: 'call_1', input: { command: 'ls' } }] })
+    // 累积可被后续 updated 复用：第二次 delta 合并而非覆盖
+    const evt2 = synthEvent('message.part.delta', {
+      sessionID: 'ses_test',
+      messageID: 'msg_test',
+      partID: 'prt_tool',
+      field: 'input',
+      delta: '{"cwd":"/tmp"}',
+    })
+    const out2 = mapServeEvent(evt2, ctx)
+    expect(out2[0]).toMatchObject({ type: 'assistant', tool_use: [{ id: 'call_1', input: { command: 'ls', cwd: '/tmp' } }] })
+  })
+
+  it('tool input delta（未发过卡片 / partID 无映射）→ 不产出（updated 首次下发兜底）', () => {
+    const ctx = createMapContext()
+    ctx.partTypes.set('prt_tool', 'tool')
+    // seenToolCallIDs 无该 callID → 不补发
     const evt = synthEvent('message.part.delta', {
       sessionID: 'ses_test',
       messageID: 'msg_test',

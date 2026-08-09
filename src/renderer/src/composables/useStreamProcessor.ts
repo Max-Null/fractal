@@ -246,6 +246,11 @@ export function useStreamProcessor() {
               chat.appendThinking(data.thinking);
             }
           }
+          // serve ReasoningPart.time 透传的思考耗时（全量 updated 事件携带，delta 无）——
+          // 回填到 thinking 块供 NodeCard 显示（流式路径不依赖 tool 块紧邻回填）
+          if (data.thinkingDurationMs !== undefined && data.thinkingDurationMs > 0) {
+            chat.setThinkingDurationMs(data.thinkingDurationMs);
+          }
           if (data.tool_use) {
             for (const tu of data.tool_use) {
               // 记录该工具调用前的思考耗时，然后重置计时器

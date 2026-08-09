@@ -15,6 +15,9 @@ const i18n = createI18n({
         thinkingDone: "Thinking",
         timelineSummary: "Summary",
         todoUpdate: "Update todos",
+        todoDone: "Todos done",
+        todoRecord: "Todos",
+        todoRecordDone: "done",
         subTaskUnavailable: "Subtask details unavailable",
         toolInput: "Input",
         toolOutput: "Output",
@@ -264,6 +267,45 @@ describe("NodeCard", () => {
     await w.find(".todo-record-card__header").trigger("click");
     expect(w.find(".todo-record-card__list").exists()).toBe(true);
     expect(w.findAll(".todo-record-chip")).toHaveLength(0);
+  });
+
+  // ═══ todo 全完成态（2026-08-10 反馈：全部完成 → 「待办完成」+ n/m 完成 + ✓ 标记，
+  //   不再显示「正在：查看项目 README」（currentTodoTask 无 in_progress 时兜底首项的错误）═══
+  it("todo 全完成：标题「Todos done」+ 摘要 n/m done + ✓ 状态标记", () => {
+    const w = mountCard(node({
+      key: "t4",
+      kind: "tool",
+      tool: {
+        id: "t4",
+        name: "todowrite",
+        input: { todos: [
+          { content: "写 README", status: "completed" },
+          { content: "发布", status: "completed" },
+        ] },
+      },
+    }));
+    expect(w.text()).toContain("Todos done");
+    expect(w.text()).toContain("2/2 done");
+    expect(w.text()).not.toContain("正在：");
+    expect(w.find(".todo-record-card__status").text()).toBe("✓");
+  });
+
+  it("todo 部分完成：仍「Update todos」+ 正在：xxx，无 ✓ 标记", () => {
+    const w = mountCard(node({
+      key: "t5",
+      kind: "tool",
+      tool: {
+        id: "t5",
+        name: "todowrite",
+        input: { todos: [
+          { content: "写 README", status: "completed" },
+          { content: "发布", status: "in_progress" },
+        ] },
+      },
+    }));
+    expect(w.text()).toContain("Update todos");
+    expect(w.text()).toContain("正在：发布");
+    expect(w.find(".todo-record-card__status").exists()).toBe(false);
   });
 
   // ═══ subtask 变体（D14 复用 SubTaskCard）═══

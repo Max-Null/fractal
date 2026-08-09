@@ -726,6 +726,16 @@ export const useChatStore = defineStore("chat", () => {
   function addToolUse(tool: ToolUse) {
     if (!currentAssistantMsg.value) startAssistantMessage();
     const msg = currentAssistantMsg.value!;
+    // upsert：serve 以增量事件补发工具输入（events.ts 累积 + 补发 tool_use），同 id 已存在时
+    // 只更新 input/startedAt，不重复建卡（2026-08-10 修复：工具梗概/todo 列表为空）
+    const existing = msg.toolUses.find(t => t.id === tool.id);
+    if (existing) {
+      if (tool.input && Object.keys(tool.input).length) existing.input = tool.input;
+      // startedAt 只首设：serve 的 time.start 在工具执行中多次变化（每次 running 更新），
+      // 补发 tool_use 携带的是最新 start——覆盖会破坏 busy 实时计时的基准（从中间开始算）
+      if (tool.startedAt !== undefined && existing.startedAt === undefined) existing.startedAt = tool.startedAt;
+      return;
+    }
     msg.toolUses.push(tool);
     // contentBlocks 是顺序真相源（D3）：tool_use 块按 SSE 事件序 push，且与 toolUses 数组
     // 同对象引用——appendToolResult/syncBlockTimings 更新 result/计时时时间线块同步可见
@@ -738,6 +748,22 @@ export const useChatStore = defineStore("chat", () => {
         const next = new Set(usedAgents.value);
         next.add(agentType);
         usedAgents.value = next;
+      }
+    }
+  }
+
+  /** 流式 thinking 块耗时回填：serve ReasoningPart.time 透传（useStreamProcessor 收到
+   *  thinkingDurationMs 时调用）。只填最后一个 thinking 块且仅限未设置——耗时是思考结束
+   * 后才有的终值，delta 增量到达时 durationMs 为 undefined 不覆盖已填值 */
+  function setThinkingDurationMs(ms: number) {
+    const msg = currentAssistantMsg.value;
+    if (!msg) return;
+    const blocks = msg.contentBlocks ?? [];
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const b = blocks[i];
+      if (b.type === "thinking" && b.durationMs === undefined) {
+        b.durationMs = ms;
+        return;
       }
     }
   }
@@ -1150,6 +1176,7 @@ export const useChatStore = defineStore("chat", () => {
     appendText,
     appendThinking,
     addToolUse,
+    setThinkingDurationMs,
     appendToolResult,
     setContentBlocks,
     addControlRequest,

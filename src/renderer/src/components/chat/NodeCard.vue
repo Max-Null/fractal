@@ -68,12 +68,27 @@ const todoItems = computed<TodoItem[]>(() => {
   return Array.isArray(todos) ? (todos as TodoItem[]) : [];
 });
 
-/** todo 变体完成态：映射 statusMark → TodoRecordCard status（ok/error；无 result 时 undefined=无标记） */
+/** todo 变体完成判定：全部 completed/cancelled（含空列表=false——无任务不算完成）→ 「待办完成」+ ✓ 标记 */
+const todoAllDone = computed(() => {
+  if (!isTodo.value) return false;
+  const items = todoItems.value;
+  return items.length > 0 && items.every(t => t.status === "completed" || t.status === "cancelled");
+});
+
+/** todo 变体标题：全部完成 → 「待办完成」；有进行中/待办 → 「更新待办」（2026-08-10 反馈） */
+const todoTitle = computed(() => t(todoAllDone.value ? "chat.todoDone" : "chat.todoUpdate"));
+
+/** todo 变体摘要：全部完成 → 「n/m 完成」（复用 TodoRecordCard 默认 count 语义，不显示「正在：」）；
+ *  有进行中 → 「正在：xxx」（toolSummary todowrite 分支） */
+const todoSummary = computed(() =>
+  todoAllDone.value ? `${todoItems.value.length}/${todoItems.value.length} ${t("chat.todoRecordDone")}` : toolSummary(props.node.tool?.name ?? "", props.node.tool?.input)
+);
+
+/** todo 变体状态标记：全部完成 → ok ✓（有进行中/待办 → undefined 不显示，避免「正在：+✓」语义冲突） */
 const todoStatus = computed<"ok" | "error" | undefined>(() => {
   if (!isTodo.value || !props.node.tool) return undefined;
   if (props.node.tool.isError) return "error";
-  if (props.node.tool.result !== undefined) return "ok";
-  return undefined;
+  return todoAllDone.value ? "ok" : undefined;
 });
 
 /** 标题行点击：thinking/tool 可展开收起（D5/D6）；todo 展开由 TodoRecordCard header 内部处理 */
@@ -101,16 +116,22 @@ function toolLabel(name: string): string {
   return translated !== key ? translated : name;
 }
 
+/** 毫秒 → 展示文本：<100ms 显示 "<0.1s"（0.0s 会误读为无耗时/计时错误） */
+function formatDuration(ms: number): string {
+  const s = ms / 1000;
+  return s < 0.1 ? "<0.1s" : s.toFixed(1) + "s";
+}
+
 /** 节点耗时：tool 用执行耗时（流式实时 startedAt→now）；thinking 用构建期回填的 thinkingDurationMs；
  *  text/summary 有构建期 durationMs（消息级耗时）则显示——无精确数据省略（不虚构） */
 const durationLabel = computed(() => {
   const n = props.node;
   if (n.kind === "tool" && n.tool) {
-    if (n.tool.executionDurationMs) return (n.tool.executionDurationMs / 1000).toFixed(1) + "s";
-    if (props.busy && n.tool.startedAt) return ((now.value - n.tool.startedAt) / 1000).toFixed(1) + "s";
+    if (n.tool.executionDurationMs) return formatDuration(n.tool.executionDurationMs);
+    if (props.busy && n.tool.startedAt) return formatDuration(now.value - n.tool.startedAt);
     return "";
   }
-  if (n.kind === "thinking" && n.durationMs) return (n.durationMs / 1000).toFixed(1) + "s";
+  if (n.kind === "thinking" && n.durationMs) return formatDuration(n.durationMs);
   return "";
 });
 
@@ -185,8 +206,8 @@ function formatJSON(obj: unknown): string {
           :todos="todoItems"
           :ended-at="0"
           embedded
-          :title="t('chat.todoUpdate')"
-          :summary-text="toolSummary(node.tool.name, node.tool.input)"
+          :title="todoTitle"
+          :summary-text="todoSummary"
           :time-text="durationLabel"
           :busy="busy"
           :status="todoStatus"
@@ -257,10 +278,19 @@ function formatJSON(obj: unknown): string {
   background: rgba(217, 119, 6, 0.05);
 }
 .node-card--summary {
-  /* D7 总结节点：绿底渐变（视觉强调回合最终产出） */
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.08), rgba(16, 185, 129, 0.04));
-  border-color: rgba(34, 197, 94, 0.18);
+  /* D7 总结节点：2026-08-10 反馈——绿底渐变导致内容灰字对比度不足 → 去背景只保留绿色边框，
+     内容文字颜色由 .node-card-text 显式加深（下方） */
+  border-color: rgba(34, 197, 94, 0.35);
   padding: 2px 10px;
+  background: transparent;
+}
+/* 总结正文：加深内容文字（默认 text-secondary 在绿底上偏灰；去底后仍保持强调——
+   :deep 穿透 MarkdownRenderer 的 .markdown-body（prose 类自带 color 不随父继承）） */
+.node-card--summary .node-card-text {
+  color: var(--text-primary);
+}
+.node-card--summary :deep(.markdown-body) {
+  color: var(--text-primary);
 }
 
 /* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo 统一卡片边框；
@@ -278,6 +308,12 @@ function formatJSON(obj: unknown): string {
   background: transparent;
 }
 
+/* 2026-08-10 反馈：todo 节点边框用主题色（与标题/图标呼应——thinking 标题主题色、
+   todo 标题主题色 + 边框主题色，节点视觉体系统一） */
+.node-card--todo {
+  border-color: var(--accent-line);
+}
+
 /* ── 标题行（D5 右对齐布局）：左侧 图标+名称+梗概（flex:1 省略） / 右侧 状态区（flex-shrink:0） ── */
 .node-card-head {
   display: flex;
@@ -292,7 +328,8 @@ function formatJSON(obj: unknown): string {
   transition: background 150ms;
 }
 .node-card-head:hover { background: rgba(255, 255, 255, 0.03); }
-.node-card-head--thinking { color: var(--amber); }
+/* 2026-08-10 反馈：思考过程标题与更新待办标题统一主题色（原 amber——视觉语义分散） */
+.node-card-head--thinking { color: var(--accent); }
 .node-card-head--tool {
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
 }
@@ -431,6 +468,14 @@ function formatJSON(obj: unknown): string {
 .node-card-todo {
   border-radius: 6px;
   margin-bottom: 1px;
+}
+/* 与 thinking/tool 标题行（padding 5px 10px）视觉对齐：TodoRecordCard embedded 默认 0.25rem 0 贴边，
+   与相邻节点差距大（2026-08-10 用户反馈样式不一致） */
+.node-card--todo :deep(.todo-record-card) {
+  padding: 5px 10px;
+}
+.node-card--todo :deep(.todo-record-card__header) {
+  padding: 0;
 }
 
 /* ── subtask 容器：时间线圆点/竖线对齐由 NodeTimeline 负责，这里只做边距微调 ── */

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
+import { ListTodo, ChevronDown } from "lucide-vue-next";
 import type { TodoItem } from "@/stores/chat";
 
 // 待办回合记录卡（D9）：从 serve 消息历史 todowrite 工具卡提取的数据（v2，替代 v1 快照）；默认折叠，点击展开明细
@@ -50,7 +51,7 @@ function statusIcon(s: string): string {
 
 <template>
   <div class="todo-record-card" :class="{ 'todo-record-card--embedded': embedded }">
-    <!-- 折叠摘要：📋 标题 + 摘要（默认「n/m 完成」，可覆盖「正在：xxx」）+ 状态标记 + 三连点(busy) + 时间 + ▾
+    <!-- 折叠摘要：图标 + 标题 + 摘要（默认「n/m 完成」，可覆盖「正在：xxx」）+ 状态标记 + 三连点(busy) + 时间 + ▾
          （点击展开/收起；aria-expanded 供测试与辅助技术） -->
     <button
       type="button"
@@ -58,7 +59,7 @@ function statusIcon(s: string): string {
       :aria-expanded="expanded"
       @click="expanded = !expanded"
     >
-      <span class="todo-record-card__icon">📋</span>
+      <ListTodo class="todo-record-card__icon" :size="12" />
       <span class="todo-record-card__title">{{ title ?? $t('chat.todoRecord') }}</span>
       <span v-if="summaryText" class="todo-record-card__summary">{{ summaryText }}</span>
       <span v-else class="todo-record-card__count">
@@ -72,7 +73,8 @@ function statusIcon(s: string): string {
       >{{ status === "ok" ? "✓" : "✗" }}</span>
       <span v-if="busy" class="todo-record-card__dots"><i /><i /><i /></span>
       <span class="todo-record-card__time">{{ timeText ?? timeLabel }}</span>
-      <span class="todo-record-card__arrow" :class="{ 'todo-record-card__arrow--expanded': expanded }">▾</span>
+      <!-- 展开箭头与其他节点一致（lucide ChevronDown，2026-08-10 反馈：原 ▾ 文本与 NodeCard chevron 不一致） -->
+      <ChevronDown class="todo-record-card__arrow" :size="12" :class="{ 'todo-record-card__arrow--expanded': expanded }" />
     </button>
     <!-- 展开明细：completed ✓ 主题蓝 / cancelled ✕ 灰；样式复用 todo-chip 体系（scoped 局部） -->
     <div v-if="expanded" class="todo-record-card__list">
@@ -126,15 +128,18 @@ function statusIcon(s: string): string {
   color: inherit;
 }
 
+/* 图标：lucide ListTodo（2026-08-10 反馈：原 📋 emoji 与 NodeCard lucide 体系不一致） */
 .todo-record-card__icon {
-  font-size: 10px;
+  color: var(--accent);
   flex-shrink: 0;
 }
 
+/* 标题：与 NodeCard thinking 标题（node-card-label）同规格——11px/600/主题色
+   （2026-08-10 反馈：原 10px muted 与思考过程标题不一致） */
 .todo-record-card__title {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -227,6 +232,19 @@ function statusIcon(s: string): string {
   white-space: nowrap;
   text-overflow: ellipsis;
   border: 1px solid var(--border-dim);
+}
+
+/* 进行中 chip：主题色字 + 白底 + 主题色虚线边框（2026-08-10 反馈：原无 in_progress 专属样式，
+   落到默认灰边框不可辨识；虚线 = 进行中语义，与完成/取消的实线区分） */
+.todo-record-chip--in_progress {
+  color: var(--accent);
+  background: var(--bg-surface);
+  border: 1px dashed var(--accent-line);
+  animation: todo-chip-pulse 1.6s ease-in-out infinite;
+}
+@keyframes todo-chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
 }
 
 .todo-record-chip--completed {

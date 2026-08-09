@@ -1420,6 +1420,35 @@ describe("buildSubTaskMap", () => {
     expect(msg.contentBlocks![0].toolUse!.result).toBe("file1.txt");
   });
 
+  it("addToolUse 同 id upsert：只更新 input/startedAt，不重复建卡（serve input 增量补发，2026-08-10）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.addToolUse({ id: "t1", name: "Bash", input: {} });
+    const msg = chat.currentAssistantMsg!;
+    expect(msg.toolUses).toHaveLength(1);
+    // 补发事件（input delta 累积后）→ 更新 input 与 startedAt
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" }, startedAt: 1000 });
+    expect(msg.toolUses).toHaveLength(1);
+    expect(msg.toolUses[0].input).toEqual({ command: "ls" });
+    expect(msg.toolUses[0].startedAt).toBe(1000);
+    // contentBlocks 不重复（同对象引用）
+    expect(msg.contentBlocks).toHaveLength(1);
+  });
+
+  it("setThinkingDurationMs：回填最后 thinking 块（已填值不覆盖，2026-08-10）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendThinking("思考过程");
+    const msg = chat.currentAssistantMsg!;
+    chat.setThinkingDurationMs(1500);
+    expect(msg.contentBlocks![0]).toMatchObject({ type: "thinking", durationMs: 1500 });
+    // 已填值不覆盖（耗时是思考结束后的终值；迟到事件不覆盖）
+    chat.setThinkingDurationMs(999);
+    expect(msg.contentBlocks![0]).toMatchObject({ type: "thinking", durationMs: 1500 });
+  });
+
   it("setContentBlocks 空初始化生效（DeepSeek 无增量事件的后端首个全量）", () => {
     const chat = useChatStore();
     chat.addUserMessage("Hi");
