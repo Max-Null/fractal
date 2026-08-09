@@ -175,6 +175,12 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
     models: KIMI_MODEL_LIMITS,
     options: { apiKey: savedProviders['moonshotai-cn']?.apiKey ?? '' },
   }
+  // ds-anthropic：侦查兵专用（Anthropic 兼容端点自带 web_search 工具，2026-08-09 同步 oc-plus）
+  // baseURL 指向 Anthropic 兼容端点；key 复用 deepseek（同一账户）；models 同 deepseek 定义（flash/pro）
+  provider['ds-anthropic'] = {
+    options: { apiKey: opts.apiKey, baseURL: 'https://api.deepseek.com/anthropic' },
+    models: MANAGED_MODEL_LIMITS,
+  }
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认
   cfg.model = 'deepseek/deepseek-v4-pro'

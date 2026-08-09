@@ -146,7 +146,11 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { models: unknown; options: { apiKey: string } }
     expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
     expect(kimi.options.apiKey).toBe('')
-    // deepseek 不受影响（双 provider 共存）
+    // ds-anthropic：侦查兵专用 provider（Anthropic 端点 + deepseek 同 key + 同 models）
+    const anthropic = (cfg.provider as Record<string, unknown>)['ds-anthropic'] as { options: { apiKey: string; baseURL: string } }
+    expect(anthropic.options.apiKey).toBe('sk-test')
+    expect(anthropic.options.baseURL).toBe('https://api.deepseek.com/anthropic')
+    // deepseek ����Ӱ�죨˫ provider ���棩
     const ds = (cfg.provider as Record<string, unknown>).deepseek as { options: { apiKey: string } }
     expect(ds.options.apiKey).toBe('sk-test')
   })
