@@ -42,6 +42,12 @@ export function resetV2Conflict(): void {
   v2ConflictHinted = false
 }
 
+/** 8800 冲突置位后的状态广播回调（工厂内注册 emitStatus——置位时渲染层才能感知，2026-08-10 时序竞态修复） */
+let v2ConflictListener: (() => void) | null = null
+export function onV2ConflictChange(cb: () => void): void {
+  v2ConflictListener = cb
+}
+
 /** serve stderr 行处理器（提取自 spawnOnce 的 data 回调，便于单测）：
  * v2 冲突匹配 → 置 v2Conflict 并控制台提示一次；其余文本转发 console（500 截断）。
  * 返回是否命中冲突（appendServeLog 落盘原文不受影响） */
@@ -50,6 +56,8 @@ export function handleServeStderrChunk(txt: string): boolean {
     if (!v2ConflictHinted) {
       v2ConflictHinted = true
       v2Conflict = true
+      // 置位后立即广播（渲染层挂载即查可能早于冲突检测——1.8s 竞态，2026-08-10）
+      v2ConflictListener?.()
       console.error(
         '[serve] 检测到 8800 端口被占用（通常为 OpenCode 官方桌面端）——serve 的 v2 API 服务不可用；分形使用 v1 API，功能不受影响'
       )
@@ -362,6 +370,9 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
       }
     }
   }
+
+  // 8800 冲突置位时立即广播（渲染层感知 v2 状态——挂载即查早于冲突检测的竞态补偿）
+  onV2ConflictChange(emitStatus)
 
 async function startServer(): Promise<StartServerResult> {
     // 进行中互斥：并发调用共享同一次启动（见 startInFlight 注释）

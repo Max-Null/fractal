@@ -224,6 +224,19 @@ const alertText = ref("");
 watch(alertText, (v) => {
   if (v) setTimeout(() => { alertText.value = ""; }, 3000);
 });
+// 时序竞态补偿（2026-08-10）：冲突检测广播可能晚于进入主界面（实测 1.8s）——载入时检查必然错过，
+// 监听 v2Conflict 变化补触发；sessionStorage 标记保证一次会话只提示一次。
+// 注册在顶层而非载入链 finally：mount 同步执行，immediate 触发时序确定（测试稳定）；广播到达也触发
+watch(
+  v2Conflict,
+  (v) => {
+    if (v && !sessionStorage.getItem('sb-v2-hint-shown')) {
+      sessionStorage.setItem('sb-v2-hint-shown', '1');
+      alertText.value = t('v2.v2HintBar');
+    }
+  },
+  { immediate: true }
+);
 async function onWsPillClick() {
   // 点击胶囊切换下拉，不再直接弹选择框——最近工作区列表是主入口
   showWsMenu.value = !showWsMenu.value;
@@ -514,6 +527,7 @@ onMounted(async () => {
     await new Promise((r) => setTimeout(r, 400));
     // D3 载入提示条：进入主界面时 v2 冲突且本次会话未提示过 → 顶部提示一次（sessionStorage 记忆，
     // 3s 自动消失走 alertText watch；不打断首次进入——轻量提示而非弹窗）
+    // （v2Conflict 变化补偿 watch 已在顶层注册——此处只处理「载入时已冲突」的即时检查）
     if (v2Conflict.value && !sessionStorage.getItem('sb-v2-hint-shown')) {
       sessionStorage.setItem('sb-v2-hint-shown', '1');
       alertText.value = t('v2.v2HintBar');

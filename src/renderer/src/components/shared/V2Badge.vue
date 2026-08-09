@@ -21,12 +21,12 @@ const { t } = useI18n();
 
 <style scoped>
 .v2-badge {
-  /* 顶栏胶囊：与主题按钮并排的轻量指示器，按钮语义（可点击弹详情） */
+  /* 顶栏文本按钮：与 icon-btn 兄弟样式一致（无边框、hover 底色），仅文字颜色表达状态语义 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 4px 8px;
-  border: 1px solid var(--accent-line);
+  border: none;
   border-radius: 8px;
   background: transparent;
   font-size: 12px;
@@ -38,9 +38,8 @@ const { t } = useI18n();
 .v2-badge:hover {
   background: var(--accent-glow);
 }
-/* 冲突态：8800 被占用（官方桌面端/TUI）——coral 警示色，border 同色系（main.css 无 --coral-line，用 color-mix 派生） */
+/* 冲突态：8800 被占用（官方桌面端/TUI）——coral 警示色文字 */
 .v2-badge--conflict {
-  border-color: color-mix(in srgb, var(--coral) 35%, transparent);
   color: var(--coral);
 }
 .v2-badge--conflict:hover {
