@@ -3,14 +3,26 @@ productName: 分形
 directories:
   buildResources: build
 files:
+  # 显式正向包含：覆盖 .gitignore 对 out/ 的排除（electron-builder 遵循 gitignore，
+  # 无正向模式时构建产物 out/** 会被排除导致入口缺失）
+  - '**/*'
   - '!**/.vscode/*'
   - '!src/**'
   - '!electron/**'
   - '!resources/bin/**'
+  - '!stage0/**'
+  - '!docs/**'
+  - '!.playwright-mcp/**'
   - '!electron.vite.config.{js,ts,mjs,cjs}'
   - '!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # asar 瘦身：renderer-only 依赖已移入 devDependencies（electron-builder 只打包 dependencies），
+  # 此文件无需再逐个排除 node_modules——但 out/ 必须显式包含（上方 '**/*'）
+  # locales 裁剪：只保留中/英文两个 pak（electronLanguages 限制打包语言）
+electronLanguages:
+  - zh-CN
+  - en-US
 asarUnpack:
   - resources/icon.png
   - resources/icons/**
@@ -26,6 +38,7 @@ extraResources:
     to: preset
     filter:
       - '**/*'
+# locales 裁剪（顶层 files 已含排除规则，win 不再重复定义）
 win:
   executableName: oc-gui
 nsis:
