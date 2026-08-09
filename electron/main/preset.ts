@@ -79,7 +79,7 @@ export async function initPreset(
     return { initialized: false, version: manifest.version }
   }
 
-  await copyDir(join(presetRoot, 'agents'), join(target, 'agents'))
+  await copyDir(join(presetRoot, 'agents'), join(target, 'agents'), true)
   await copyDir(join(presetRoot, 'skills'), join(target, 'skills'))
   await copyDir(join(presetRoot, 'plugins'), join(target, 'plugins'))
   await fsp.writeFile(join(target, '.preset-version'), manifest.version, 'utf-8')
@@ -89,18 +89,46 @@ export async function initPreset(
 /**
  * 递归拷贝目录：覆盖语义（先删目标再拷，保证预置升级后与包内容一致）。
  * 排除 node_modules/.git——第三方依赖/仓库元数据不属于预置交付物。
+ * preserveUserEdits=true（agents 用）：不删目录，逐文件 mtime 保护——目标比源新 = 用户/设置页改过 → 跳过覆盖。
+ * 真相源原则（2026-08-09 oc-plus 查证）：.md 文件是 agent 模型配置的真相源，预置升级不得冲掉 GUI 已改的文件。
  */
-async function copyDir(src: string, dest: string): Promise<void> {
-  await fsp.rm(dest, { recursive: true, force: true })
+async function copyDir(src: string, dest: string, preserveUserEdits = false): Promise<void> {
+  // 非保护模式：先删目标保证与包内容一致（预置移除的文件也删除）；保护模式不删（用户文件可能比预置多）
+  if (!preserveUserEdits) {
+    await fsp.rm(dest, { recursive: true, force: true })
+  }
   await fsp.mkdir(dest, { recursive: true })
   const entries = await fsp.readdir(src, { withFileTypes: true })
   for (const entry of entries) {
     if (entry.name === 'node_modules' || entry.name === '.git') continue
     const s = join(src, entry.name)
     const d = join(dest, entry.name)
-    if (entry.isDirectory()) await copyDir(s, d)
-    else await fsp.copyFile(s, d)
+    if (entry.isDirectory()) await copyDir(s, d, preserveUserEdits)
+    else if (preserveUserEdits) {
+      // 目标比源新 = 用户改过 → 跳过；目标缺失或比源旧 → 正常复制（预置更新生效）
+      try {
+        const [ss, ds] = await Promise.all([fsp.stat(s), fsp.stat(d)])
+        if (ds.mtimeMs > ss.mtimeMs) continue
+      } catch {
+        /* 目标不存在 → 走复制 */
+      }
+      await copyFileKeepMtime(s, d)
+    } else {
+      await copyFileKeepMtime(s, d)
+    }
   }
+}
+
+/**
+ * 复制文件并恢复源 mtime——mtime 保护的比较前提：
+ * copyFile 默认目标 mtime=拷贝时刻（必然晚于源创建时刻），不恢复的话二次初始化时
+ * 「目标比源新」恒成立，预置升级永远全部跳过。恢复后：未改动文件 目标==源（可覆盖），
+ * 用户改过 目标>源（保护跳过）——语义才成立。
+ */
+async function copyFileKeepMtime(src: string, dest: string): Promise<void> {
+  await fsp.copyFile(src, dest)
+  const st = await fsp.stat(src)
+  await fsp.utimes(dest, st.mtime, st.mtime)
 }
 
 /**

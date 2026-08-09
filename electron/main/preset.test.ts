@@ -128,6 +128,40 @@ describe('initPreset（幂等初始化）', () => {
       (await fsp.readFile(join(getPresetTarget(userData), '.preset-version'), 'utf-8')).trim()
     ).toBe('1.0.1')
   })
+
+  it('mtime 保护：升级时用户改过的 agents 文件不被预置覆盖（真相源原则）', async () => {
+    await initPreset(userData, presetRoot)
+    // 用户/设置页改过 target 的 双星.md（内容 + mtime 都更新——目标比源新）
+    const targetAgent = join(getPresetTarget(userData), 'agents', '双星.md')
+    await fsp.writeFile(targetAgent, '# 用户改过的双星', 'utf-8')
+
+    // 模拟应用升级：仅 bump preset.json 版本（agents 源文件未变动——真实升级时未变文件 mtime 保持）
+    const pj = join(presetRoot, 'preset.json')
+    const pjData = JSON.parse(await fsp.readFile(pj, 'utf-8')) as { version: string }
+    pjData.version = '1.0.1'
+    await fsp.writeFile(pj, JSON.stringify(pjData), 'utf-8')
+
+    const upgraded = await initPreset(userData, presetRoot)
+    expect(upgraded.initialized).toBe(true)
+    // 用户改过的文件保留（目标比源新 → mtime 保护跳过）
+    expect(await fsp.readFile(targetAgent, 'utf-8')).toBe('# 用户改过的双星')
+  })
+
+  it('mtime 保护：预置文件比目标新 → 正常覆盖（预置更新生效）', async () => {
+    await initPreset(userData, presetRoot)
+    const targetAgent = join(getPresetTarget(userData), 'agents', '双星.md')
+    // 预置更新 双星.md（源 mtime 变新）；拷贝恢复 mtime 后目标==旧源，故源新必覆盖
+    await new Promise((r) => setTimeout(r, 10))
+    await fsp.writeFile(join(presetRoot, 'agents', '双星.md'), '# 双星 agent 定义 v2', 'utf-8')
+    const pj = join(presetRoot, 'preset.json')
+    const pjData = JSON.parse(await fsp.readFile(pj, 'utf-8')) as { version: string }
+    pjData.version = '1.0.1'
+    await fsp.writeFile(pj, JSON.stringify(pjData), 'utf-8')
+
+    const upgraded = await initPreset(userData, presetRoot)
+    expect(upgraded.initialized).toBe(true)
+    expect(await fsp.readFile(targetAgent, 'utf-8')).toBe('# 双星 agent 定义 v2')
+  })
 })
 
 describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', () => {
