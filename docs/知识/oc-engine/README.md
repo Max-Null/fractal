@@ -28,6 +28,7 @@
 | [v1.18.x-ACP协议.md](v1.18.x-ACP协议.md) | JSON-RPC 方法 / sessionUpdate 类型 | 🚧 骨架，阶段 0 实测后填充 |
 | [v1.18.x-配置schema.md](v1.18.x-配置schema.md) | opencode.json 全字段 + v1/v2 差异 | 🚧 骨架，待填充 |
 | [v1.18.x-数据格式.md](v1.18.x-数据格式.md) | AGENTS.md / plans / memories / skill 文件约定 | 🚧 骨架，待填充 |
+| [v1.18.x-已知问题-8800端口冲突.md](v1.18.x-已知问题-8800端口冲突.md) | 8800 占用真相（scout-websearch 插件）+ v2 server 端口可控性 + 插件容错教训 | ✅ 认知更正版（2026-08-10） |
 
 ## 使用规则
 

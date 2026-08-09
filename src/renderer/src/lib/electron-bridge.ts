@@ -521,12 +521,11 @@ export async function loadModelVariants(modelId: string): Promise<string[]> {
   return invoke<string[]>("provider:modelVariants", { modelId: clean });
 }
 
-/** 引擎状态（engine:status 广播 / engine:getStatus 拉取共用；v2Conflict 为 v2 API 服务是否不可用——8800 被官方桌面端占用） */
+/** 引擎状态（engine:status 广播 / engine:getStatus 拉取共用） */
 export interface EngineStatus {
   running: boolean;
   baseURL?: string;
   port?: number;
-  v2Conflict: boolean;
 }
 
 /** 引擎状态（engine:status 广播可能早于组件监听挂载——启动竞态，挂载时主动拉一次兜底） */

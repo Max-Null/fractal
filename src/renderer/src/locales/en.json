@@ -398,17 +398,6 @@
     "hooksDesc": "Event → [matcher → {'type, command'}]. Supports SessionStart, PreToolUse, and other lifecycles. Configured in settings.json hooks field.",
     "stylesDesc": "Output styles control how the engine formats responses. Configured in settings.json under the outputStyles field. For example, setting \"json\": true formats responses as JSON."
   },
-  "v2": {
-    "v2Available": "V2 service available",
-    "v2Conflict": "V2 service unavailable (port 8800 in use)",
-    "v2HintBar": "V2 API unavailable (port 8800 in use) — click the V2 badge in the top-right for details",
-    "v2DialogTitle": "V2 API Status",
-    "v2What": "V2 is OpenCode serve's new API service (default port 8800). Fractal works over the v1 API, so V2 unavailability does not affect core features.",
-    "v2StatusOk": "V2 available",
-    "v2StatusConflict": "V2 unavailable",
-    "v2StatusReason": "Port 8800 is in use (usually by the official OpenCode desktop app or TUI). Fractal uses the v1 API and is unaffected.",
-    "v2Action": "After closing the official OpenCode desktop app / TUI, click the refresh button in the top bar or restart Fractal to re-check."
-  },
   "error": {
     "retry": "Retry",
     "claudeNotFound": "OpenCode engine not found (error: {detail}). Check the sidebar engine status and retry",

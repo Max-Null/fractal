@@ -556,21 +556,21 @@ describe('logs:readServeLog / app:getInfo handler', () => {
     expect(r.error).toContain('serve 连续 3 次启动失败')
   })
 
-  it('engine:getStatus：未注入 serverManager → 降级返回 { running:false, v2Conflict:false }', async () => {
+  it('engine:getStatus：未注入 serverManager → 降级返回 { running:false }', async () => {
     registerIpcHandlers()
     const h = electronMock.handleCalls.find((x) => x.channel === 'engine:getStatus')
     expect(h).toBeDefined()
-    const r = (await h!.handler({})) as { running: boolean; v2Conflict: boolean }
-    expect(r).toEqual({ running: false, v2Conflict: false })
+    const r = (await h!.handler({})) as { running: boolean }
+    expect(r).toEqual({ running: false })
   })
 
-  it('engine:getStatus：注入 serverManager → 透传 getServerInfo（含 v2Conflict 字段）', async () => {
-    const getServerInfo = vi.fn(() => ({ running: true, baseURL: 'http://127.0.0.1:58143', v2Conflict: true }))
+  it('engine:getStatus：注入 serverManager → 透传 getServerInfo', async () => {
+    const getServerInfo = vi.fn(() => ({ running: true, baseURL: 'http://127.0.0.1:58143' }))
     registerIpcHandlers({ getServerInfo } as never)
     const h = electronMock.handleCalls.find((x) => x.channel === 'engine:getStatus')
     expect(h).toBeDefined()
-    const r = (await h!.handler({})) as { running: boolean; v2Conflict: boolean }
-    expect(r).toEqual({ running: true, baseURL: 'http://127.0.0.1:58143', v2Conflict: true })
+    const r = (await h!.handler({})) as { running: boolean }
+    expect(r).toEqual({ running: true, baseURL: 'http://127.0.0.1:58143' })
   })
 })
 

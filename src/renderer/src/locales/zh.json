@@ -397,17 +397,6 @@
     "hooksDesc": "事件 → [匹配规则 → {'类型, 命令'}]。支持 SessionStart、PreToolUse 等生命周期。配置在 settings.json 的 hooks 字段。",
     "stylesDesc": "输出风格（outputStyles）控制引擎回复的格式和呈现方式。配置在 settings.json 的 outputStyles 字段中。例如设置 \"json\": true 使回复尽量以 JSON 格式输出。"
   },
-  "v2": {
-    "v2Available": "V2 服务可用",
-    "v2Conflict": "V2 服务不可用（8800 被占用）",
-    "v2HintBar": "V2 API 服务不可用（端口 8800 被占用）——点右上角 V2 查看详情",
-    "v2DialogTitle": "V2 API 状态",
-    "v2What": "V2 是 OpenCode serve 的新版 API 服务（默认端口 8800）。分形使用 v1 API 工作，V2 不可用不影响核心功能。",
-    "v2StatusOk": "V2 可用",
-    "v2StatusConflict": "V2 不可用",
-    "v2StatusReason": "端口 8800 被占用（通常为 OpenCode 官方桌面端或 TUI 正在运行）。分形走 v1 API，功能不受影响。",
-    "v2Action": "关闭 OpenCode 官方桌面端 / TUI 后，点顶栏刷新按钮或重启分形即可重新检测。"
-  },
   "error": {
     "retry": "重试",
     "claudeNotFound": "找不到 OpenCode 引擎（错误: {detail}）。请检查侧边栏引擎状态或稍后重试",
