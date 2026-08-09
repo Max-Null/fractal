@@ -21,11 +21,12 @@ const emit = defineEmits<{
 }>();
 const copied = ref(false);
 
-// 用户消息发送时间 → HH:mm（timestamp 缺失（0）→ '--:--'，与 TodoRecordCard 同模式）
+// 用户消息发送时间 → HH:mm:ss（timestamp 缺失（0）→ '--:--'；2026-08-10 由 HH:mm 增补秒）
 const timeLabel = computed(() => {
   if (!props.message.timestamp) return "--:--";
   const d = new Date(props.message.timestamp);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 });
 
 // ── Inline editing state ──

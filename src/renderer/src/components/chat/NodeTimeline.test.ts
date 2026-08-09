@@ -11,7 +11,7 @@ const i18n = createI18n({
   messages: {
     en: {
       chat: {
-        turnComplete: "Turn complete",
+        turnComplete: "Done",
         timelineModelName: "Fractal",
       },
     },
@@ -125,7 +125,7 @@ describe("NodeTimeline", () => {
     });
     const done = w.find(".node-timeline-done");
     expect(done.exists()).toBe(true);
-    expect(done.text()).toContain("Turn complete");
+    expect(done.text()).toContain("Done");
     expect(done.text()).toContain("2.3s");
     expect(done.text()).toContain("12:34:56");
   });

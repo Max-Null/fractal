@@ -101,7 +101,7 @@
     "aboutSubtitle": "分形 — 连接 OpenCode 的智能桥梁",
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · 多厂商 API",
     "aboutCopyright": "© 2026 分形 contributors · MIT",
-    "turnComplete": "回合完成",
+    "turnComplete": "已完成",
     "timelineSummary": "总结",
     "todoUpdate": "更新待办",
     "subTaskUnavailable": "子任务详情不可用",
