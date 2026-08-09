@@ -101,6 +101,9 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认
   cfg.model = 'deepseek/deepseek-v4-pro'
+  // small_model：标题生成等轻量任务专用（serve 首条消息后异步 ensureTitle 用 title agent + small_model；
+  // 未配置 → getSmallModel 解析失败 → 静默失败（oc 已知 #14807）→ 标题永远「新会话」——2026-08-09 实测修复）
+  cfg.small_model = 'deepseek/deepseek-v4-flash'
   // 权限规则按模式生成（受管字段覆盖，用户自定义规则由设置面板二次调整）；
   // userDataDir 注入 settings.json 目录例外（阶段 6：agent 可自检自改配置的前提，方案 3.8.4）
   cfg.permission = buildPermissionRule(opts.permissionMode, userDataDir) as Record<string, unknown>
