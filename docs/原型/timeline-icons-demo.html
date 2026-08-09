@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>时间线图标库对比 Demo</title>
+<!-- Phosphor webfont -->
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<!-- Remix webfont -->
+<link rel="stylesheet" href="https://unpkg.com/remixicon@4.5.0/fonts/remixicon.css">
+<!-- Lucide UMD -->
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg: #0e1116; --bg-card: #151a21; --bg-elevated: #1a2029; --border: #232b36;
+    --text: #e5e9f0; --text-faint: #94a3b8;
+    --accent: #34d399; --amber: #f59e0b; --blue: #38bdf8; --purple: #a78bfa; --pink: #f472b6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 32px 24px 80px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 18px; }
+  .sub { color: var(--text-faint); font-size: 12.5px; margin: 4px 0 28px; }
+  .sec { margin-bottom: 36px; }
+  .sec-title { font-size: 13px; color: var(--text-faint); border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 14px; font-weight: 600; }
+  .sec-title b { color: var(--accent); }
+
+  /* 对比网格 */
+  .lib-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .lib-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+  .lib-name { font-size: 12px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .lib-tag { font-size: 10px; color: var(--text-faint); font-weight: 400; border: 1px solid var(--border); border-radius: 4px; padding: 0 5px; }
+  .lib-pick { font-size: 10px; color: #0b0f14; background: var(--accent); border-radius: 4px; padding: 0 5px; font-weight: 600; }
+  .icon-row { display: flex; align-items: center; gap: 6px; padding: 4px 0; font-size: 12px; color: var(--text-faint); }
+  .icon-cell { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; border-radius: 6px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); }
+  .icon-name { font-family: ui-monospace, monospace; font-size: 10.5px; }
+  .icon-cell svg { width: 16px; height: 16px; stroke: currentColor; }
+
+  /* 节点样式（用最终效果渲染） */
+  .node-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .n-dot { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; border: 2px solid var(--bg); }
+  .n-dot--think { background: var(--amber); }
+  .n-dot--text { background: var(--accent); }
+  .n-dot--tool { background: var(--blue); }
+  .n-dot--todo { background: var(--pink); }
+  .n-dot--sum { background: var(--accent); }
+  .n-dot svg { width: 13px; height: 13px; stroke: #0b0f14; }
+  .n-dot .char { color: #0b0f14; font-weight: 700; font-size: 11px; }
+  .n-label { font-size: 12.5px; color: var(--text-faint); }
+
+  /* 子智能体文字图标 */
+  .agent-grid { display: flex; gap: 18px; flex-wrap: wrap; }
+  .agent-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .agent-char { width: 26px; height: 26px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 700; font-size: 13px; }
+  .agent-name { font-size: 11.5px; color: var(--text-faint); }
+
+  /* 时间线预览 */
+  .tl-preview { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 18px; margin-top: 6px; }
+  .tl-preview h3 { font-size: 12px; color: var(--text-faint); margin-bottom: 12px; font-weight: 600; }
+  .p-line { position: relative; padding-left: 32px; }
+  .p-line::before { content: ""; position: absolute; left: 10px; top: 6px; bottom: 6px; width: 2px; background: var(--border); }
+  .p-node { position: relative; margin-bottom: 7px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+  .p-dot { position: absolute; left: -28px; top: 3px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid var(--bg-card); }
+  .p-dot svg { width: 13px; height: 13px; stroke: #0b0f14; }
+  .p-dot .char { color: #0b0f14; font-weight: 700; font-size: 11px; }
+  .p-title { color: var(--text); font-weight: 500; }
+  .p-sum { color: var(--text-faint); font-size: 11.5px; }
+  .p-state { margin-left: auto; font-size: 11px; color: var(--accent); }
+
+  .note { background: rgba(245,158,11,.06); border: 1px solid rgba(245,158,11,.3); border-radius: 10px; padding: 10px 14px; font-size: 12.5px; color: #fcd34d; margin-top: 14px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>时间线图标库对比</h1>
+  <div class="sub">四个免费线性图标库（均 MIT/ISC 可商用）· 同一组节点图标对比 · 子智能体用文字图标</div>
+
+  <!-- 对比 -->
+  <div class="sec">
+    <div class="sec-title">图标库对比（同一节点语义）</div>
+    <div class="lib-grid">
+      <!-- Lucide -->
+      <div class="lib-card">
+        <div class="lib-name">Lucide <span class="lib-tag">1766 个 · ISC</span><span class="lib-pick">已用</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="brain"></span><span>思考</span><span class="icon-name">brain</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="wrench"></span><span>工具</span><span class="icon-name">wrench</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="globe"></span><span>联网</span><span class="icon-name">globe</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="file-text"></span><span>读文件</span><span class="icon-name">file-text</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="pencil"></span><span>编辑</span><span class="icon-name">pencil</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="terminal"></span><span>命令</span><span class="icon-name">terminal</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="square-check"></span><span>待办</span><span class="icon-name">square-check</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="flag"></span><span>总结</span><span class="icon-name">flag</span></div>
+        <div class="icon-row"><span class="icon-cell" data-lucide="send"></span><span>发送</span><span class="icon-name">send</span></div>
+      </div>
+      <!-- Phosphor -->
+      <div class="lib-card">
+        <div class="lib-name">Phosphor <span class="lib-tag">9000+ · MIT</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-brain"></i></span><span>思考</span><span class="icon-name">brain</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-wrench"></i></span><span>工具</span><span class="icon-name">wrench</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-globe"></i></span><span>联网</span><span class="icon-name">globe</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-file-text"></i></span><span>读文件</span><span class="icon-name">file-text</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-pencil-simple"></i></span><span>编辑</span><span class="icon-name">pencil-simple</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-terminal-window"></i></span><span>命令</span><span class="icon-name">terminal</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-check-square"></i></span><span>待办</span><span class="icon-name">check-square</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-flag"></i></span><span>总结</span><span class="icon-name">flag</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ph ph-paper-plane-tilt"></i></span><span>发送</span><span class="icon-name">paper-plane</span></div>
+      </div>
+      <!-- Remix -->
+      <div class="lib-card">
+        <div class="lib-name">Remix <span class="lib-tag">3200+ · Apache2</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-brain-line"></i></span><span>思考</span><span class="icon-name">brain-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-hammer-line"></i></span><span>工具</span><span class="icon-name">hammer-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-earth-line"></i></span><span>联网</span><span class="icon-name">earth-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-file-text-line"></i></span><span>读文件</span><span class="icon-name">file-text-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-edit-2-line"></i></span><span>编辑</span><span class="icon-name">edit-2-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-terminal-box-line"></i></span><span>命令</span><span class="icon-name">terminal-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-checkbox-circle-line"></i></span><span>待办</span><span class="icon-name">checkbox-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-flag-line"></i></span><span>总结</span><span class="icon-name">flag-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><i class="ri-send-plane-line"></i></span><span>发送</span><span class="icon-name">send-plane-line</span></div>
+      </div>
+      <!-- Heroicons -->
+      <div class="lib-card">
+        <div class="lib-name">Heroicons <span class="lib-tag">316 个 · MIT</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v3m0 12v3m9-9h-3M6 12H3m15.364 6.364-2.121-2.121M7.757 7.757 5.636 5.636m12.728 0-2.121 2.121M7.757 16.243l-2.121 2.121M12 8.25a3.75 3.75 0 1 0 0 7.5 3.75 3.75 0 0 0 0-7.5Z"/></svg></span><span>思考</span><span class="icon-name">light-bulb</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M11.42 15.17 17.25 21A2.652 2.652 0 0 0 21 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 1 1-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 0 0 4.486-6.336l-3.276 3.277a3.004 3.004 0 0 1-2.25-2.25l3.276-3.276a4.5 4.5 0 0 0-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085"/></svg></span><span>工具</span><span class="icon-name">wrench</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 0 1 3 12c0-1.605.42-3.113 1.157-4.418"/></svg></span><span>联网</span><span class="icon-name">globe-alt</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"/></svg></span><span>读文件</span><span class="icon-name">document-text</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"/></svg></span><span>编辑</span><span class="icon-name">pencil-square</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0 0 21 18V6a2.25 2.25 0 0 0-2.25-2.25H5.25A2.25 2.25 0 0 0 3 6v12a2.25 2.25 0 0 0 2.25 2.25Z"/></svg></span><span>命令</span><span class="icon-name">command-line</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg></span><span>待办</span><span class="icon-name">check-circle</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 3v1.5M3 21v-6m0 0 2.77-.693a9 9 0 0 1 6.208.682l.108.054a9 9 0 0 0 6.086.71l3.114-.732a48.524 48.524 0 0 1-.005-10.499l-3.11.732a9 9 0 0 1-6.085-.711l-.108-.054a9 9 0 0 0-6.208-.682L3 4.5M3 15V4.5"/></svg></span><span>总结</span><span class="icon-name">flag</span></div>
+        <div class="icon-row"><span class="icon-cell"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/></svg></span><span>发送</span><span class="icon-name">paper-airplane</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 子智能体文字图标 -->
+  <div class="sec">
+    <div class="sec-title">子智能体图标 = <b>角色第一个字</b>（紫系底，白字）</div>
+    <div class="agent-grid">
+      <div class="agent-item"><span class="agent-char" style="background:#7c3aed">侦</span><span class="agent-name">侦查兵</span></div>
+      <div class="agent-item"><span class="agent-char" style="background:#2563eb">工</span><span class="agent-name">工匠</span></div>
+      <div class="agent-item"><span class="agent-char" style="background:#0d9488">谋</span><span class="agent-name">参谋</span></div>
+      <div class="agent-item"><span class="agent-char" style="background:#9333ea">军</span><span class="agent-name">军师</span></div>
+      <div class="agent-item"><span class="agent-char" style="background:#0891b2">制</span><span class="agent-name">制图师</span></div>
+      <div class="agent-item"><span class="agent-char" style="background:#4f46e5">助</span><span class="agent-name">助理</span></div>
+    </div>
+    <div class="note">子智能体圆点统一用紫色系底 + 白字（如「侦」），不区分角色色——与各角色 .md 的 color 属性解耦，避免色板膨胀；hover 或详情里显示完整角色名。</div>
+  </div>
+
+  <!-- 最终效果预览 -->
+  <div class="sec">
+    <div class="sec-title">最终效果预览（Lucide 图标 + 文字子智能体）</div>
+    <div class="tl-preview">
+      <h3>回合预览：@侦查兵 查 opencode 最新版本</h3>
+      <div class="p-line">
+        <div class="p-node"><span class="p-dot" style="background:var(--amber)"><i data-lucide="brain"></i></span><span class="p-title">思考过程</span><span class="p-sum">派侦查兵查版本，再读 changelog…</span><span class="p-state">0.8s</span></div>
+        <div class="p-node"><span class="p-dot" style="background:var(--purple)"><span class="char">侦</span></span><span class="p-title">侦查兵</span><span class="p-sum">查 opencode 最新版本</span><span class="p-state">✓ 12.4s</span></div>
+        <div class="p-node"><span class="p-dot" style="background:var(--blue)"><i data-lucide="globe"></i></span><span class="p-title">websearch</span><span class="p-sum">opencode latest release</span><span class="p-state">✓ 3.4s</span></div>
+        <div class="p-node" style="padding-left:2px;font-size:12px;color:var(--text-faint)">…</div>
+        <div class="p-node"><span class="p-dot" style="background:var(--blue)"><i data-lucide="file-text"></i></span><span class="p-title">read</span><span class="p-sum">RELEASE-NOTES-0.1.0.md</span><span class="p-state">✓ 0.2s</span></div>
+        <div class="p-node"><span class="p-dot" style="background:var(--accent)"><i data-lucide="flag"></i></span><span class="p-title">总结：v1.18.15 值得关注的三点…</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Lucide 渲染（含预览区）
+  lucide.createIcons();
+</script>
+</body>
+</html>
