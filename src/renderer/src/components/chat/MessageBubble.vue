@@ -288,13 +288,13 @@ const badgeVariant = computed(() => {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
-/* ── 消息行：气泡与头像上下居中对齐（反馈 #1） ── */
-.msg-row { display: flex; gap: 0.75rem; align-items: center; }
-/* 用户消息行：限宽 76% + 靠右（margin-left auto），左侧留白 24% 与分形消息右侧留白对称
-   （对称布局反馈：原占满整行，左缘贴面板左缘） */
+/* ── 消息行：气泡与头像顶部对齐（对齐反馈：与分形头像 flex-start 一致，原 center 垂直居中） ── */
+.msg-row { display: flex; gap: 0.75rem; align-items: flex-start; }
+/* 用户消息行：限宽 90% + 靠右（margin-left auto），左侧留白与分形消息右侧留白对称
+   （对称布局反馈：原占满整行，左缘贴面板左缘；90% 由 76% 放宽） */
 .msg-row--user {
   flex-direction: row-reverse;
-  max-width: 76%;
+  max-width: 90%;
   margin-left: auto;
 }
 
@@ -306,9 +306,13 @@ const badgeVariant = computed(() => {
   font-size: 11px; font-weight: 600;
 }
 .msg-avatar--user {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-dim);
-  color: var(--text-secondary);
+  /* 与 .assistant-col__avatar 同款（样式统一反馈）：accent 渐变圆 + 白字，尺寸 2rem 一致 */
+  background: linear-gradient(135deg, var(--accent), #0891b2);
+  border: 1px solid transparent;
+  color: white;
+  /* 头像顶对齐气泡顶：名字行（16.5px）+ space-y-2 间距（0.5rem）——
+     原对齐 body 顶部导致头像比气泡高出一个名字行 */
+  margin-top: calc(16.5px + 0.5rem);
 }
 .msg-avatar--assistant {
   background: linear-gradient(135deg, var(--accent), #0891b2);

@@ -1512,12 +1512,12 @@ watch(
 .msg-entry > * + * {
   margin-top: 16px;
 }
-/* 助手列：头像「分」+ 时间线；限宽 76% 与用户消息行 76% 对称（左侧 24% 与右侧 24% 留白一致） */
+/* 助手列：头像「分」+ 时间线；限宽 90% 与用户消息行 90% 对称（左右各留 5%） */
 .assistant-col {
   display: flex;
   gap: 8px;
   align-items: flex-start;
-  max-width: 76%;
+  max-width: 90%;
 }
 /* 模型头像：与 MessageBubble .msg-avatar--assistant 同体系（accent 渐变圆 + 首字「分」） */
 .assistant-col__avatar {
