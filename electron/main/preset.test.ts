@@ -392,7 +392,20 @@ describe('applyModelAliases', () => {
     expect(zhi).toContain('model: "moonshotai-cn/kimi-k3"')
   })
 
-  it('HIGH 参数缺省时用默认 pro（调用方不传则不降级）', async () => {
+  it('HIGH 参数缺省时读目标 opencode.json 的 model 字段（设置页选择经 ensureConfig 写入）', async () => {
+    // 模拟 ensureConfig 已写入：cfg.model = flash
+    await fsp.writeFile(
+      getConfigPath(userData),
+      JSON.stringify({ model: 'deepseek/deepseek-v4-flash', default_agent: '双星' }, null, 2),
+      'utf-8'
+    )
+    await applyModelAliases(userData)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+
+  it('HIGH 缺省且配置文件缺失 → 默认 pro（不抛错）', async () => {
     await applyModelAliases(userData)
     const agentsDir = join(getPresetTarget(userData), 'agents')
     const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')

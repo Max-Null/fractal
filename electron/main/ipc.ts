@@ -15,6 +15,7 @@ import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents } from './events'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig, SMALL_MODEL } from './oc-config'
+import { applyModelAliases } from './preset'
 import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
 
 // ── 模块级状态 ──
@@ -422,6 +423,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       const cfg = (await readJsonFile(file, {})) as Record<string, unknown>
       const next = { ...cfg, [args.providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model } }
       await writeJsonFile(file, next)
+      // 模型槽位立即生效（2026-08-09 用户确认，人机交互优于重启后生效）：保存模型的同时替换预置 agents 的 model 字段。
+      // 无条件调用——applyModelAliases 内部幂等（HIGH 缺省读 ensureConfig 刚写的 cfg.model，值一致不写盘）
+      await applyModelAliases(app.getPath('userData'))
       // 引擎配置联动（阶段 5）：保存 API Key 的同时写 serve 隔离配置 opencode.json（单一入口，避免前端竞态）。
       // apiKey 为空视为用户未配置，跳过联动（否则会把已生效的 key 覆盖为空）。
       // permissionMode 用 default 兜底（安全默认：敏感工具 ask）；前端模式切换的精确联动后续阶段细化。

@@ -194,8 +194,22 @@ export async function applyModelAliases(
   highModel?: unknown
 ): Promise<void> {
   const agentsDir = join(getPresetTarget(userDataDir), 'agents')
+  // HIGH 值解析：显式参数优先；缺省时读目标 opencode.json 的 model 字段（ensureConfig 联动设置页选择后写入）——
+  // 统一走 cfg.model 的完整 provider/model 格式，避免调用方传短名（deepseek-v4-flash）污染 agents
+  let high = typeof highModel === 'string' && highModel ? highModel : ''
+  if (!high) {
+    try {
+      const cfg = JSON.parse(await fsp.readFile(getConfigPath(userDataDir), 'utf-8')) as {
+        model?: unknown
+      }
+      if (typeof cfg?.model === 'string' && cfg.model) high = cfg.model
+    } catch {
+      // 配置缺失（首次启动 ensureConfig 之前）→ 落到默认值
+    }
+  }
+  if (!high) high = 'deepseek/deepseek-v4-pro'
   const slotValues: Record<'high' | 'low' | 'vision', string> = {
-    high: typeof highModel === 'string' && highModel ? highModel : 'deepseek/deepseek-v4-pro',
+    high,
     low: SMALL_MODEL,
     vision: VISION_MODEL
   }
