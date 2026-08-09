@@ -12,6 +12,33 @@ function firstLineOf(input: unknown): string {
   return "";
 }
 
+/** glob 匹配模式：patterns 数组首项（serve 实测 glob 入参为 patterns 数组）→ pattern 单值兜底 */
+function globPatternOf(input: unknown): string {
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    const patterns = obj.patterns;
+    if (Array.isArray(patterns) && patterns.length > 0 && typeof patterns[0] === "string") {
+      return patterns[0].split("\n")[0];
+    }
+    if (typeof obj.pattern === "string") return obj.pattern.split("\n")[0];
+  }
+  return "";
+}
+
+/** question 问题文本：questions 数组首项 question 字段（AskUserQuestion 工具，无 questions 则取 description） */
+function questionTextOf(input: unknown): string {
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    const questions = obj.questions;
+    if (Array.isArray(questions) && questions.length > 0) {
+      const first = questions[0] as Record<string, unknown> | undefined;
+      if (first && typeof first.question === "string") return first.question.split("\n")[0];
+    }
+    if (typeof obj.description === "string") return obj.description.split("\n")[0];
+  }
+  return "";
+}
+
 /** todowrite 进行中任务：优先 in_progress 项，兜底首个任务；无任务/无内容 → 空串 */
 function currentTodoTask(input?: unknown): string {
   const todos = (input as { todos?: Array<{ content?: unknown; status?: unknown }> } | undefined)?.todos;
@@ -38,6 +65,18 @@ export function toolSummary(name: string, input?: unknown): string {
     case "websearch":
       // 查询词
       return firstLineOf(input).slice(0, 60);
+    case "glob":
+      // 匹配模式（patterns 数组首项 / pattern 单值）
+      return globPatternOf(input).slice(0, 60);
+    case "list":
+      // 目录路径首行
+      return firstLineOf(input).slice(0, 60);
+    case "lsp":
+      // LSP 查询目标（query / 文件路径）
+      return firstLineOf(input).slice(0, 60);
+    case "question":
+      // AskUserQuestion：首个问题文本（无 questions 兜底 description）
+      return questionTextOf(input).slice(0, 60);
     case "compress":
       // 压缩摘要（无 input 依赖，固定文案）
       return "已压缩历史消息（保留最近 N 轮）";

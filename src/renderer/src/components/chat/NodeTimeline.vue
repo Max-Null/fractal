@@ -3,10 +3,11 @@
 // 数据源：turn（user + 多条 assistant 消息聚合）；节点序列 computed 缓存（D17 流式性能）
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { Message, SubTask } from "@/stores/chat";
+import type { Message, SubTask, TodoItem } from "@/stores/chat";
 import { buildTurnNodes, type TimelineNode } from "@/lib/node-timeline";
 import { formatNum } from "@/lib/utils";
 import NodeCard from "./NodeCard.vue";
+import TodoRecordCard from "./TodoRecordCard.vue";
 
 const { t } = useI18n();
 
@@ -20,6 +21,8 @@ const props = defineProps<{
   subtaskSummaryLoader?: (subId: string) => Promise<string | undefined>;
   /** 回合完成时刻（D9 系统时间；测试可注入固定值，缺省 Date.now） */
   completedAt?: number;
+  /** 回合待办记录（反馈 #6：TodoRecordCard 并入时间线做成结束节点；由 ChatPanel 从最后 assistant 提取） */
+  todoRecord?: { endedAt: number; todos: TodoItem[] } | null;
 }>();
 
 const emit = defineEmits<{
@@ -98,14 +101,21 @@ const tokenLabel = computed(() => {
 
 <template>
   <div class="node-timeline">
+    <!-- 模型头像（反馈 #1：对话式面板左侧助手侧品牌头像，回合起始竖线上方）；
+         ✦ 双星品牌字符，accent-soft 圆底 36px；竖线从头像底部连到首个节点 -->
+    <div class="node-timeline-head">
+      <div class="model-avatar" aria-label="model avatar">✦</div>
+      <span class="node-timeline-head-name">{{ t('chat.timelineModelName') }}</span>
+    </div>
+
     <div
       v-for="(node, i) in nodes"
       :key="node.key"
       class="node-timeline-item"
       :class="{
         'node-timeline-item--busy': busyKeys.has(node.key),
-        // 末节点截断：最后一项竖线不延伸（D1 竖线贯穿 + 末节点截断）
-        'node-timeline-item--last': i === nodes.length - 1,
+        // 末节点截断（D1）：最后一项竖线不延伸；有 todo 记录节点时最后节点竖线需延伸到 todo 节点，不截断
+        'node-timeline-item--last': i === nodes.length - 1 && !props.todoRecord,
       }"
     >
       <!-- 时间线圆点（类型色；busy 时琥珀呼吸 D8） -->
@@ -125,6 +135,15 @@ const tokenLabel = computed(() => {
       </div>
     </div>
 
+    <!-- 待办记录结束节点（反馈 #6：TodoRecordCard 并入时间线——回合末尾 summary 后渲染；
+         只显示条数/时间，点击展开完整列表；竖线截断不延伸到完成标记） -->
+    <div v-if="todoRecord" class="node-timeline-item node-timeline-item--todo">
+      <div class="node-timeline-dot node-timeline-dot--todo"></div>
+      <div class="node-timeline-content">
+        <TodoRecordCard :ended-at="todoRecord.endedAt" :todos="todoRecord.todos" embedded />
+      </div>
+    </div>
+
     <!-- 回合完成标记（D9）：idle 后渲染；静默结束（最后节点是工具无文字）同样渲染 -->
     <div v-if="turnDone" class="node-timeline-done">
       <span class="node-timeline-done-line">───</span>
@@ -140,6 +159,52 @@ const tokenLabel = computed(() => {
 /* ── 时间线容器 ── */
 .node-timeline {
   min-width: 0;
+}
+
+/* ── 模型头像头部（反馈 #1）：✦ 双星品牌字符圆底；竖线从头像底连到首个节点圆点 ── */
+.node-timeline-head {
+  position: relative;
+  min-height: 36px;
+  padding-left: 26px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+}
+/* 头像居中于竖线（圆点中心 x=11px）：absolute 向左偏移 (36-11-11)/2 使头像中心对准竖线 */
+.model-avatar {
+  position: absolute;
+  left: -7px;
+  top: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  color: var(--accent);
+  flex-shrink: 0;
+  user-select: none;
+}
+.node-timeline-head-name {
+  margin-left: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+/* 连接线：头像底部 → 首个节点圆点中心（穿过 margin + 圆点半高） */
+.node-timeline-head::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 36px;
+  bottom: -20px;
+  width: 2px;
+  background: var(--border-dim);
+  border-radius: 1px;
 }
 
 /* ── 节点项：每项画竖线段（圆点中心 → 下一圆点中心），末项截断（D1） ── */
@@ -178,11 +243,17 @@ const tokenLabel = computed(() => {
   border: 1.5px solid var(--border-dim);
   z-index: 1;
 }
-/* 类型色（D18 语义映射到圆点边框）：思考=琥珀 / 工具=紫 / 子智能体=accent / 文字=亮边框 */
+/* 类型色（D18 语义映射到圆点边框）：思考=琥珀 / 工具=紫 / 子智能体=accent / 文字=亮边框 / 待办记录=accent */
 .node-timeline-dot--thinking { border-color: var(--amber); }
 .node-timeline-dot--tool { border-color: var(--violet); }
 .node-timeline-dot--subtask { border-color: var(--accent); }
 .node-timeline-dot--text { border-color: var(--border-bright); }
+.node-timeline-dot--todo { border-color: var(--accent); }
+
+/* 待办记录结束节点：竖线截断（不延伸到回合完成标记） */
+.node-timeline-item--todo::after {
+  display: none;
+}
 
 /* D8 进行中：琥珀边框 + 圆点呼吸（box-shadow 扩散脉冲 1.4s） */
 .node-timeline-item--busy .node-timeline-dot {

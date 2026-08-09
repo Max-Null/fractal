@@ -43,7 +43,7 @@ function makeMsg(overrides: Partial<Message> = {}): Message {
 }
 
 describe("MessageBubble", () => {
-  it("renders user message with U avatar", () => {
+  it("renders user message with 我 avatar (username 缺省兜底)", () => {
     const wrapper = mount(MessageBubble, {
       props: {
         message: makeMsg({ role: "user", content: "Hello AI" }),
@@ -52,6 +52,8 @@ describe("MessageBubble", () => {
     });
     expect(wrapper.text()).toContain("Hello AI");
     expect(wrapper.text()).toContain("You");
+    // 反馈 #1：用户头像 = 用户名首字 || '我'；settings 无 username 字段 → 兜底 '我'
+    expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
   });
 
   // ── Assistant 兜底分支（无 contentBlocks 旧存档 → 纯文本 Markdown + 流式光标）──

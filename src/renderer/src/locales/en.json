@@ -104,7 +104,8 @@
     "turnComplete": "Turn complete",
     "timelineSummary": "Summary",
     "todoUpdate": "Update todos",
-    "subTaskUnavailable": "Subtask details unavailable"
+    "subTaskUnavailable": "Subtask details unavailable",
+    "timelineModelName": "Fractal"
   },
   "provider": {
     "anthropic": "Anthropic",

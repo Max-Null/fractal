@@ -34,6 +34,18 @@ describe("toolSummary（D10 工具梗概）", () => {
     expect(toolSummary("Compress", {})).toBe("已压缩历史消息（保留最近 N 轮）");
   });
 
+  it("glob：patterns 数组首项优先，pattern 单值兜底", () => {
+    expect(toolSummary("Glob", { patterns: ["src/**/*.ts", "lib/**/*.ts"] })).toBe("src/**/*.ts");
+    expect(toolSummary("glob", { pattern: "*.vue" })).toBe("*.vue");
+    expect(toolSummary("glob", { patterns: [] })).toBe("");
+    expect(toolSummary("glob", {})).toBe("");
+  });
+
+  it("list：path 首行", () => {
+    expect(toolSummary("List", { path: "src/renderer/src" })).toBe("src/renderer/src");
+    expect(toolSummary("list", { path: "src\n其他" })).toBe("src");
+  });
+
   it("todowrite：进行中任务优先，无则取首项", () => {
     const input = {
       todos: [

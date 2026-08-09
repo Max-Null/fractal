@@ -104,7 +104,8 @@
     "turnComplete": "回合完成",
     "timelineSummary": "总结",
     "todoUpdate": "更新待办",
-    "subTaskUnavailable": "子任务详情不可用"
+    "subTaskUnavailable": "子任务详情不可用",
+    "timelineModelName": "分形"
   },
   "provider": {
     "anthropic": "Anthropic 官方",

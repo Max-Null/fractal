@@ -3,7 +3,7 @@ import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import NodeTimeline from "./NodeTimeline.vue";
-import type { Message, ContentBlock, SubTask } from "@/stores/chat";
+import type { Message, ContentBlock, SubTask, TodoItem } from "@/stores/chat";
 
 const i18n = createI18n({
   legacy: false,
@@ -12,6 +12,7 @@ const i18n = createI18n({
     en: {
       chat: {
         turnComplete: "Turn complete",
+        timelineModelName: "Fractal",
       },
     },
   },
@@ -26,7 +27,14 @@ const NodeCardStub = {
   template: '<div class="node-card-stub" :data-kind="node.kind" :data-key="node.key" :data-expanded="expanded" :data-busy="busy">{{ subtask ? subtask.id : "" }}</div>',
 };
 
-function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: Message[] }; subtaskState: Record<string, SubTask>; historySubtasks: Record<string, SubTask>; completedAt: number }>) {
+// TodoRecordCard stub：断言结束节点传递（条数渲染文本）；embedded 用 Boolean 类型——无值属性才解析为 true
+const TodoRecordCardStub = {
+  name: "TodoRecordCard",
+  props: { endedAt: null, todos: null, embedded: Boolean },
+  template: '<div class="todo-record-stub">todos={{ todos.length }} embedded={{ embedded }}</div>',
+};
+
+function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: Message[] }; subtaskState: Record<string, SubTask>; historySubtasks: Record<string, SubTask>; completedAt: number; todoRecord: { endedAt: number; todos: TodoItem[] } }>) {
   const user: Message = {
     id: "u1", role: "user", content: "你好", thinking: "", toolUses: [], timestamp: 0, isStreaming: false,
   };
@@ -36,8 +44,9 @@ function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: M
       subtaskState: overrides.subtaskState,
       historySubtasks: overrides.historySubtasks,
       completedAt: overrides.completedAt,
+      todoRecord: overrides.todoRecord,
     },
-    global: { plugins: [i18n], stubs: { NodeCard: NodeCardStub } },
+    global: { plugins: [i18n], stubs: { NodeCard: NodeCardStub, TodoRecordCard: TodoRecordCardStub } },
   });
 }
 
@@ -251,6 +260,38 @@ describe("NodeTimeline", () => {
     expect(w.emitted("subtask-detail")).toEqual([[s]]);
     await stub.vm.$emit("subtask-monitor", "ses_1");
     expect(w.emitted("subtask-monitor")).toEqual([["ses_1"]]);
+  });
+
+  // ═══ 模型头像（反馈 #1）═══
+
+  it("回合起始渲染模型头像（✦ 品牌字符 + 名称），空回合也显示", () => {
+    const w = mountTimeline({});
+    const head = w.find(".node-timeline-head");
+    expect(head.exists()).toBe(true);
+    expect(head.find(".model-avatar").text()).toBe("✦");
+    expect(head.text()).toContain("Fractal");
+  });
+
+  // ═══ 待办记录结束节点（反馈 #6）═══
+
+  it("todoRecord 传入 → 回合末尾渲染 TodoRecordCard（embedded）", () => {
+    const w = mountTimeline({
+      turn: { user: { id: "u1", role: "user", content: "q", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [asst({ contentBlocks: [textBlock("done")], isStreaming: false })] },
+      todoRecord: { endedAt: 123, todos: [{ content: "任务一", status: "completed", activeForm: "" }, { content: "任务二", status: "in_progress", activeForm: "" }] },
+    });
+    const rec = w.find(".todo-record-stub");
+    expect(rec.exists()).toBe(true);
+    expect(rec.text()).toContain("todos=2");
+    expect(rec.text()).toContain("embedded=true");
+    // 结束节点在节点序列之后（NodeCard 序列 1 个 + todo 节点）
+    expect(w.findAll(".node-card-stub")).toHaveLength(1);
+  });
+
+  it("无 todoRecord → 不渲染待办结束节点", () => {
+    const w = mountTimeline({
+      turn: { user: { id: "u1", role: "user", content: "q", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [asst({ contentBlocks: [textBlock("done")], isStreaming: false })] },
+    });
+    expect(w.find(".todo-record-stub").exists()).toBe(false);
   });
 
   // ═══ 节点 key 稳定（D17）═══

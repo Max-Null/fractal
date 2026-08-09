@@ -116,10 +116,11 @@ function mountChatPanel(): VueWrapper {
         Teleport: { template: "<div><slot /></div>" },
         ErrorBoundary: { template: "<div><slot /></div>" },
         InputBar: InputBarStub,
-        // 渲染 data-message-id / data-role：时间线跳转与 scroll spy 定位依赖 DOM 属性
+        // MessageBubble stub：真实组件已移除 data-message-id/data-role（锚点只在回合容器 .msg-entry 上，避免双份元素）
+        // 回回合容器层级由 NodeTimeline/回合分组提供 data 锚点
         MessageBubble: {
           props: ["message"],
-          template: '<div class="msg-stub" :data-message-id="message.id" :data-role="message.role" />',
+          template: '<div class="msg-stub" />',
         },
         ThinkingIndicator: { template: "<div />" },
         ContextUsageModal: { props: ["open"], template: "<div />" },
@@ -928,6 +929,28 @@ describe("ChatPanel 弹窗", () => {
     expect(wrapper.find(".msg-entry .node-timeline .subtask-card-stub").exists()).toBe(true);
     // 原全局平铺位置（TransitionGroup 外的实时平铺）已移除
     expect(wrapper.find(".chat-messages-inner > .subtask-card-stub").exists()).toBe(false);
+  });
+
+  it("锚点单份（反馈 #8 修复）：data-role=user 只在回合容器上，数量 = user 数（无 MessageBubble 内重复锚点）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    const wrapper = mountChatPanel();
+    await flush();
+
+    chat.addUserMessage("问题一");
+    chat.startAssistantMessage();
+    chat.appendText("回答一");
+    chat.finishAssistantMessage();
+    chat.addUserMessage("问题二");
+    await flush();
+
+    // 两个回合 → 恰好 2 个 data-role=user 锚点（迁移前 MessageBubble 根节点重复渲染 → 4 个）
+    expect(wrapper.findAll('[data-role="user"]')).toHaveLength(2);
+    expect(wrapper.findAll('[data-role="user"]')).toHaveLength(wrapper.findAll(".msg-entry").length);
+    // 每个锚点都带稳定 message-id（scrollToTimelineIndex 定位目标）
+    const ids = wrapper.findAll('[data-role="user"]').map((el) => el.attributes("data-message-id"));
+    expect(ids).toContain(chat.messages[0].id);
   });
 });
 

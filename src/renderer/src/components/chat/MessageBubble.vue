@@ -93,22 +93,16 @@ const badgeVariant = computed(() => {
 </script>
 
 <template>
-  <div
-    :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']"
-    :data-role="message.role"
-    :data-message-id="message.id"
-  >
-    <!-- Avatar -->
+  <!-- 根节点不再携带 data-message-id/data-role：锚点职责由 ChatPanel 回合容器 .msg-entry 承载
+       （修复锚点 bug #8：双份相同锚点属性导致 ChatTimelineNav scroll spy 定位错位） -->
+  <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']">
+    <!-- Avatar：用户首字圆（32px，bg-elevated 边框；settings.username 不存在 → '我'）与气泡上下居中对齐；
+         助手兜底分支保留 '分'（渐变圆） -->
     <div
       class="msg-avatar"
-      :style="{
-        background: message.role === 'user'
-          ? 'linear-gradient(135deg, #3b82f6, #6366f1)'
-          : 'linear-gradient(135deg, var(--accent), #0891b2)',
-        color: 'white'
-      }"
+      :class="message.role === 'user' ? 'msg-avatar--user' : 'msg-avatar--assistant'"
     >
-      {{ message.role === 'user' ? 'U' : '分' }}
+      {{ message.role === 'user' ? '我' : '分' }}
     </div>
 
     <!-- Body -->
@@ -294,16 +288,26 @@ const badgeVariant = computed(() => {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
-/* ── 消息行 ── */
-.msg-row { display: flex; gap: 0.75rem; }
+/* ── 消息行：气泡与头像上下居中对齐（反馈 #1） ── */
+.msg-row { display: flex; gap: 0.75rem; align-items: center; }
 .msg-row--user { flex-direction: row-reverse; }
 
-/* ── 消息头像 ── */
+/* ── 消息头像（反馈 #1）：用户 32px 首字圆，bg-elevated 底 + 边框；与气泡居中对齐 ── */
 .msg-avatar {
-  width: 1.75rem; height: 1.75rem;
-  flex-shrink: 0; border-radius: 0.375rem;
+  width: 2rem; height: 2rem;
+  flex-shrink: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
   font-size: 11px; font-weight: 600;
+}
+.msg-avatar--user {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-dim);
+  color: var(--text-secondary);
+}
+.msg-avatar--assistant {
+  background: linear-gradient(135deg, var(--accent), #0891b2);
+  border: 1px solid transparent;
+  color: white;
 }
 
 /* ── 消息操作按钮（编辑/重发/复制）── */

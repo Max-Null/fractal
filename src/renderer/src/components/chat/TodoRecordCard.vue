@@ -4,7 +4,8 @@ import type { TodoItem } from "@/stores/chat";
 
 // 待办回合记录卡（D9）：从 serve 消息历史 todowrite 工具卡提取的数据（v2，替代 v1 快照）；默认折叠，点击展开明细
 // 折叠状态独立（本地 ref，不与其他卡片联动）——恢复历史时逐卡独立开关
-const props = defineProps<{ endedAt: number; todos: TodoItem[] }>();
+// embedded：时间线结束节点内嵌模式（3b 反馈 #6）——去除独立卡片 max-width/背景，融入节点卡样式
+const props = defineProps<{ endedAt: number; todos: TodoItem[]; embedded?: boolean }>();
 
 const expanded = ref(false);
 
@@ -32,7 +33,7 @@ function statusIcon(s: string): string {
 </script>
 
 <template>
-  <div class="todo-record-card">
+  <div class="todo-record-card" :class="{ 'todo-record-card--embedded': embedded }">
     <!-- 折叠摘要：📋 待办 n/m 完成 · HH:mm（点击展开/收起；aria-expanded 供测试与辅助技术） -->
     <button
       type="button"
@@ -73,6 +74,16 @@ function statusIcon(s: string): string {
   user-select: none;
   max-width: 760px;
   width: 100%;
+}
+
+/* 时间线结束节点内嵌模式（反馈 #6）：去掉独立卡片 max-width/居中边距/背景，由节点容器统一时间线样式 */
+.todo-record-card--embedded {
+  margin: 0;
+  max-width: none;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0.25rem 0;
 }
 
 /* 折叠摘要整行可点击：重置 button 默认样式（full-width + 左对齐） */

@@ -6,7 +6,9 @@ import {
   buildSubTaskMap,
   SUBTASK_SUMMARY_MAX,
   type AttachedFile,
+  type Message,
   type SubTask,
+  type TodoItem,
   type TodoRecord,
 } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
@@ -42,7 +44,6 @@ import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
-import TodoRecordCard from "./TodoRecordCard.vue";
 import NodeTimeline from "./NodeTimeline.vue";
 import SubTaskMonitor from "./SubTaskMonitor.vue";
 import SubTaskDetail from "./SubTaskDetail.vue";
@@ -488,13 +489,24 @@ watch(() => chat.pendingControlRequest, (cr) => {
     } catch { /* 静默，DB 加载失败不影响功能 */ }
   }, { immediate: true });
 
-// ── 待办记录卡（v2）：从 serve 消息历史 todowrite 工具卡提取，消息流内渲染 ──
+// ── 待办记录卡（v2）：从 serve 消息历史 todowrite 工具卡提取，回合内渲染 ──
 /** 消息 id → 记录卡（todoRecords 索引；同消息多条 todowrite 取最后一条——收尾态通常单条，多条时展示最新） */
 const recordForMsg = computed(() => {
   const map = new Map<string, TodoRecord>();
   for (const rec of chat.todoRecords) map.set(rec.messageId, rec);
   return map;
 });
+
+/** 回合待办记录（反馈 #6：TodoRecordCard 并入时间线结束节点）：
+ *  取回合内最后一条承载全完成 todowrite 的 assistant 消息（倒序遍历，与独立渲染时「取最后」语义一致） */
+function todoRecordForTurn(turn: { assistants: Message[] }): { endedAt: number; todos: TodoItem[] } | null {
+  for (let i = turn.assistants.length - 1; i >= 0; i--) {
+    // script 内访问 computed 必须解包 .value（模板里自动解包，函数内不会）
+    const rec = recordForMsg.value.get(turn.assistants[i].id);
+    if (rec) return { endedAt: rec.endedAt, todos: rec.todos };
+  }
+  return null;
+}
 // 消息变化（实时流式 / loadMessages / prependMessages）→ 全量重提取（消息量 ≤500，性能可接受）
 watch(
   () => chat.messages,
@@ -1187,24 +1199,17 @@ watch(
               @fork="handleFork"
               @preview-file="(f) => openFileInPanel(f)"
             />
-            <!-- 助手回合时间线（3b）：节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13） -->
+            <!-- 助手回合时间线（3b）：节点序列 + 回合完成标记 + 子智能体节点（平铺收敛 D13）+ 待办记录结束节点（反馈 #6） -->
             <NodeTimeline
               v-if="turn.assistants.length"
               :turn="turn"
               :subtask-state="chat.subTasks"
               :history-subtasks="historySubtaskById"
               :subtask-summary-loader="loadSubTaskSummary"
+              :todo-record="todoRecordForTurn(turn)"
               @subtask-detail="openSubTaskDetail"
               @subtask-monitor="(id) => monitorSubTaskId = id"
             />
-            <!-- 待办记录卡（v2 D9）：回合内各 assistant 消息承载的全完成 todowrite 工具卡 → 回合底部渲染 -->
-            <template v-for="asst in turn.assistants" :key="`todo-${asst.id}`">
-              <TodoRecordCard
-                v-if="recordForMsg.get(asst.id)"
-                :ended-at="recordForMsg.get(asst.id)!.endedAt"
-                :todos="recordForMsg.get(asst.id)!.todos"
-              />
-            </template>
           </div>
         </TransitionGroup>
 

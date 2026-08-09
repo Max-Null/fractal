@@ -182,25 +182,84 @@ describe("NodeCard", () => {
     }
   });
 
+  // ═══ 反馈 #4/#5：head 右对齐 + chevron + 耗时补全 ═══
+
+  it("head 布局：左组(icon+名称+梗概) 右组(状态+耗时+chevron)——状态区独立节点", () => {
+    const w = mountCard(node({
+      key: "t1",
+      kind: "tool",
+      tool: { id: "t1", name: "Bash", input: { command: "ls" }, result: "file", executionDurationMs: 500 },
+    }), { expanded: true });
+    const head = w.find(".node-card-head--tool");
+    expect(head.find(".node-card-head-left").exists()).toBe(true);
+    expect(head.find(".node-card-head-right").exists()).toBe(true);
+    // 右组内状态 → 耗时 → chevron 顺序（带闭合引号区分 node-card-status 与 node-card-stat 前缀相同）
+    const rightHtml = head.find(".node-card-head-right").html();
+    expect(rightHtml.indexOf('class="node-card-status"')).toBeGreaterThan(-1);
+    expect(rightHtml.indexOf('class="node-card-stat"')).toBeGreaterThan(rightHtml.indexOf('class="node-card-status"'));
+    expect(rightHtml.indexOf("node-card-chevron")).toBeGreaterThan(rightHtml.indexOf('class="node-card-stat"'));
+  });
+
+  it("可展开节点渲染 chevron：收起朝下 / 展开朝上（rotate 180）", () => {
+    const collapsed = mountCard(node({ key: "t1", kind: "tool", tool: { id: "t1", name: "Bash", input: {} } }));
+    expect(collapsed.find(".node-card-chevron").exists()).toBe(true);
+    expect(collapsed.find(".node-card-chevron--up").exists()).toBe(false);
+    const expanded = mountCard(node({ key: "t1", kind: "tool", tool: { id: "t1", name: "Bash", input: {} } }), { expanded: true });
+    expect(expanded.find(".node-card-chevron--up").exists()).toBe(true);
+    // thinking 也可展开 → 有 chevron
+    const th = mountCard(node({ kind: "thinking", text: "思考" }));
+    expect(th.find(".node-card-chevron").exists()).toBe(true);
+    // text 恒展开（非可展开节点）→ 无 chevron
+    const tx = mountCard(node({ kind: "text", text: "正文" }));
+    expect(tx.find(".node-card-chevron").exists()).toBe(false);
+  });
+
+  it("text 节点有 durationMs → 耗时显示；无 → 不显示（不虚构）", () => {
+    const withDur = mountCard(node({ kind: "text", text: "正文", durationMs: 3200 }));
+    expect(withDur.text()).toContain("⏱3.2s");
+    const noDur = mountCard(node({ kind: "text", text: "正文" }));
+    expect(noDur.text()).not.toContain("⏱");
+  });
+
   // ═══ todo 变体（D11 单行无展开）═══
 
-  it("todo 变体：单行「更新待办 · 正在：<任务>」+ 无展开交互", async () => {
+  it("todo 变体：head 行 + 待办列表（状态图标+标题），无展开交互", async () => {
     const w = mountCard(node({
       key: "t2",
       kind: "tool",
       tool: {
         id: "t2",
         name: "todowrite",
-        input: { todos: [{ content: "写 README", status: "in_progress" }, { content: "发布", status: "pending" }] },
+        input: { todos: [{ content: "写 README", status: "in_progress" }, { content: "发布", status: "pending" }, { content: "完成", status: "completed" }] },
       },
     }));
     expect(w.text()).toContain("Update todos");
-    expect(w.text()).toContain("正在：写 README");
+    // head 行右侧不渲染 chevron（todo 无展开交互 D11）
+    expect(w.find(".node-card-chevron").exists()).toBe(false);
+    // 列表：每项状态图标 + 标题（反馈 #2：展示待办列表本身，非工具卡片）
+    const items = w.findAll(".node-card-todo-item");
+    expect(items).toHaveLength(3);
+    expect(items[0].text()).toContain("●");
+    expect(items[0].text()).toContain("写 README");
+    expect(items[1].text()).toContain("☐");
+    expect(items[1].text()).toContain("发布");
+    expect(items[2].text()).toContain("☑");
+    expect(items[2].text()).toContain("完成");
     // 点击标题行不展开（D11：无展开交互，不 emit update:expanded）
-    await w.find(".node-card-head").trigger("click");
+    await w.find(".node-card-head--todo").trigger("click");
     expect(w.emitted("update:expanded")).toBeUndefined();
     // 展开区不渲染（input/result 区）
     expect(w.text()).not.toContain("Input");
+  });
+
+  it("todo 变体无 todos 字段 → 降级单行（无列表）", () => {
+    const w = mountCard(node({
+      key: "t3",
+      kind: "tool",
+      tool: { id: "t3", name: "todowrite", input: {} },
+    }));
+    expect(w.find(".node-card-todo-list").exists()).toBe(false);
+    expect(w.text()).toContain("Update todos");
   });
 
   // ═══ subtask 变体（D14 复用 SubTaskCard）═══
