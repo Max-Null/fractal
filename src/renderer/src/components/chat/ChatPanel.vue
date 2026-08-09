@@ -1508,7 +1508,11 @@ watch(
 .scroll-btn-leave-to { opacity: 0; transform: translateY(4px) scale(0.95); }
 
 /* ═══ 左右对话布局（制图师截图反馈）：用户消息右侧气泡（MessageBubble 自有），助手回合左侧列 ═══ */
-/* 助手列：头像「分」+ 时间线；限宽 76% 与用户气泡 72% 呼应，右侧留白保证对话不无限拉长 */
+/* 回合内垂直间距：用户消息与分形时间线之间留呼吸（对称布局反馈——原紧贴无间距） */
+.msg-entry > * + * {
+  margin-top: 16px;
+}
+/* 助手列：头像「分」+ 时间线；限宽 76% 与用户消息行 76% 对称（左侧 24% 与右侧 24% 留白一致） */
 .assistant-col {
   display: flex;
   gap: 8px;

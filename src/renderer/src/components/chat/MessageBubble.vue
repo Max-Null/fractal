@@ -290,7 +290,13 @@ const badgeVariant = computed(() => {
 
 /* ── 消息行：气泡与头像上下居中对齐（反馈 #1） ── */
 .msg-row { display: flex; gap: 0.75rem; align-items: center; }
-.msg-row--user { flex-direction: row-reverse; }
+/* 用户消息行：限宽 76% + 靠右（margin-left auto），左侧留白 24% 与分形消息右侧留白对称
+   （对称布局反馈：原占满整行，左缘贴面板左缘） */
+.msg-row--user {
+  flex-direction: row-reverse;
+  max-width: 76%;
+  margin-left: auto;
+}
 
 /* ── 消息头像（反馈 #1）：用户 32px 首字圆，bg-elevated 底 + 边框；与气泡居中对齐 ── */
 .msg-avatar {
