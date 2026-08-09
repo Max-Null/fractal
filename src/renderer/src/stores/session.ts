@@ -106,7 +106,9 @@ export const useSessionStore = defineStore("session", () => {
     }
     const finalTitle = title || defaultTitle(locale);
     try {
-      const s = await createSessionBackend(model, cwd, mode, finalTitle);
+      // 后端不传 title：serve 用 OC 默认格式（New session - <ISO>）创建，
+      // ensureTitle 才会在首条消息后触发 small_model 自动生成标题（isDefaultTitle 正则只认默认格式）
+      const s = await createSessionBackend(model, cwd, mode, title ? finalTitle : undefined);
       sessions.value.unshift(toLocalSession(s));
       setActiveSession(s.id);
       return s.id;
@@ -159,6 +161,19 @@ export const useSessionStore = defineStore("session", () => {
     }
   }
 
+  /** 会话标题自动更新（serve 首条消息后重命名，session_title 事件驱动）——只改本地，不调后端 */
+  function updateSessionTitle(id: string, title: string) {
+    const s = sessions.value.find((s) => s.id === id);
+    if (s && s.title !== title) {
+      s.title = title;
+      s.updatedAt = Date.now();
+    }
+    const c = childSessions.value.find((s) => s.id === id);
+    if (c && c.title !== title) {
+      c.title = title;
+    }
+  }
+
   /** Delete session via backend */
   async function deleteSession(id: string) {
     try {
@@ -194,6 +209,7 @@ export const useSessionStore = defineStore("session", () => {
     createSession,
     setActiveSession,
     renameSession,
+    updateSessionTitle,
     deleteSession,
     connectedMcpServers,
     sessionActivity,

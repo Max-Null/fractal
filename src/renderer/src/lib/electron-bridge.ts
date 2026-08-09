@@ -15,6 +15,8 @@ export interface StreamEvent {
   session_id?: string;
   text: string;
   thinking: string;
+  /** 会话标题自动更新（serve 首条消息后重命名；主进程 session.updated 识别） */
+  title?: string;
   /** 思考耗时 ms（serve ReasoningPart.time.end - start；2026-08-10 补——流式 thinking 节点显示用） */
   thinkingDurationMs?: number;
   tool_use?: Array<{

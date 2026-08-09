@@ -203,7 +203,7 @@ const tokenLabel = computed(() => {
 /* 类型色（D18 语义映射到圆点边框）：思考=琥珀 / 工具=紫 / 子智能体=accent / 文字=亮边框 / 待办记录=accent */
 .node-timeline-dot--thinking { border-color: var(--amber); }
 .node-timeline-dot--tool { border-color: var(--violet); }
-.node-timeline-dot--subtask { border-color: var(--accent); }
+.node-timeline-dot--subtask { border-color: var(--coral); }
 .node-timeline-dot--text { border-color: var(--border-bright); }
 .node-timeline-dot--todo { border-color: var(--accent); }
 

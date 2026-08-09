@@ -125,6 +125,15 @@ export type StreamFrontendEvent =
       /** kind='part' 时携带分派后的块信息（text/thinking/tool 三态） */
       part?: { type: string; tool?: string; state?: string; text?: string }
     }
+  | {
+      // 会话标题自动更新（serve 收到首条消息后重命名，session.updated 的 info.title 变化时下发）
+      type: 'session_title'
+      session_id?: string
+      text: string
+      thinking: string
+      /** 最新会话标题 */
+      title: string
+    }
 
 // ══════════════════════════════════════════════════════════════════
 // 映射上下文（跨事件状态，subscribeEvents 维护、测试可注入）
@@ -151,6 +160,9 @@ export type StreamFrontendEvent =
  *   completed 的 start 是最后一次（end-start 只算最后一段，如 bash 假象 22ms）——记录首次 start，
  *   耗时 = 首次 start → completed end 才是真实执行时长
  * - sessionTokens：最近一次 session.updated 携带 tokens，session.idle 时附到 result 事件
+ * - sessionTitles：sessionID → 已下发的标题。serve 在收到首条消息后自动更新会话标题
+ *   （session.updated 的 info 是完整 Session 含 title），title 变化时产出 session_title 事件——
+ *   否则前端会话列表永远显示「新会话」（2026-08-10 用户反馈长存问题）
  */
 export interface MapContext {
   messageRoles: Map<string, string>
@@ -162,6 +174,7 @@ export interface MapContext {
   sentToolInputs: Map<string, string>
   toolStarts: Map<string, number>
   sessionTokens: Map<string, { input: number; output: number; cost: number }>
+  sessionTitles: Map<string, string>
   /** 回合起始时间（session.created 记录），session.idle 时计算 result.duration_ms */
   sessionStartTime: Map<string, number>
   /** 时间源（测试可注入固定值，默认 Date.now） */
@@ -182,6 +195,7 @@ export function createMapContext(now: () => number = Date.now): MapContext {
     sentToolInputs: new Map(),
     toolStarts: new Map(),
     sessionTokens: new Map(),
+    sessionTitles: new Map(),
     sessionStartTime: new Map(),
     now,
     activeSessionId: '',
@@ -268,14 +282,21 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       return []
     }
     case 'session.updated': {
-      // 记录最新 tokens（session.idle 时附到 result），其余内部状态不产出
-      const info = props?.info as { tokens?: { input?: number; output?: number; cost?: number } } | undefined
+      // 记录最新 tokens（session.idle 时附到 result）；标题自动更新（serve 首条消息后改标题）→ session_title
+      const info = props?.info as
+        | { tokens?: { input?: number; output?: number; cost?: number }; title?: string }
+        | undefined
       if (sessionID && info?.tokens) {
         ctx.sessionTokens.set(sessionID, {
           input: info.tokens.input ?? 0,
           output: info.tokens.output ?? 0,
           cost: info.tokens.cost ?? 0,
         })
+      }
+      // title 变化（首条消息后 serve 自动命名）才下发，避免每次 updated 刷屏
+      if (sessionID && typeof info?.title === 'string' && info.title && ctx.sessionTitles.get(sessionID) !== info.title) {
+        ctx.sessionTitles.set(sessionID, info.title)
+        return [{ type: 'session_title', session_id: sessionID, title: info.title, text: '', thinking: '' }]
       }
       return []
     }

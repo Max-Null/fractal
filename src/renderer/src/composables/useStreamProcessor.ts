@@ -193,6 +193,12 @@ export function useStreamProcessor() {
         return;
       }
 
+      // 会话标题自动更新（serve 首条消息后重命名）——与活跃/后台无关，先处理
+      if (data.type === "session_title" && data.session_id && data.title) {
+        session.updateSessionTitle(data.session_id, data.title);
+        return;
+      }
+
       // 事件属于后台会话 → 写入缓存，更新 activity 指示器
       if (data.session_id && !isActive) {
         chat.handleBackgroundStreamEvent(data.session_id, data);
