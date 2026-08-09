@@ -58,7 +58,7 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     await fsp.rm(dir, { recursive: true, force: true })
   })
 
-  it('首次写入：受管字段完整（apiKey/baseURL/models/model/permission 含 userData 例外）', async () => {
+  it('首次写入：受管字段完整（apiKey/baseURL/models/model/small_model/permission 含 userData 例外）', async () => {
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
     const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
     const ds = (cfg.provider as Record<string, unknown>).deepseek as Record<string, unknown>
@@ -67,6 +67,8 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     expect(options.baseURL).toBe('https://api.deepseek.com/v1')
     expect(ds.models).toEqual(MANAGED_MODEL_LIMITS)
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
+    // small_model：标题生成等轻量任务专用（未配置 → OC ensureTitle 静默失败 → 标题永远「新会话」#14807）
+    expect(cfg.small_model).toBe('deepseek/deepseek-v4-flash')
     // ensureConfig 注入 userDataDir（=dir）→ permission 为对象语法 + settings.json 目录例外
     expect(cfg.permission).toEqual(buildPermissionRule('default', dir))
     // 阶段 8：agent 定义由预置包 agents/*.md 提供，ensureConfig 不再写内联占位（同名会被 OC 双层 merge 污染）
