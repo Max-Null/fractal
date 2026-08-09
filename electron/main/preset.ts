@@ -6,13 +6,30 @@ import { promises as fsp } from 'node:fs'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL, resolveSmallModel } from './oc-config'
+import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL, ANTHROPIC_MODEL, resolveSmallModel } from './oc-config'
 
 /** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段 */
 export interface PresetManifest {
   version: string
   defaultAgent: string
   instructions: string[]
+}
+
+/** 模型槽位：agent → 槽位映射（high=主模型 / low=轻量 / vision=多模态 / anthropic=Anthropic 兼容 / inherit=继承主模型） */
+export type ModelSlot = 'high' | 'low' | 'vision' | 'anthropic' | 'inherit'
+
+/** 契约清单条目：manifest 中单个 agent 的槽位声明 */
+export interface AgentManifestEntry {
+  file: string
+  slot: ModelSlot
+}
+
+/** 契约清单（oc-plus sync-to-fractal.mjs 生成）：agent 槽位声明 + 来源信息 */
+export interface AgentsManifest {
+  version: string
+  sourceCommit: string
+  generatedAt: string
+  agents: AgentManifestEntry[]
 }
 
 /**
@@ -205,22 +222,53 @@ export async function ensurePresetConfig(
 }
 
 /** 模型槽位：agent 文件 → 对应槽位（HIGH=主模型 / LOW=轻量 / VISION=多模态）；无 model 行的 agent 继承主模型（天然 HIGH）不处理 */
-const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: 'high' | 'low' | 'vision' }> = [
+const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: ModelSlot }> = [
   { agents: ['双星.md'], slot: 'high' },
   { agents: ['工匠.md', '参谋.md', '助理.md'], slot: 'low' },
-  { agents: ['制图师.md'], slot: 'vision' }
+  { agents: ['制图师.md'], slot: 'vision' },
+  { agents: ['侦查兵.md'], slot: 'anthropic' }
 ]
+
+/**
+ * 读契约清单 agents-manifest.json（oc-plus sync-to-fractal.mjs 生成）。
+ * 契约驱动原则（2026-08-09 定案）：agent 槽位由 oc-plus 侧声明，fractal 只消费——
+ * oc-plus 新增/调整 agent 后同步 manifest，fractal 自动适配，无需改硬编码。
+ * 缺失/损坏 → 返回 null（调用方回退 MODEL_SLOT_RULES 硬编码，兼容旧预置包）。
+ */
+export async function readAgentsManifest(presetRoot: string): Promise<AgentsManifest | null> {
+  try {
+    const raw = await fsp.readFile(join(presetRoot, 'agents-manifest.json'), 'utf-8')
+    const parsed = JSON.parse(raw) as Partial<AgentsManifest>
+    if (
+      parsed &&
+      Array.isArray(parsed.agents) &&
+      parsed.agents.every((a) => a && typeof a.file === 'string' && typeof a.slot === 'string')
+    ) {
+      return {
+        version: typeof parsed.version === 'string' ? parsed.version : '',
+        sourceCommit: typeof parsed.sourceCommit === 'string' ? parsed.sourceCommit : '',
+        generatedAt: typeof parsed.generatedAt === 'string' ? parsed.generatedAt : '',
+        agents: parsed.agents,
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
 
 /**
  * 按槽位规则替换预置 agents 的 model 字段——模型槽位统一由分形配置管理（2026-08-09 定案）：
  * 预置包内的 agent 来自 oc-plus 部署产物（model 写死），设置页改模型后不跟随；这里每次启动幂等覆盖为目标值。
+ * 槽位来源：优先 agents-manifest.json 契约清单（oc-plus 声明），缺失回退 MODEL_SLOT_RULES 硬编码（兼容旧包）。
  * 值解析：high 取 cfg.model（设置页选择经 ensureConfig 写入）；low 取 resolveSmallModel（设置页「轻量模型」选择，
- * 空=跟随主模型 → SMALL_MODEL 兜底）；vision 取 oc-config 常量。
+ * 空=跟随主模型 → SMALL_MODEL 兜底）；vision 取 oc-config 常量；anthropic 取 oc-config 常量；inherit 跳过（不写 model 行）。
  * 内容一致时不写盘（避免无谓刷盘）；agents 目录缺失/文件损坏 → 跳过不抛错（预置损坏不阻断启动）。
  */
 export async function applyModelAliases(
   userDataDir: string,
-  highModel?: unknown
+  highModel?: unknown,
+  presetRoot = getDefaultPresetRoot()
 ): Promise<void> {
   const agentsDir = join(getPresetTarget(userDataDir), 'agents')
   // HIGH 值解析：显式参数优先；缺省时读目标 opencode.json 的 model 字段（ensureConfig 联动设置页选择后写入）——
@@ -240,31 +288,38 @@ export async function applyModelAliases(
   // LOW 槽位：设置页「轻量模型」选择优先，空=跟随主模型 → SMALL_MODEL 默认兜底
   // （agent 的 model 行不能为空串——OC 解析空 model 会报错；ensureConfig 场景才允许空=不写 small_model）
   const low = (await resolveSmallModel(userDataDir)) || SMALL_MODEL
-  const slotValues: Record<'high' | 'low' | 'vision', string> = {
+  const slotValues: Record<ModelSlot, string> = {
     high,
     low,
-    vision: VISION_MODEL
+    vision: VISION_MODEL,
+    anthropic: ANTHROPIC_MODEL,
+    inherit: '', // inherit 槽位不写 model 行（继承主模型），值占位不用
   }
+  // 契约清单优先（oc-plus 声明槽位），缺失回退硬编码规则
+  const manifest = await readAgentsManifest(presetRoot)
+  const rules: Array<{ file: string; slot: ModelSlot }> = manifest
+    ? manifest.agents.map((a) => ({ file: a.file, slot: a.slot }))
+    : MODEL_SLOT_RULES.flatMap((r) => r.agents.map((name) => ({ file: name, slot: r.slot })))
   try {
     await fsp.access(agentsDir)
   } catch {
     return
   }
-  for (const rule of MODEL_SLOT_RULES) {
-    for (const name of rule.agents) {
-      const file = join(agentsDir, name)
-      let raw: string
-      try {
-        raw = await fsp.readFile(file, 'utf-8')
-      } catch {
-        // agent 文件不存在（用户删除预置 agent）→ 跳过
-        continue
-      }
-      const value = slotValues[rule.slot]
-      // 整行替换 model 字段（agents md 的 model 行顶格无缩进）；值不变时跳过写盘
-      const next = raw.replace(/^model:.*$/m, `model: "${value}"`)
-      if (next !== raw) await fsp.writeFile(file, next, 'utf-8')
+  for (const rule of rules) {
+    // inherit 槽位 = 无 model 行继承主模型，跳过不写盘
+    if (rule.slot === 'inherit') continue
+    const file = join(agentsDir, rule.file)
+    let raw: string
+    try {
+      raw = await fsp.readFile(file, 'utf-8')
+    } catch {
+      // agent 文件不存在（用户删除预置 agent）→ 跳过
+      continue
     }
+    const value = slotValues[rule.slot]
+    // 整行替换 model 字段（agents md 的 model 行顶格无缩进）；值不变时跳过写盘
+    const next = raw.replace(/^model:.*$/m, `model: "${value}"`)
+    if (next !== raw) await fsp.writeFile(file, next, 'utf-8')
   }
 }
 

@@ -1,4 +1,4 @@
-// 下载官方 OpenCode 二进制（sidecar）：GitHub Releases → resources/bin/
+﻿// 下载官方 OpenCode 二进制（sidecar）：GitHub Releases → resources/bin/
 // 用法：node scripts/download-opencode.js [version]
 // 版本固定原则：与 docs/知识/oc-engine/版本矩阵.md 对齐；升级先改知识库再改这里
 const { execFileSync } = require('node:child_process')
@@ -7,7 +7,7 @@ const { join } = require('node:path')
 const https = require('node:https')
 const crypto = require('node:crypto')
 
-const VERSION = process.argv[2] || 'v1.18.14'
+const VERSION = process.argv[2] || 'v1.18.15'
 const PLATFORM_ASSET = {
   win32: 'opencode-windows-x64.zip',
   darwin: process.arch === 'arm64' ? 'opencode-darwin-arm64.zip' : 'opencode-darwin-x64.zip',

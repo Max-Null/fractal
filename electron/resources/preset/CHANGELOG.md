@@ -1,0 +1,12 @@
+# preset 变更日志
+
+## 2026-08-09 11:10 (v1.1.4) — oc-plus 5388c7f
+- 新增 侦查兵.md（槽位 anthropic）
+- 新增 军师.md（槽位 inherit）
+- 新增 制图师.md（槽位 vision）
+- 新增 助理.md（槽位 low）
+- 新增 参谋.md（槽位 inherit）
+- 新增 双星.md（槽位 high）
+- 新增 工匠.md（槽位 low）
+## 2026-08-09 11:13 (v1.1.4) — oc-plus 5388c7f
+- 无 agent 槽位变更（仅内容更新）

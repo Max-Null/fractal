@@ -13,6 +13,7 @@ import {
   ensurePresetConfig,
   getPresetVersion,
   applyModelAliases,
+  readAgentsManifest,
   PRESET_INSTRUCTION_FILE
 } from './preset'
 
@@ -429,18 +430,18 @@ describe('applyModelAliases', () => {
     expect(zhi).toContain('model: "moonshotai-cn/kimi-k3"')
   })
 
-  it('LOW 槽位跟随设置页轻量模型选择（settings.json smallModel=pro → 工匠/参谋/助理 替换成 pro）', async () => {
+  it('LOW 槽位跟随设置页轻量模型选择（settings.json smallModel=pro → 工匠/助理 替换成 pro）', async () => {
     // 模拟设置页已选 pro：settings.json smallModel=pro（resolveSmallModel 读此值）
     await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
-    // 补建 LOW 同槽位 agent（beforeEach fixture 仅建 工匠.md 代表 LOW 槽位）
-    await fsp.writeFile(join(getPresetTarget(userData), 'agents', '参谋.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    // 补建 LOW 槽位 agent（beforeEach fixture 仅建 工匠.md 代表 LOW 槽位；参谋为 inherit 槽位不属 LOW）
+    await fsp.writeFile(join(getPresetTarget(userData), 'agents', '助理.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
     await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
     const agentsDir = join(getPresetTarget(userData), 'agents')
     const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
     expect(gong).toContain('model: "deepseek/deepseek-v4-pro"')
-    // 参谋同为 LOW 槽位，一并替换
-    const canmou = await fsp.readFile(join(agentsDir, '参谋.md'), 'utf-8')
-    expect(canmou).toContain('model: "deepseek/deepseek-v4-pro"')
+    // 助理同为 LOW 槽位，一并替换
+    const zhuli = await fsp.readFile(join(agentsDir, '助理.md'), 'utf-8')
+    expect(zhuli).toContain('model: "deepseek/deepseek-v4-pro"')
     // HIGH 槽位不受影响（仍用主模型参数值）
     const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
     expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
@@ -503,5 +504,108 @@ describe('applyModelAliases', () => {
     await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
     const mtime2 = (await fsp.stat(file)).mtimeMs
     expect(mtime2).toBe(mtime1)
+  })
+})
+
+// 契约清单（agents-manifest.json）驱动：oc-plus sync-to-fractal.mjs 生成，fractal 只消费
+// manifest 缺失 → 回退 MODEL_SLOT_RULES 硬编码（旧预置包兼容）
+describe('readAgentsManifest + 契约驱动槽位替换', () => {
+  let presetRoot: string
+  let userData: string
+
+  beforeEach(async () => {
+    presetRoot = await fsp.mkdtemp(join(tmpdir(), 'preset-manifest-'))
+    userData = await fsp.mkdtemp(join(tmpdir(), 'preset-manifest-user-'))
+    // 目标 agents 目录：含契约声明的全部 agent（侦查兵 anthropic 槽位）
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    await fsp.mkdir(agentsDir, { recursive: true })
+    await fsp.writeFile(join(agentsDir, '双星.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '工匠.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '制图师.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '侦查兵.md'), 'model: "ds/deepseek-v4-pro"\n', 'utf-8')
+    // inherit 槽位 agent：无 model 行（应保持不被写入）
+    await fsp.writeFile(join(agentsDir, '军师.md'), 'description: 战略远见\n', 'utf-8')
+    await fsp.writeFile(join(agentsDir, '参谋.md'), 'description: 战术纠偏\n', 'utf-8')
+  })
+
+  afterEach(async () => {
+    await fsp.rm(presetRoot, { recursive: true, force: true })
+    await fsp.rm(userData, { recursive: true, force: true })
+  })
+
+  async function writeManifest(agents: Array<{ file: string; slot: string }>) {
+    await fsp.writeFile(
+      join(presetRoot, 'agents-manifest.json'),
+      JSON.stringify({ version: '1.2.0', sourceCommit: 'abc123', generatedAt: '2026-08-09', agents }, null, 2),
+      'utf-8'
+    )
+  }
+
+  it('读取合法 manifest：返回全部槽位声明', async () => {
+    await writeManifest([
+      { file: '双星.md', slot: 'high' },
+      { file: '侦查兵.md', slot: 'anthropic' },
+      { file: '军师.md', slot: 'inherit' }
+    ])
+    const manifest = await readAgentsManifest(presetRoot)
+    expect(manifest?.agents.length).toBe(3)
+    expect(manifest?.agents[1]).toEqual({ file: '侦查兵.md', slot: 'anthropic' })
+  })
+
+  it('manifest 缺失/损坏 → null（回退硬编码）', async () => {
+    expect(await readAgentsManifest(presetRoot)).toBeNull()
+    // 损坏 JSON：写入非法内容后仍返回 null
+    await fsp.writeFile(join(presetRoot, 'agents-manifest.json'), '{broken', 'utf-8')
+    expect(await readAgentsManifest(presetRoot)).toBeNull()
+  })
+
+  it('契约驱动：anthropic 槽位替换为 ds-anthropic 模型、inherit 槽位不写 model 行', async () => {
+    await writeManifest([
+      { file: '双星.md', slot: 'high' },
+      { file: '侦查兵.md', slot: 'anthropic' },
+      { file: '军师.md', slot: 'inherit' },
+      { file: '参谋.md', slot: 'inherit' }
+    ])
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash', presetRoot)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const scout = await fsp.readFile(join(agentsDir, '侦查兵.md'), 'utf-8')
+    expect(scout).toContain('model: "ds-anthropic/deepseek-v4-flash"')
+    const teacher = await fsp.readFile(join(agentsDir, '军师.md'), 'utf-8')
+    expect(teacher).not.toContain('model:')
+    const canmou = await fsp.readFile(join(agentsDir, '参谋.md'), 'utf-8')
+    expect(canmou).not.toContain('model:')
+    // 契约声明外的 agent（工匠/制图师 未在 manifest 中）→ 不处理
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "ds/deepseek-v4-pro"')
+  })
+
+  it('契约优先于硬编码：manifest 将工匠声明为 vision 槽位 → 按契约替换', async () => {
+    await writeManifest([
+      { file: '双星.md', slot: 'high' },
+      { file: '工匠.md', slot: 'vision' }
+    ])
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash', presetRoot)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "moonshotai-cn/kimi-k3"')
+  })
+
+  it('契约覆盖完整槽位集合：high/low/vision/anthropic 全部替换', async () => {
+    await writeManifest([
+      { file: '双星.md', slot: 'high' },
+      { file: '工匠.md', slot: 'low' },
+      { file: '制图师.md', slot: 'vision' },
+      { file: '侦查兵.md', slot: 'anthropic' }
+    ])
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro', presetRoot)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    const shuang = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-pro"')
+    const gong = await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')
+    expect(gong).toContain('model: "deepseek/deepseek-v4-flash"')
+    const zhi = await fsp.readFile(join(agentsDir, '制图师.md'), 'utf-8')
+    expect(zhi).toContain('model: "moonshotai-cn/kimi-k3"')
+    const scout = await fsp.readFile(join(agentsDir, '侦查兵.md'), 'utf-8')
+    expect(scout).toContain('model: "ds-anthropic/deepseek-v4-flash"')
   })
 })

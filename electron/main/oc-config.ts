@@ -62,6 +62,12 @@ export async function resolveSmallModel(userDataDir: string): Promise<string> {
 export const VISION_MODEL = 'moonshotai-cn/kimi-k3'
 
 /**
+ * Anthropic 兼容端点模型（ANTHROPIC 槽位）：侦查兵专用
+ * ds-anthropic provider 复用 deepseek 账户（同一 apiKey），自带 web_search 工具（2026-08-09 同步 oc-plus）
+ */
+export const ANTHROPIC_MODEL = 'ds-anthropic/deepseek-v4-flash'
+
+/**
  * 多模态 provider 的受管 models 定义（对应 opencode.json provider['moonshotai-cn'].models）：
  * kimi-k3 为 models.dev 内置模型，仅显式 reasoningEffort=low（对齐用户全局配置参考，无 key 也写）
  */

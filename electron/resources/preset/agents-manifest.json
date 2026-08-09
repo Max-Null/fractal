@@ -1,0 +1,35 @@
+{
+  "version": "1.1.4",
+  "sourceCommit": "5388c7f",
+  "generatedAt": "2026-08-09T11:13:44.997Z",
+  "agents": [
+    {
+      "file": "侦查兵.md",
+      "slot": "anthropic"
+    },
+    {
+      "file": "军师.md",
+      "slot": "inherit"
+    },
+    {
+      "file": "制图师.md",
+      "slot": "vision"
+    },
+    {
+      "file": "助理.md",
+      "slot": "low"
+    },
+    {
+      "file": "参谋.md",
+      "slot": "inherit"
+    },
+    {
+      "file": "双星.md",
+      "slot": "high"
+    },
+    {
+      "file": "工匠.md",
+      "slot": "low"
+    }
+  ]
+}
