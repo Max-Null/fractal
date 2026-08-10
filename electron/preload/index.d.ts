@@ -10,6 +10,8 @@ declare global {
       on: (channel: string, cb: (data: unknown) => void) => () => void
       /** 订阅新窗口工作区下发（window:init-workspace），返回取消订阅函数 */
       onInitWorkspace: (cb: (path: string) => void) => () => void
+      /** 渲染层 console 桥上报（main.ts 拦截 console 后调用；主进程仅调试模式落盘） */
+      debugLog: (level: string, msg: string) => void
     }
   }
 }

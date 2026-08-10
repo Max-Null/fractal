@@ -10,6 +10,16 @@ async function invoke<T>(channel: string, args?: Record<string, unknown>): Promi
   return window.electronBridge.invoke(channel, args) as Promise<T>
 }
 
+/** 渲染层 console 桥（main.ts 拦截 console 后调用）：单向上报主进程，仅调试模式落盘 renderer.log。
+ * 正常模式主进程静默丢弃——高频 console 不拖慢使用 */
+export function debugLog(level: "log" | "warn" | "error" | "debug" | "info", msg: string): void {
+  try {
+    window.electronBridge?.debugLog(level, msg)
+  } catch {
+    // 桥不可用（非 electron 环境/初始化前）静默——console 桥是附加能力，不影响主流程
+  }
+}
+
 export interface StreamEvent {
   type: string;
   session_id?: string;
@@ -342,6 +352,11 @@ export async function saveSessionDebugLog(sessionId: string, linesJson: string):
 /** 读取 serve 引擎日志尾部（诊断面板「引擎日志」页；文件不存在返回空数组，lines 默认 500 尾部行） */
 export async function readServeLog(lines = 500): Promise<string[]> {
   return invoke("logs:readServeLog", { lines });
+}
+
+/** 读取渲染层 console 桥日志尾部（诊断面板「控制台日志」页；仅调试模式有内容） */
+export async function readRendererLog(lines = 500): Promise<string[]> {
+  return invoke("logs:readRendererLog", { lines });
 }
 
 /** 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本） */

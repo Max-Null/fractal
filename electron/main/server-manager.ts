@@ -163,12 +163,36 @@ let startGeneration = 0
 let lastResolvedFromSidecar = false
 
 /**
+ * 构造 serve 启动参数（B1：engine.logLevel 白名单外/缺失不加参，serve 用默认级别）。
+ * 提取为纯函数便于单测（spawn 参数无法在 vitest 中直接断言 node:child_process 调用）。
+ */
+export function buildServeArgs(logLevel: unknown): string[] {
+  const args = ['serve', '--port', '0', '--hostname', '127.0.0.1', '--print-logs']
+  if (typeof logLevel === 'string' && ['DEBUG', 'INFO', 'WARN', 'ERROR'].includes(logLevel)) {
+    args.push('--log-level', logLevel)
+  }
+  return args
+}
+
+/**
  * 解析 opencode 可执行文件（优先内置 sidecar，系统安装兜底——D8 阶段 7 实现）：
  * 1. resources/bin/opencode.exe（开发）或 process.resourcesPath/bin/opencode.exe（打包 extraResources）
  * 2. 系统安装（where opencode）：原生 exe 或 .cmd/.bat shim（Node CreateProcess 不解析 .cmd → 读 shim 提取真实 exe，阶段 0 踩坑 #2）
  */
-async function resolveOpencodeBin(): Promise<string> {
-  // ① 内置 sidecar（优先）：打包 = process.resourcesPath/bin/；dev = 项目根 resources/bin（多候选）
+export async function resolveOpencodeBin(): Promise<string> {
+  // ① B1 用户自定义路径（settings.json engine.opencodePath）：非空且存在 → 最高优先；
+  //    路径无效 → 警告回落（不抛错——自定义路径损坏不应阻断引擎启动）
+  const customPath = getConfig().config['engine.opencodePath']
+  if (typeof customPath === 'string' && customPath.trim()) {
+    try {
+      await fsp.access(customPath.trim())
+      lastResolvedFromSidecar = false
+      return customPath.trim()
+    } catch {
+      console.warn(`[serve] 自定义 opencode 路径无效，回落内置/系统解析：${customPath}`)
+    }
+  }
+  // ② 内置 sidecar（优先）：打包 = process.resourcesPath/bin/；dev = 项目根 resources/bin（多候选）
   // 注意：dev 下 getAppPath() 返回入口目录（out/main 或 out）——用「向上两级/一级找项目根」+ cwd 双候选兜底
   // 单测环境无 electron app（undefined）——process.cwd() 为项目根，vitest 由项目根运行
   const isPackaged = app?.isPackaged === true
@@ -414,11 +438,13 @@ async function startServer(): Promise<StartServerResult> {
     const dataMode = options.dataMode ?? (typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared')
 
     state.startedAt = Date.now()
+    // B1 引擎日志级别（settings.json engine.logLevel）：白名单外/缺失不加参（serve 默认级别）
+    const serveArgs = buildServeArgs(getConfig().config['engine.logLevel'])
     const child = spawn(
       bin,
       // --print-logs：serve 默认日志静默，加此参数后 INFO 日志（loading/listening/插件报错）输出到 stderr——
       // 诊断面板引擎日志页的数据源（方案 D1/D3；实测 2026-08-08：不加则 stderr 平时无数据，面板恒空）
-      ['serve', '--port', '0', '--hostname', '127.0.0.1', '--print-logs'],
+      serveArgs,
       {
         env: buildServeEnv(options.userDataDir, username, password, dataMode, v2Port + 1),
         stdio: ['ignore', 'pipe', 'pipe'],

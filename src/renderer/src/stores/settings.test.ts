@@ -321,6 +321,41 @@ describe("settings store", () => {
     expect(settings.dataMode).toBe("shared");
   });
 
+  // ── B1：messageLayout / nickname / avatar / opencodePath / logLevel / presetSkillsEnabled ──
+
+  it("B1 默认值：messageLayout=split（现状一致）、nickname/avatar 空、opencodePath 空、logLevel=INFO、presetSkillsEnabled=true", () => {
+    const settings = useSettingsStore();
+    expect(settings.messageLayout).toBe("split");
+    expect(settings.nickname).toBe("");
+    expect(settings.avatar).toBe("");
+    expect(settings.opencodePath).toBe("");
+    expect(settings.logLevel).toBe("INFO");
+    expect(settings.presetSkillsEnabled).toBe(true);
+  });
+
+  it("applySettingsJson 同步 6 个 B1 字段（非法/缺失保持当前值）", () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({
+      "ui.messageLayout": "left",
+      "ui.nickname": "小明",
+      "ui.avatar": "🐱",
+      "engine.opencodePath": "C:\\tools\\opencode.exe",
+      "engine.logLevel": "DEBUG",
+      "preset.skills.enabled": false,
+    });
+    expect(settings.messageLayout).toBe("left");
+    expect(settings.nickname).toBe("小明");
+    expect(settings.avatar).toBe("🐱");
+    expect(settings.opencodePath).toBe("C:\\tools\\opencode.exe");
+    expect(settings.logLevel).toBe("DEBUG");
+    expect(settings.presetSkillsEnabled).toBe(false);
+    // 非法值不覆盖：messageLayout 白名单、logLevel 白名单、preset 需 boolean
+    settings.applySettingsJson({ "ui.messageLayout": "weird", "engine.logLevel": "VERBOSE", "preset.skills.enabled": "yes" });
+    expect(settings.messageLayout).toBe("left");
+    expect(settings.logLevel).toBe("DEBUG");
+    expect(settings.presetSkillsEnabled).toBe(false);
+  });
+
   it("setDataMode 成功：写 settings.json（合并 dataMode）→ 停止活跃会话 → 刷新引擎 → 清缓存 → 重拉会话列表", async () => {
     const settings = useSettingsStore();
     const sessionStore = useSessionStore();

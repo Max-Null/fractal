@@ -5,11 +5,26 @@ import { useI18n } from "vue-i18n";
 
 import { isImageFile, useFilePreview } from "@/composables/useFilePreview";
 import { useSlashCommands } from "@/composables/useSlashCommands";
+import { useSettingsStore } from "@/stores/settings";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 
 const { t } = useI18n();
 const { getThumbnail, thumbnails } = useFilePreview();
 const { recentCommands } = useSlashCommands();
+// B1：消息排布/昵称/头像消费（settings store；nickname/avatar 空 → 保持现状兜底，观感零变化）
+const settings = useSettingsStore();
+/** 消息排布 left 模式：用户行头像/内容回左侧（.msg-row--user 现状 row-reverse 取消） */
+const messageLayoutLeft = computed(() => settings.messageLayout === "left");
+const userDisplayName = computed(() => settings.nickname.trim() || "我");
+const userAvatar = computed(() => settings.avatar.trim() || "我");
+/** 用户名标签：昵称非空时「昵称 · 时间」，空则只显示时间（避免「我 · 时间」冗余前缀） */
+const userNameLabel = computed(() =>
+  settings.nickname.trim() ? `${userDisplayName.value} · ${timeLabel.value}` : timeLabel.value,
+);
+/** 用户消息 body 对齐：split=右对齐（现状硬编码）；left=左对齐（B1 参数化） */
+const userBodyClass = computed(() =>
+  messageLayoutLeft.value ? "" : "flex flex-col items-end",
+);
 
 const props = defineProps<{ message: Message }>();
 const emit = defineEmits<{
@@ -103,14 +118,14 @@ const badgeVariant = computed(() => {
 <template>
   <!-- 根节点不再携带 data-message-id/data-role：锚点职责由 ChatPanel 回合容器 .msg-entry 承载
        （修复锚点 bug #8：双份相同锚点属性导致 ChatTimelineNav scroll spy 定位错位） -->
-  <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant']">
-    <!-- Avatar：用户首字圆（32px；settings.username 不存在 → '我'）；assistant 兜底分支显示 logo
-         （2026-08-10：分形头像由文字 '分' 换为 logo，保持原尺寸与圆形） -->
+  <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant', messageLayoutLeft ? 'msg-row--left' : '']">
+    <!-- Avatar：用户头像（settings.avatar emoji 优先，空 → '我' 字兜底）；assistant 固定 logo -->
     <div
       v-if="message.role === 'user'"
       class="msg-avatar msg-avatar--user"
+      :class="settings.avatar.trim() ? 'msg-avatar--emoji' : ''"
     >
-      {{ '我' }}
+      {{ userAvatar }}
     </div>
     <img
       v-else
@@ -120,11 +135,11 @@ const badgeVariant = computed(() => {
     />
 
     <!-- Body -->
-    <div :class="['flex-1 min-w-0 space-y-2', message.role === 'user' ? 'flex flex-col items-end' : '']">
-      <!-- Name + actions：用户消息显示发送时间（HH:mm），assistant 兜底分支保留 '分形' -->
+    <div :class="['flex-1 min-w-0 space-y-2', message.role === 'user' ? userBodyClass : '']">
+      <!-- Name + actions：用户消息显示昵称（设置后）+ 发送时间（HH:mm），assistant 固定 '分形' -->
       <div class="flex items-center gap-1.5 px-0.5">
         <span class="text-[11px] font-medium" style="color:var(--text-muted)">
-          {{ message.role === 'user' ? timeLabel : '分形' }}
+          {{ message.role === 'user' ? userNameLabel : '分形' }}
         </span>
         <!-- Copy -->
         <button
@@ -305,11 +320,17 @@ const badgeVariant = computed(() => {
 /* ── 消息行：气泡与头像顶部对齐（对齐反馈：与分形头像 flex-start 一致，原 center 垂直居中） ── */
 .msg-row { display: flex; gap: 0.75rem; align-items: flex-start; }
 /* 用户消息行：限宽 90% + 靠右（margin-left auto），左侧留白与分形消息右侧留白对称
-   （对称布局反馈：原占满整行，左缘贴面板左缘；90% 由 76% 放宽） */
+   默认 split（左右分列：头像右、内容右对齐）——B1 前为硬编码样式，现由 settings.messageLayout 控制 */
 .msg-row--user {
   flex-direction: row-reverse;
+  /* 限宽 90%：长消息右侧对齐时避免占满整行 */
   max-width: 90%;
   margin-left: auto;
+}
+/* left 模式（全部靠左）：取消镜像，头像/内容回到左侧（与 AI 消息同向，区分靠底色/昵称） */
+.msg-row--left.msg-row--user {
+  flex-direction: row;
+  margin-left: 0;
 }
 
 /* ── 消息头像（反馈 #1）：用户 32px 首字圆，bg-elevated 底 + 边框；与气泡居中对齐 ── */
@@ -327,6 +348,11 @@ const badgeVariant = computed(() => {
   /* 头像顶对齐气泡顶：名字行（16.5px）+ space-y-2 间距（0.5rem）——
      原对齐 body 顶部导致头像比气泡高出一个名字行 */
   margin-top: calc(16.5px + 0.5rem);
+}
+/* emoji 头像：2rem 圆内 11px 太小，放大到 16px 并去掉字重（emoji 无字体粗细概念） */
+.msg-avatar--emoji {
+  font-size: 16px;
+  font-weight: 400;
 }
 .msg-avatar--assistant {
   /* logo 头像：img 替换元素，无文字/背景——圆形裁切由 .msg-avatar 的 border-radius 承担 */

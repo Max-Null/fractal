@@ -353,3 +353,51 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     expect(wrapper.find(".boot-timeout").exists()).toBe(false);
   });
 });
+
+// ── Onboarding 判定（2026-08-11：DeepSeek key 是唯一必填项，以 key 为准）──
+// showOnboarding = !apiKey && !dismissed：有 key 永不弹（含老版本升级用户）；无 key 且未跳过才弹
+
+describe("AppShell Onboarding 判定（DeepSeek key 为准）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    sessionStorage.clear();
+    pinia = createPinia();
+    setActivePinia(pinia);
+    getEngineStatusMock.mockReset();
+    getEngineStatusMock.mockResolvedValue({ running: true });
+    onInitWorkspaceMock.mockReset();
+    onInitWorkspaceMock.mockReturnValue(() => {});
+    listSessionsMock.mockReset();
+    listSessionsMock.mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("未配置 key + 未跳过 → 显示引导", async () => {
+    const wrapper = mountAppShell();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(600); // boot 400ms 停留 → initializing=false
+    expect(wrapper.find("onboarding-stub").exists()).toBe(true);
+  });
+
+  it("已配置 key + 未跳过 → 不显示引导（配置过 key 不重复弹）", async () => {
+    const settings = useSettingsStore();
+    settings.apiKey = "sk-configured";
+    const wrapper = mountAppShell();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(wrapper.find("onboarding-stub").exists()).toBe(false);
+    expect(wrapper.find(".f-shell").exists()).toBe(true);
+  });
+
+  it("未配置 key + 已跳过（dismissed）→ 不显示引导", async () => {
+    localStorage.setItem("sb-onboarding-dismissed", "1");
+    const wrapper = mountAppShell();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(600);
+    expect(wrapper.find("onboarding-stub").exists()).toBe(false);
+  });
+});

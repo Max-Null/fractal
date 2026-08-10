@@ -609,3 +609,70 @@ describe('readAgentsManifest + 契约驱动槽位替换', () => {
     expect(scout).toContain('model: "ds-anthropic/deepseek-v4-flash"')
   })
 })
+
+describe('initPreset（B1 预置技能包开关 preset.skills.enabled）', () => {
+  let presetRoot: string
+  let userData: string
+
+  beforeEach(async () => {
+    presetRoot = await makeFixturePreset()
+    userData = await fsp.mkdtemp(join(tmpdir(), 'preset-userdata-'))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(presetRoot, { recursive: true, force: true })
+    await fsp.rm(userData, { recursive: true, force: true })
+  })
+
+  /** 目标 skills 目录存在性断言辅助 */
+  async function skillExists(name: string): Promise<boolean> {
+    try {
+      await fsp.access(join(getPresetTarget(userData), 'skills', name))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  it('开关关闭（settings.json 显式 false）：已安装的预置技能被删、用户自定义技能保留', async () => {
+    // 预置技能先正常初始化（默认开启）
+    await initPreset(userData, presetRoot)
+    // 用户自定义技能（混在共享 skills 目录）
+    await fsp.mkdir(join(getPresetTarget(userData), 'skills', 'custom-skill'), { recursive: true })
+    await fsp.writeFile(join(getPresetTarget(userData), 'skills', 'custom-skill', 'SKILL.md'), '# 用户自定义', 'utf-8')
+    // 关闭开关（JSONC 合法）
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ 'preset.skills.enabled': false }), 'utf-8')
+    // 幂等命中 → syncPresetSkills 按预置清单精准删
+    const result = await initPreset(userData, presetRoot)
+    expect(result.initialized).toBe(false)
+    expect(await skillExists('s1')).toBe(false)
+    expect(await skillExists('custom-skill')).toBe(true)
+  })
+
+  it('开关重新开启：缺失的预置技能补拷、用户自定义技能不受影响', async () => {
+    await initPreset(userData, presetRoot)
+    await fsp.mkdir(join(getPresetTarget(userData), 'skills', 'custom-skill'), { recursive: true })
+    // 关闭 → 删除预置技能
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ 'preset.skills.enabled': false }), 'utf-8')
+    await initPreset(userData, presetRoot)
+    expect(await skillExists('s1')).toBe(false)
+    // 开启 → 补拷缺失的预置技能
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ 'preset.skills.enabled': true }), 'utf-8')
+    await initPreset(userData, presetRoot)
+    expect(await skillExists('s1')).toBe(true)
+    expect(await skillExists('custom-skill')).toBe(true)
+    // 补拷内容完整（SKILL.md 在）
+    const restored = await fsp.readFile(join(getPresetTarget(userData), 'skills', 's1', 'SKILL.md'), 'utf-8')
+    expect(restored).toContain('skill')
+  })
+
+  it('开关关闭时首次初始化：skills 目录不交付（agents/plugins 仍正常）', async () => {
+    await fsp.writeFile(join(userData, 'settings.json'), JSON.stringify({ 'preset.skills.enabled': false }), 'utf-8')
+    const result = await initPreset(userData, presetRoot)
+    expect(result.initialized).toBe(true)
+    expect(await skillExists('s1')).toBe(false)
+    // agents/plugins 不受开关影响
+    expect(await fsp.access(join(getPresetTarget(userData), 'agents', '双星.md')).then(() => true).catch(() => false)).toBe(true)
+    expect(await fsp.access(join(getPresetTarget(userData), 'plugins', 'fractal-guardian.js')).then(() => true).catch(() => false)).toBe(true)
+  })
+})

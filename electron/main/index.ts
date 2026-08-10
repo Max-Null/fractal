@@ -5,7 +5,7 @@ import { promises as fsp, appendFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
-import { registerIpcHandlers, startEngineEvents } from './ipc'
+import { registerIpcHandlers, startEngineEvents, isDebugMode } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
 import { migrateUserDataIfNeeded } from './migrate-userdata'
@@ -119,9 +119,10 @@ function createWindow(workspace?: string): BrowserWindow {
   mainWindow.webContents.on('did-fail-load', (_e, code, desc) => diag(`did-fail-load code=${code} desc=${desc}`))
   mainWindow.webContents.on('render-process-gone', (_e, details) => diag(`render-process-gone reason=${details.reason}`))
 
-  // 调试模式（OC_GUI_DEBUG=1）：加载完成后自动打开 DevTools，方便排查渲染进程报错
-  // （dev 快捷键 F12 由 electron-toolkit 提供，此开关覆盖 prod/无快捷键场景）
-  if (process.env.OC_GUI_DEBUG === '1') {
+  // 调试模式（--debug 启动参数 / FRACTAL_DEBUG / OC_GUI_DEBUG=1）：加载完成后自动打开 DevTools，
+  // 方便排查渲染进程报错（dev 快捷键 F12 由 electron-toolkit 提供，此开关覆盖 prod/无快捷键场景）。
+  // 正式版用户：命令行运行 Fractal.exe --debug 即进入调试模式（DevTools 控制台 + renderer.log 落盘）
+  if (isDebugMode()) {
     mainWindow.webContents.once('did-finish-load', () => mainWindow.webContents.openDevTools())
   }
 

@@ -67,6 +67,11 @@ const electronBridge = {
     return () => {
       ipcRenderer.removeListener('window:init-workspace', listener)
     }
+  },
+  // 渲染层 console 桥上报（main.ts 拦截 console 后调用）：单向 fire-and-forget，
+  // 主进程仅调试模式落盘 renderer.log——走 ipcRenderer.send 不走 invoke（无回包，高频不阻塞）
+  debugLog: (level: string, msg: string) => {
+    ipcRenderer.send('debug:console', { level, msg })
   }
 }
 

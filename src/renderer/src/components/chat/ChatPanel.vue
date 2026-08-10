@@ -26,6 +26,7 @@ import {
   writeFile,
   loadSessionLogs,
   readServeLog,
+  readRendererLog,
   getAppInfo,
   openDialog,
   saveDialog,
@@ -106,9 +107,11 @@ function copyText(text: string) {
   document.body.removeChild(ta);
 }
 
-// 复制当前标签页内容（事件日志=会话 debug 行；引擎日志=serve.log 尾部）
+// 复制当前标签页内容（事件日志=会话 debug 行；引擎日志=serve.log 尾部；控制台=renderer.log 尾部）
 function copyDebugLog() {
-  const text = debugTab.value === 'events' ? debugLog.lines.value.join('\n') : serveLogLines.value.join('\n');
+  const text = debugTab.value === 'events' ? debugLog.lines.value.join('\n')
+    : debugTab.value === 'serve' ? serveLogLines.value.join('\n')
+    : rendererLogLines.value.join('\n');
   copyText(text);
   showStatus(t('chat.copied'));
 }
@@ -125,17 +128,23 @@ async function copyDiagnostics() {
   }
 }
 
-// ── 诊断面板标签页（事件日志 debugLog / 引擎日志 serve.log）──
-const debugTab = ref<'events' | 'serve'>('events');
+// ── 诊断面板标签页（事件日志 debugLog / 引擎日志 serve.log / 控制台日志 renderer.log）──
+const debugTab = ref<'events' | 'serve' | 'renderer'>('events');
 const serveLogLines = ref<string[]>([]);
 const serveLogLoading = ref(false);
 const serveLogError = ref('');
 const serveLogPre = ref<HTMLElement | null>(null);
+const rendererLogLines = ref<string[]>([]);
+const rendererLogLoading = ref(false);
+const rendererLogError = ref('');
+const rendererLogPre = ref<HTMLElement | null>(null);
 
-async function switchDebugTab(tab: 'events' | 'serve') {
+async function switchDebugTab(tab: 'events' | 'serve' | 'renderer') {
   debugTab.value = tab;
   // 进入引擎日志页即拉取尾部 500 行（面板不自动轮询，刷新按钮重读——原型 4.3）
   if (tab === 'serve') await loadServeLog();
+  // 控制台日志页同理（renderer.log 仅调试模式有内容——主进程 debug:console 落盘）
+  if (tab === 'renderer') await loadRendererLog();
 }
 
 async function loadServeLog() {
@@ -151,6 +160,21 @@ async function loadServeLog() {
     // 超长自动滚到底（原型 3.2：只读代码块超长自动滚动到底部）
     nextTick().then(() => {
       if (serveLogPre.value) serveLogPre.value.scrollTop = serveLogPre.value.scrollHeight;
+    });
+  }
+}
+
+async function loadRendererLog() {
+  rendererLogLoading.value = true;
+  try {
+    rendererLogLines.value = await readRendererLog(500);
+    rendererLogError.value = '';
+  } catch (e) {
+    rendererLogError.value = String(e);
+  } finally {
+    rendererLogLoading.value = false;
+    nextTick().then(() => {
+      if (rendererLogPre.value) rendererLogPre.value.scrollTop = rendererLogPre.value.scrollHeight;
     });
   }
 }
@@ -1296,18 +1320,33 @@ watch(
               class="text-[11px] px-2 py-0.5 rounded transition-colors"
               :style="debugTab === 'serve' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
             >{{ $t('chat.debugServeTab') }}</button>
+            <button
+              @click="switchDebugTab('renderer')"
+              class="text-[11px] px-2 py-0.5 rounded transition-colors"
+              :style="debugTab === 'renderer' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
+            >{{ $t('chat.debugRendererTab') }}</button>
             <span class="flex-1"></span>
-            <!-- 引擎日志页：刷新重读 serve.log 尾部（面板不自动轮询，原型 4.3） -->
+            <!-- 引擎日志页：刷新重读 serve.log 尾部（面板不自动轮询，原型 4.3）；控制台页同（renderer.log） -->
             <button v-if="debugTab === 'serve'" @click="loadServeLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugRefresh')">🔄</button>
+            <button v-else-if="debugTab === 'renderer'" @click="loadRendererLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugRefresh')">🔄</button>
           </div>
           <!-- 内容区：事件日志 = debugLog 行；引擎日志 = serve.log 尾部只读（超长自动滚到底） -->
           <pre v-if="debugTab === 'events'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); color:var(--text-muted); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">{{ debugLog.lines.value.join('\n') }}</pre>
-          <div v-else class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
+          <div v-else-if="debugTab === 'serve'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
             <pre v-if="serveLogLines.length > 0" ref="serveLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ serveLogLines.join('\n') }}</pre>
             <div v-else class="px-3 py-3 text-[11px]" style="color:var(--text-muted)">
               <span v-if="serveLogLoading">{{ $t('chat.loading') }}</span>
               <span v-else-if="serveLogError">{{ serveLogError }}</span>
               <span v-else>{{ $t('chat.debugNoServeLog') }}</span>
+            </div>
+          </div>
+          <!-- 控制台日志：渲染层 console 桥落盘（仅调试模式有内容——--debug 启动后 renderer.log） -->
+          <div v-else-if="debugTab === 'renderer'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
+            <pre v-if="rendererLogLines.length > 0" ref="rendererLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ rendererLogLines.join('\n') }}</pre>
+            <div v-else class="px-3 py-3 text-[11px]" style="color:var(--text-muted)">
+              <span v-if="rendererLogLoading">{{ $t('chat.loading') }}</span>
+              <span v-else-if="rendererLogError">{{ rendererLogError }}</span>
+              <span v-else>{{ $t('chat.debugNoRendererLog') }}</span>
             </div>
           </div>
           <!-- 底部提示：日志用于排查，可复制发给开发者 -->

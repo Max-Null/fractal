@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL, ANTHROPIC_MODEL, resolveSmallModel } from './oc-config'
+import { parseAndValidate } from './settings'
 
 /** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段 */
 export interface PresetManifest {
@@ -85,6 +86,8 @@ export async function initPreset(
 ): Promise<{ initialized: boolean; version: string }> {
   const manifest = await readPresetManifest(presetRoot)
   const target = getPresetTarget(userDataDir)
+  // B1 预置技能包开关：每次启动同步（不依赖 .preset-version——开关变化无版本升级也会生效）
+  const skillsEnabled = await readSkillsEnabled(userDataDir)
   // 幂等检测：版本标记文件不存在（首次启动）或内容与当前版本不符（应用升级携带新预置）时初始化
   let marker = ''
   try {
@@ -93,14 +96,60 @@ export async function initPreset(
     // 首次启动：无版本标记文件
   }
   if (marker === manifest.version) {
+    await syncPresetSkills(userDataDir, presetRoot, skillsEnabled)
     return { initialized: false, version: manifest.version }
   }
 
   await copyDir(join(presetRoot, 'agents'), join(target, 'agents'), true)
-  await copyDir(join(presetRoot, 'skills'), join(target, 'skills'))
+  // 开关关闭时跳过 skills 拷贝（首次初始化即不交付预置技能）
+  if (skillsEnabled) await copyDir(join(presetRoot, 'skills'), join(target, 'skills'))
   await copyDir(join(presetRoot, 'plugins'), join(target, 'plugins'))
   await fsp.writeFile(join(target, '.preset-version'), manifest.version, 'utf-8')
+  // 兜底同步：开关开启但 skills 缺失（上次关闭时被删）→ 补拷；关闭 → 删除预置技能
+  await syncPresetSkills(userDataDir, presetRoot, skillsEnabled)
   return { initialized: true, version: manifest.version }
+}
+
+/**
+ * 预置技能包开关（B1：preset.skills.enabled）：读 settings.json（JSONC 解析，纯函数无内存副作用）。
+ * 缺失/解析失败 → true（默认开启，与 DEFAULT_SETTINGS 一致；配置损坏不阻断预置初始化）。
+ */
+async function readSkillsEnabled(userDataDir: string): Promise<boolean> {
+  try {
+    const raw = await fsp.readFile(join(userDataDir, 'settings.json'), 'utf-8')
+    const { config } = parseAndValidate(raw)
+    return config['preset.skills.enabled'] !== false
+  } catch {
+    return true
+  }
+}
+
+/**
+ * 预置技能目录同步（B1）：每次启动执行，不依赖 .preset-version 幂等标记。
+ *  - 关闭：删除 target/skills 下「预置清单内的」技能子目录——按名精准删，用户自定义技能保留（skills 目录与用户共享）
+ *  - 开启：补拷缺失的预置技能子目录（上次关闭时被删的恢复；已存在=跳过，不覆盖用户修改）
+ */
+async function syncPresetSkills(userDataDir: string, presetRoot: string, skillsEnabled: boolean): Promise<void> {
+  const target = getPresetTarget(userDataDir)
+  let presetSkillNames: string[] = []
+  try {
+    presetSkillNames = (await fsp.readdir(join(presetRoot, 'skills'))).filter((n) => n !== 'node_modules' && n !== '.git')
+  } catch {
+    return // 预置包无 skills 目录 → 无需同步
+  }
+  for (const name of presetSkillNames) {
+    const dest = join(target, 'skills', name)
+    if (!skillsEnabled) {
+      await fsp.rm(dest, { recursive: true, force: true })
+      continue
+    }
+    try {
+      await fsp.access(dest)
+    } catch {
+      // 缺失 → 补拷（上次开关关闭时被删）
+      await copyDir(join(presetRoot, 'skills', name), dest)
+    }
+  }
 }
 
 /**

@@ -49,6 +49,12 @@ interface UiSettings {
   theme: "dark" | "light" | "system";
   locale: "zh" | "en";
   fontSize: "small" | "medium" | "large";
+  /** 消息排布：left=全部靠左 / split=左右分列（我右 · AI 左），方案 §3.8.2 */
+  messageLayout: "left" | "split";
+  /** 用户昵称（消息区用户名显示，空=「我」兜底） */
+  nickname: string;
+  /** 用户头像（emoji 字符串，空=「我」字兜底） */
+  avatar: string;
 }
 
 // ── DeepSeek 专属模型列表（分形固定模型 DeepSeek，方案 D16）──
@@ -65,6 +71,10 @@ function getUiDefaults(): UiSettings {
     theme: "dark",
     locale: "zh",
     fontSize: "medium",
+    // 消息排布默认 split：与当前实际渲染一致（时间线实现已按 v0.5+ 默认左右分列硬编码），切换 left 才变化
+    messageLayout: "split",
+    nickname: "",
+    avatar: "",
   };
 }
 
@@ -154,6 +164,10 @@ export const useSettingsStore = defineStore("settings", () => {
   const theme = ref<"dark" | "light" | "system">(ui.theme);
   const locale = ref<"zh" | "en">(ui.locale);
   const fontSize = ref<"small" | "medium" | "large">(ui.fontSize);
+  // 消息排布/昵称/头像：ui.* 三写（localStorage + SQLite + settings.json），方案 §3.8.2 迁移补全
+  const messageLayout = ref<"left" | "split">(ui.messageLayout);
+  const nickname = ref(ui.nickname);
+  const avatar = ref(ui.avatar);
 
   // settings.json 是否真实存在于磁盘（默认态标记）：不存在时 applySettingsJson 的 ui.theme/ui.language 不覆盖表单（主题持久化）
   const settingsFileExists = ref(false);
@@ -192,6 +206,15 @@ export const useSettingsStore = defineStore("settings", () => {
     const next: Record<string, unknown> = { ...r.config, smallModel: v };
     await saveSettingsJson(JSON.stringify(next, null, 2));
   }
+
+  // ── 引擎/预置配置（settings.json 字段；UI 补全方案 B1，生效时机=下次引擎启动）──
+  /** OC 可执行文件路径（空=内置 sidecar/系统安装自动解析）；主进程 resolveOpencodeBin 优先使用 */
+  const opencodePath = ref("");
+  /** 引擎日志级别（DEBUG/INFO/WARN/ERROR）；spawn serve 传 --log-level */
+  const logLevel = ref("INFO");
+  /** 预置技能包开关（false=不加载预置 skills）；主进程 initPreset 删/补预置技能目录 */
+  const presetSkillsEnabled = ref(true);
+  const LOG_LEVEL_OPTIONS = ["DEBUG", "INFO", "WARN", "ERROR"];
 
   /**
    * 切换数据模式：写 settings.json → 重启 serve（数据目录变更生效）→ 清理旧数据目录的会话缓存。
@@ -379,6 +402,13 @@ export const useSettingsStore = defineStore("settings", () => {
     if (config["dataMode"] === "isolated" || config["dataMode"] === "shared") dataMode.value = config["dataMode"];
     // 轻量模型（LOW 槽位）：settings.json 显式字段；白名单外/缺失保持当前值（对齐 schema 枚举）
     if (typeof config["smallModel"] === "string" && SMALL_MODEL_OPTIONS.includes(config["smallModel"])) smallModel.value = config["smallModel"];
+    // ── B1 补全：引擎/预置字段（schema 定义但 UI 未接；settings.json 权威，白名单外/缺失保持当前值）──
+    if (config["ui.messageLayout"] === "left" || config["ui.messageLayout"] === "split") messageLayout.value = config["ui.messageLayout"];
+    if (typeof config["ui.nickname"] === "string") nickname.value = config["ui.nickname"];
+    if (typeof config["ui.avatar"] === "string") avatar.value = config["ui.avatar"];
+    if (typeof config["engine.opencodePath"] === "string") opencodePath.value = config["engine.opencodePath"];
+    if (typeof config["engine.logLevel"] === "string" && LOG_LEVEL_OPTIONS.includes(config["engine.logLevel"])) logLevel.value = config["engine.logLevel"];
+    if (typeof config["preset.skills.enabled"] === "boolean") presetSkillsEnabled.value = config["preset.skills.enabled"];
   }
 
   // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
@@ -429,8 +459,8 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem(LLM_API_URL_KEY);
   });
 
-  // UI 偏好变更 → 写 localStorage
-  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent], () => {
+  // UI 偏好变更 → 写 localStorage（B1 补 messageLayout/nickname/avatar）
+  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar], () => {
     const s: UiSettings = {
       planMode: planMode.value,
       autoMode: autoMode.value,
@@ -440,6 +470,9 @@ export const useSettingsStore = defineStore("settings", () => {
       theme: theme.value,
       locale: locale.value,
       fontSize: fontSize.value,
+      messageLayout: messageLayout.value,
+      nickname: nickname.value,
+      avatar: avatar.value,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   }, { deep: true });
@@ -447,7 +480,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // UI 偏好变更 → 写 SQLite（500ms 防抖，不受 Tauri identifier 变更影响）
   let uiDbTimer: ReturnType<typeof setTimeout> | null = null;
   watch(
-    [optimizeApiUrl, theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent],
+    [optimizeApiUrl, theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar],
     () => {
       if (uiDbTimer) clearTimeout(uiDbTimer);
       uiDbTimer = setTimeout(() => {
@@ -464,6 +497,9 @@ export const useSettingsStore = defineStore("settings", () => {
           cwd: cwd.value,
           recentWorkspaces: recentWorkspaces.value,
           contextLimit: contextLimit.value,
+          messageLayout: messageLayout.value,
+          nickname: nickname.value,
+          avatar: avatar.value,
         })).catch(() => {});
       }, 500);
     },
@@ -476,22 +512,27 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem("sb-current-workspace");
   });
 
-  // ── 主题/语言同步写 settings.json（高级源）──
+  // ── 主题/语言/消息排布/昵称/头像同步写 settings.json（高级源）──
   // 根因：settings.json 不存在时 loadSettings 返回默认值（ui.theme=dark），applySettingsJson 把它当显式配置覆盖表单
   // 修复：①默认态（exists=false）不覆盖表单 ②用户显式切换主题/语言 → 写 settings.json（之后启动以文件为准）
   // 循环防护：写盘 → config-changed 广播 → applySettingsJson 同值 → watch 不触发（值未变），无死循环
+  // B1 扩展：messageLayout/nickname/avatar 并入同一防抖链（theme=system 时只写 ui 三字段，不写 theme/locale）
   let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  watch([theme, locale], ([t, l]) => {
+  watch([theme, locale, messageLayout, nickname, avatar], () => {
     if (themeSyncTimer) clearTimeout(themeSyncTimer);
-    // 防抖：主题/语言连续切换只写一次（saveSettings 会触发引擎联动判断，但纯 UI 项不改 opencode.json）
+    // 防抖：连续切换只写一次（saveSettings 会触发引擎联动判断，但纯 UI 项不改 opencode.json）
     themeSyncTimer = setTimeout(() => {
-      if (t !== "dark" && t !== "light") return; // system 不在 settings.json 枚举（schema 只有 dark/light），跳过
       getSettingsConfig()
         .then((r) => {
-          const next: Record<string, unknown> = { ...r.config, "ui.theme": t };
-          if (l === "zh" || l === "en") next["ui.language"] = l;
+          const next: Record<string, unknown> = { ...r.config };
+          // system 不在 settings.json 枚举（schema 只有 dark/light），跳过 theme/locale 写入
+          if (theme.value === "dark" || theme.value === "light") next["ui.theme"] = theme.value;
+          if (locale.value === "zh" || locale.value === "en") next["ui.language"] = locale.value;
+          next["ui.messageLayout"] = messageLayout.value;
+          next["ui.nickname"] = nickname.value;
+          next["ui.avatar"] = avatar.value;
           saveSettingsJson(JSON.stringify(next, null, 2)).catch(() => {
-            // 写失败不阻断（settings.json 写入失败仍可运行，仅主题重启不恢复）
+            // 写失败不阻断（settings.json 写入失败仍可运行，仅配置重启不恢复）
             console.error("[settings] 主题同步写 settings.json 失败");
           });
         })
@@ -499,5 +540,29 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel };
+  // ── 引擎/预置字段变更 → 写 settings.json（生效时机=下次引擎启动，注释于设置页 UI）──
+  // 与 ui 三字段分开防抖链：引擎字段变更触发 engineSnapshot 联动判断（写 opencode.json），混入会污染
+  // 注意：三字段必须合并为一次写（并发多次 saveSettingsJson 会互相覆盖字段——读取-合并-写盘非原子）
+  let engineSettingTimer: ReturnType<typeof setTimeout> | null = null;
+  watch([opencodePath, logLevel, presetSkillsEnabled], () => {
+    if (engineSettingTimer) clearTimeout(engineSettingTimer);
+    engineSettingTimer = setTimeout(() => {
+      getSettingsConfig()
+        .then((r) => {
+          const next: Record<string, unknown> = {
+            ...r.config,
+            "engine.opencodePath": opencodePath.value,
+            "engine.logLevel": logLevel.value,
+            "preset.skills.enabled": presetSkillsEnabled.value,
+          };
+          return saveSettingsJson(JSON.stringify(next, null, 2));
+        })
+        .catch((err) => {
+          // 写失败不阻断（配置写失败仍可运行，仅下次启动不生效）
+          console.error("[settings] 引擎字段写 settings.json 失败", err);
+        });
+    }, 800);
+  });
+
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
 });

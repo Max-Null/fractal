@@ -4,6 +4,7 @@ import { createPinia, setActivePinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import MessageBubble from "./MessageBubble.vue";
 import { useSlashCommands } from "@/composables/useSlashCommands";
+import { useSettingsStore } from "@/stores/settings";
 import type { Message } from "@/stores/chat";
 
 const i18n = createI18n({
@@ -292,5 +293,70 @@ describe("MessageBubble", () => {
     const badge = wrapper.find(".msg-badge");
     expect(badge.text()).toBe("@军师");
     expect(badge.classes()).toContain("msg-badge--agent");
+  });
+
+  // ── B1：昵称/头像/消息排布消费（settings store）──
+
+  it("nickname 设置后用户消息名显示「昵称 · 时间」", () => {
+    const settings = useSettingsStore();
+    settings.nickname = "小明";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.text()).toContain("小明 ·");
+    expect(wrapper.text()).toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("nickname 空 → 只显示时间（现状兜底，无额外前缀）", () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.text()).not.toContain("我 ·");
+    expect(wrapper.text()).toMatch(/\d{2}:\d{2}:\d{2}/);
+  });
+
+  it("avatar 设置 → 头像显示 emoji + emoji 字号 class", () => {
+    const settings = useSettingsStore();
+    settings.avatar = "🐱";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    const avatar = wrapper.find(".msg-avatar--user");
+    expect(avatar.text()).toBe("🐱");
+    expect(avatar.classes()).toContain("msg-avatar--emoji");
+  });
+
+  it("avatar 空 → 头像兜底「我」（无 emoji class）", () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    const avatar = wrapper.find(".msg-avatar--user");
+    expect(avatar.text()).toBe("我");
+    expect(avatar.classes()).not.toContain("msg-avatar--emoji");
+  });
+
+  it("messageLayout=left → 用户行加 msg-row--left class（split 不加）", () => {
+    const settings = useSettingsStore();
+    settings.messageLayout = "left";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-row").classes()).toContain("msg-row--left");
+    // left 模式下用户 body 不右对齐（无 items-end 内联 class）
+    expect(wrapper.find(".msg-row--user .flex-1").classes()).not.toContain("items-end");
+  });
+
+  it("messageLayout=split（默认）→ 用户 body 右对齐（现状行为）", () => {
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-row").classes()).not.toContain("msg-row--left");
+    expect(wrapper.find(".msg-row--user .flex-1").classes()).toContain("items-end");
   });
 });

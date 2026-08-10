@@ -14,6 +14,7 @@ const i18n = createI18n({
       chat: {
         thinkingDone: "Thinking",
         timelineSummary: "Summary",
+        conclusionLabel: "Conclusion",
         todoUpdate: "Update todos",
         todoDone: "Todos done",
         todoRecord: "Todos",
@@ -111,6 +112,26 @@ describe("NodeCard", () => {
     const w = mountCard(node({ kind: "text", text: "最终总结", isSummary: true }));
     expect(w.classes()).toContain("node-card--summary");
     expect(w.find(".node-card-summary-head").text()).toContain("Summary");
+  });
+
+  // ═══ 思考结论节点（2026-08-11：###思考结论 开头 → 琥珀高亮 + 结论头行）═══
+
+  it("思考结论节点：###思考结论 开头 → node-card--conclusion + 头行 Conclusion", () => {
+    const w = mountCard(node({
+      kind: "text",
+      text: "###思考结论\n完成修复，测试通过。",
+    }));
+    expect(w.classes()).toContain("node-card--conclusion");
+    expect(w.find(".node-card-head--conclusion").exists()).toBe(true);
+    expect(w.find(".node-card-head--conclusion").text()).toContain("Conclusion");
+    // 正文仍完整渲染（MarkdownRenderer 收到全量文本）
+    expect(w.find(".md-stub").text()).toBe("###思考结论\n完成修复，测试通过。");
+  });
+
+  it("普通 text（###思考过程 开头）→ 无结论样式无头行", () => {
+    const w = mountCard(node({ kind: "text", text: "###思考过程\n先探索再动手" }));
+    expect(w.classes()).not.toContain("node-card--conclusion");
+    expect(w.find(".node-card-head--conclusion").exists()).toBe(false);
   });
 
   // ═══ tool 变体 ═══

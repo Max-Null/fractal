@@ -58,6 +58,22 @@ const i18n = createI18n({
         kimiKeySaved: "Saved and engine restarted",
         showKey: "Show API Key",
         hideKey: "Hide API Key",
+        messageLayout: "Message Layout",
+        layoutLeft: "All left",
+        layoutSplit: "Split (me right · AI left)",
+        nickname: "Nickname",
+        nicknamePlaceholder: "Empty = show \"Me\"",
+        avatar: "Avatar",
+        avatarPlaceholder: "Empty = show \"Me\"; emoji supported",
+        opencodePath: "OC Executable Path",
+        opencodePathPlaceholder: "Empty = bundled engine",
+        opencodePathDesc: "Full path to opencode.exe; empty = auto-resolve",
+        opencodePathPick: "Select opencode executable",
+        browseFile: "Browse…",
+        logLevel: "Engine Log Level",
+        logLevelDesc: "Verbosity of serve output",
+        presetSkills: "Preset Skills Pack",
+        presetSkillsDesc: "When off, preset skills are not loaded on next start",
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -178,11 +194,11 @@ describe("SettingsPanel", () => {
 
   it("has settings dropdown triggers", async () => {
     const wrapper = mountPanel();
-    // 折叠态：主设置区 6 个下拉（model + lang + theme + font + perm + effort）
-    expect(wrapper.findAll(".settings-dropdown").length).toBe(6);
-    // 展开高级设置：+ 轻量模型下拉（smallModel）
-    await expandAdvanced(wrapper);
+    // 折叠态：主设置区 7 个下拉（model + lang + theme + font + perm + effort + layout）
     expect(wrapper.findAll(".settings-dropdown").length).toBe(7);
+    // 展开高级设置：+ 轻量模型 + 引擎日志级别（smallModel + logLevel）
+    await expandAdvanced(wrapper);
+    expect(wrapper.findAll(".settings-dropdown").length).toBe(9);
   });
 
   // ── Layout ──
@@ -384,5 +400,70 @@ describe("SettingsPanel", () => {
     await eye!.trigger("click");
     const kimiInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "kimi-k3…");
     expect(kimiInput!.attributes("type")).toBe("text");
+  });
+
+  // ── B1：消息排布 / 昵称 / 头像（界面设置区）──
+
+  it("shows current message layout (split 默认) and switches to left via dropdown", async () => {
+    const wrapper = mountPanel();
+    expect(wrapper.text()).toContain("Split (me right · AI left)");
+    // 打开排布下拉 → 选 All left
+    const layoutDropdown = wrapper.findAll(".settings-dropdown")[6]; // model/lang/theme/font/perm/effort 后第 7 个
+    await layoutDropdown.trigger("click");
+    await wrapper.findAll("button").find((b) => b.text() === "All left")!.trigger("click");
+    expect(useSettingsStore().messageLayout).toBe("left");
+    expect(wrapper.text()).toContain("All left");
+  });
+
+  it("nickname input binds to settings.nickname", async () => {
+    const wrapper = mountPanel();
+    const input = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "Empty = show \"Me\"");
+    expect(input).toBeTruthy();
+    await input!.setValue("小明");
+    expect(useSettingsStore().nickname).toBe("小明");
+  });
+
+  it("avatar emoji quick bar renders and picks emoji", async () => {
+    const wrapper = mountPanel();
+    const emojiBtns = wrapper.findAll("button").filter((b) => b.text() === "🐱");
+    expect(emojiBtns.length).toBe(1);
+    await emojiBtns[0].trigger("click");
+    expect(useSettingsStore().avatar).toBe("🐱");
+  });
+
+  // ── B1：OC 路径 / 日志级别 / 预置技能包（高级设置区）──
+
+  it("advanced section renders opencodePath input + logLevel dropdown + preset switch", async () => {
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    // OC 路径输入（placeholder 英文）
+    const pathInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "Empty = bundled engine");
+    expect(pathInput).toBeTruthy();
+    // 日志级别下拉显示当前值 INFO
+    expect(wrapper.text()).toContain("INFO");
+    // 预置技能包开关存在（aria-pressed 初始 true）
+    const presetSwitch = wrapper.findAll("button").find((b) => b.attributes("aria-pressed") === "true" && b.classes().includes("data-mode-switch"));
+    expect(presetSwitch).toBeTruthy();
+  });
+
+  it("preset switch toggles settings.presetSkillsEnabled", async () => {
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    const settings = useSettingsStore();
+    expect(settings.presetSkillsEnabled).toBe(true);
+    const presetSwitch = wrapper.findAll("button").find((b) => b.classes().includes("data-mode-switch") && b.attributes("aria-pressed") === "true");
+    await presetSwitch!.trigger("click");
+    expect(settings.presetSkillsEnabled).toBe(false);
+  });
+
+  it("logLevel dropdown select updates settings.logLevel", async () => {
+    const wrapper = mountPanel();
+    await expandAdvanced(wrapper);
+    // 展开日志级别下拉（最后两个下拉之一：smallModel + logLevel）
+    const dropdowns = wrapper.findAll(".settings-dropdown");
+    const logLevelDropdown = dropdowns[dropdowns.length - 1];
+    await logLevelDropdown.trigger("click");
+    await wrapper.findAll("button").find((b) => b.text() === "DEBUG")!.trigger("click");
+    expect(useSettingsStore().logLevel).toBe("DEBUG");
   });
 });

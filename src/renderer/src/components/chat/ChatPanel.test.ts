@@ -16,6 +16,7 @@ const sendMessageMock = vi.fn();
 const listMessagesMock = vi.fn();
 const loadSessionLogsMock = vi.fn();
 const readServeLogMock = vi.fn();
+const readRendererLogMock = vi.fn();
 const getAppInfoMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   sendMessage: (...args: unknown[]) => sendMessageMock(...args),
@@ -29,6 +30,7 @@ vi.mock("@/lib/electron-bridge", () => ({
   writeFile: vi.fn().mockResolvedValue(undefined),
   loadSessionLogs: (...args: unknown[]) => loadSessionLogsMock(...args),
   readServeLog: (...args: unknown[]) => readServeLogMock(...args),
+  readRendererLog: (...args: unknown[]) => readRendererLogMock(...args),
   getAppInfo: (...args: unknown[]) => getAppInfoMock(...args),
   openDialog: vi.fn().mockResolvedValue(null),
   saveDialog: vi.fn().mockResolvedValue(null),
@@ -67,6 +69,8 @@ const i18n = createI18n({
         debugTitle: "Diagnostics",
         debugLabel: "Event Log",
         debugServeTab: "Engine Log",
+        debugRendererTab: "Console Log",
+        debugNoRendererLog: "No console logs yet",
         debugRefresh: "Refresh",
         debugCopyDiag: "Copy Diagnostics",
         debugNoServeLog: "No engine logs yet",
@@ -171,6 +175,8 @@ describe("ChatPanel 弹窗", () => {
     loadSessionLogsMock.mockResolvedValue([null]);
     readServeLogMock.mockReset();
     readServeLogMock.mockResolvedValue([]);
+    readRendererLogMock.mockReset();
+    readRendererLogMock.mockResolvedValue([]);
     getAppInfoMock.mockReset();
     getAppInfoMock.mockResolvedValue({ name: "分形", version: "1.2.3" });
     questionReplyMock.mockResolvedValue({ ok: true });
@@ -586,6 +592,31 @@ describe("ChatPanel 弹窗", () => {
     expect(readServeLogMock).toHaveBeenCalledWith(500);
     expect(wrapper.text()).toContain("[12:00:00] engine boot");
     expect(wrapper.text()).toContain("[12:00:01] listening on port 58143");
+  });
+
+  it("诊断面板：切到控制台日志标签页 → readRendererLog(500) 拉取并渲染 console 行", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    loadSessionLogsMock.mockResolvedValue(['["debug line"]']);
+    readRendererLogMock.mockResolvedValue(["[10:00:00][info] boot ok", "[10:00:01][warn] something"]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    const debugBtn = wrapper.find(".debug-btn");
+    expect(debugBtn.exists()).toBe(true);
+    await debugBtn.trigger("click"); // 打开诊断面板
+    await flush();
+
+    // 切到控制台日志标签页 → 自动拉取 renderer.log 尾部
+    const rendererTab = wrapper.findAll("button").find((b) => b.text() === "Console Log");
+    expect(rendererTab).toBeDefined();
+    await rendererTab!.trigger("click");
+    await flush();
+
+    expect(readRendererLogMock).toHaveBeenCalledWith(500);
+    expect(wrapper.text()).toContain("[10:00:00][info] boot ok");
+    expect(wrapper.text()).toContain("[10:00:01][warn] something");
   });
 
   it("复制诊断信息 → getAppInfo + readServeLog 组合为「应用名 v版本 + serve 尾部」复制", async () => {

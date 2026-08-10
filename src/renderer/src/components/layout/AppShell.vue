@@ -450,10 +450,14 @@ function waitEngineReady(): Promise<boolean> {
 // AppShell 是单例根组件，onMounted 仅执行一次——不会重复注册
 let stopInitWorkspace: (() => void) | null = null;
 
-// ── Onboarding 首屏引导：未跳过/完成过则全屏展示引导 ──
-// 只看 dismissed 不看 apiKey：测试成功保存 key 的瞬间 computed 若翻转，v-if 立即卸载引导，
-// 步骤 2/3 一闪而过（2026-08-10 用户反馈）；流程结束由 Onboarding emit finish/skip → 标记 dismissed
-const showOnboarding = computed(() => !settings.onboardingDismissed);
+// ── Onboarding 首屏引导：DeepSeek key 是唯一必填项，以 key 为准——未配置 key 才需要引导 ──
+// 判定 = !apiKey && !dismissed：
+//  - 已配置 key（SQLite 恢复）→ 永不弹（含老版本升级用户，无需 dismissed 迁移）
+//  - 未配置 key + 未跳过 → 弹（key 必填，提示配置）
+//  - 未配置 key + 已跳过（dismissed）→ 不弹（「跳过」= 暂缓配置，下次不打扰）
+// 时序安全：boot 流程 L482 await initFromDb（apiKey 从 SQLite 恢复）后才置 initializing=false，
+// 首次渲染 showOnboarding 时 apiKey 已就绪——不会出现「测试连接成功瞬间引导卸载」的一闪而过（2026-08-10 反馈）
+const showOnboarding = computed(() => !settings.apiKey && !settings.onboardingDismissed);
 function dismissOnboarding() { settings.markOnboardingDismissed(); }
 
 onMounted(async () => {

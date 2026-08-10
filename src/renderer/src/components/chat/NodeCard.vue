@@ -151,6 +151,14 @@ const snippet = computed(() => {
   return s.length < (props.node.text ?? "").length ? s + "…" : s;
 });
 
+/** 思考结论节点识别：text 块以「###思考结论」开头（主 agent 的结论输出块）。
+ * 与思考过程节点（thinking）同语义色系但独立卡片样式，区别于普通正文直出。
+ * 正则容错 ### 与标题间的空格/全角空格差异 */
+const isConclusionNode = computed(() => {
+  if (props.node.kind !== "text") return false;
+  return /^###\s*思考结论/.test((props.node.text ?? "").trimStart());
+});
+
 /** tool 展开区：input/result 格式化展示（原 MessageBubble formatJSON 迁移） */
 function formatJSON(obj: unknown): string {
   if (typeof obj === "string") return obj;
@@ -170,6 +178,8 @@ function formatJSON(obj: unknown): string {
       'node-card--thinking': node.kind === 'thinking',
       'node-card--tool': node.kind === 'tool',
       'node-card--subtask': node.kind === 'subtask',
+      // 思考结论卡：text 块以 ###思考结论 开头（识别逻辑见 isConclusionNode）
+      'node-card--conclusion': isConclusionNode,
     }"
   >
     <!-- ═══ thinking：标题行（收起态只渲染标题行——流式性能 D17）+ 点击展开全文 ═══ -->
@@ -196,6 +206,14 @@ function formatJSON(obj: unknown): string {
       <div v-if="isSummaryNode" class="node-card-summary-head">
         <Flag class="node-card-icon" :size="13" />
         <span class="node-card-label">{{ t('chat.timelineSummary') }}</span>
+      </div>
+      <!-- 思考结论头行（2026-08-11：###思考结论 块与其他正文区分——琥珀卡片 + Brain 图标，
+           与思考过程节点同色系表达「结论是思考的产物」） -->
+      <div v-if="isConclusionNode" class="node-card-head node-card-head--conclusion">
+        <span class="node-card-head-left">
+          <Brain class="node-card-icon" :size="13" />
+          <span class="node-card-label">{{ t('chat.conclusionLabel') }}</span>
+        </span>
       </div>
       <MarkdownRenderer :content="node.text ?? ''" />
     </div>
@@ -297,6 +315,28 @@ function formatJSON(obj: unknown): string {
 }
 .node-card--summary :deep(.markdown-body) {
   color: var(--text-primary);
+}
+
+/* 思考结论卡（2026-08-11）：###思考结论 块——琥珀边框 + 浅琥珀 tint 背景，
+   与思考过程节点同色系（都是「想」的产物），但有别于思考过程（纯边框）与普通正文（无边框直出）。
+   text 节点默认无边框，此处显式卡片化 */
+.node-card--conclusion {
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  border-radius: 6px;
+  background: rgba(217, 119, 6, 0.06);
+  padding: 2px 10px;
+}
+/* 结论正文：加深文字（默认 text-secondary 偏灰，卡片背景下可读性优先） */
+.node-card--conclusion .node-card-text {
+  color: var(--text-primary);
+}
+.node-card--conclusion :deep(.markdown-body) {
+  color: var(--text-primary);
+}
+/* 结论头行：与思考过程标题同色（琥珀），语义呼应 */
+.node-card-head--conclusion {
+  color: var(--amber);
+  cursor: default;
 }
 
 /* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo/subtask 统一卡片边框；

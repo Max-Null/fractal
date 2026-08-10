@@ -6,7 +6,7 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { type ServerManager, getEngineVersion, type ServerInfo } from './server-manager'
+import { type ServerManager, getEngineVersion, type ServerInfo, appendServeLog } from './server-manager'
 import { getPresetVersion } from './preset'
 import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
@@ -147,6 +147,16 @@ export async function writeJsonFile(filePath: string, data: unknown): Promise<vo
  * 返回 -1 = 无法确定（缓冲区开头可能仍处于某行中间——单行超长时尾部块内数不够换行，需继续读取更早内容）；
  * 返回 >=0 = 已确定起点（含 0：整个缓冲区都是目标行）。
  */
+/** 调试模式判定（--debug 启动参数 / FRACTAL_DEBUG / OC_GUI_DEBUG 环境变量，三路任一命中）。
+ * 正式版用户在命令行运行 Fractal.exe --debug 即可进入调试模式（DevTools 自动开 + 渲染层日志落盘） */
+export function isDebugMode(): boolean {
+  return (
+    process.argv.includes('--debug') ||
+    process.env.FRACTAL_DEBUG === '1' ||
+    process.env.OC_GUI_DEBUG === '1'
+  )
+}
+
 function findTailStart(buf: Buffer, maxLines: number): number {
   let i = buf.length - 1
   while (i >= 0 && buf[i] === 0x0a) i-- // 跳过文件末尾的空行（末尾 \n 是空行的结束，不算行）
@@ -493,6 +503,22 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   // ── 会话日志持久化（userData/session-logs/{sessionId}/）+ serve 引擎日志（userData/logs/serve.log）──
 
+  // 调试模式判定：--debug 启动参数（正式版 cmd 运行 Fractal.exe --debug）或环境变量（dev/CI）
+  // 三路任一命中即启用：DevTools 自动打开（index.ts）+ 渲染层 console 落盘（下方 debug:console）
+  if (isDebugMode()) {
+    console.log('[debug] 调试模式已启用（--debug/FRACTAL_DEBUG/OC_GUI_DEBUG）')
+  }
+
+  // 渲染层 console 桥落盘：renderer 拦截 console → debug:console 上报（fire-and-forget，无回包）。
+  // 仅调试模式写 userData/logs/renderer.log（复用 appendServeLog 的 10MB 轮转 + 错误容错）；
+  // 普通模式静默丢弃——高频 console 不应拖慢正常使用
+  ipcMain.on('debug:console', (_e, args: { level: string; msg: string }) => {
+    if (!isDebugMode()) return
+    if (!args || typeof args.level !== 'string' || typeof args.msg !== 'string') return
+    const stamp = new Date().toLocaleTimeString('zh-CN', { hour12: false })
+    appendServeLog(join(app.getPath('userData'), 'logs', 'renderer.log'), `[${stamp}][${args.level}] ${args.msg}`)
+  })
+
   ipcMain.handle('logs:saveSessionDebugLog', (_e, args: { sessionId: string; linesJson: string }) => {
     const file = join(app.getPath('userData'), 'session-logs', args.sessionId, 'debug.json')
     return fsp.mkdir(dirname(file), { recursive: true }).then(() => fsp.writeFile(file, args.linesJson, 'utf-8'))
@@ -520,6 +546,20 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // stderr.json 槽位已移除（OC 无 --verbose 输出，CC 遗留机制废除——方案 D4），返回结构单元素 [debugJson]
     const debug = await fsp.readFile(debugFile, 'utf-8').catch(() => null)
     return [debug] as [string | null]
+  })
+
+  // 读取渲染层 console 桥日志尾部（诊断面板「控制台日志」页；文件不存在返回空数组）
+  ipcMain.handle('logs:readRendererLog', async (_e, args: { lines?: number }) => {
+    const maxLines = args?.lines ?? 500
+    if (!Number.isInteger(maxLines) || maxLines < 1 || maxLines > 5000) {
+      throw new Error(`logs:readRendererLog lines 必须是 1-5000 的正整数: ${String(args?.lines)}`)
+    }
+    try {
+      return await readTailLines(join(app.getPath('userData'), 'logs', 'renderer.log'), maxLines)
+    } catch (err) {
+      console.error(`[ipc] 读取 renderer.log 失败：${err instanceof Error ? err.message : String(err)}`)
+      return []
+    }
   })
 
   // 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本：分形/OC 引擎/预置包）

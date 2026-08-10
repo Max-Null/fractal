@@ -135,7 +135,7 @@ const activeMode = computed({
 });
 
 // ── 自定义下拉 ──
-type DropdownKind = "lang" | "theme" | "font" | "perm" | "effort" | "model" | "smallModel";
+type DropdownKind = "lang" | "theme" | "font" | "perm" | "effort" | "model" | "smallModel" | "layout" | "logLevel";
 const openDropdown = ref<DropdownKind | null>(null);
 function toggleDropdown(k: DropdownKind) {
   openDropdown.value = openDropdown.value === k ? null : k;
@@ -227,6 +227,24 @@ const fontSizeOptions: SimpleOption<"small" | "medium" | "large">[] = [
   { value: "large", labelKey: "settings.fontSizeLarge" },
 ];
 const currentFontSize = computed(() => fontSizeOptions.find(o => o.value === settings.fontSize)!);
+
+// ── 消息排布选项（B1：ui.messageLayout，原型 v0.4 文案；split=现状默认）──
+const layoutOptions: SimpleOption<"left" | "split">[] = [
+  { value: "left", labelKey: "settings.layoutLeft" },
+  { value: "split", labelKey: "settings.layoutSplit" },
+];
+const currentLayout = computed(() => layoutOptions.find(o => o.value === settings.messageLayout)!);
+
+// ── 头像 emoji 快捷选择（B1：ui.avatar，原型 v0.15 avatar-picker 简化版：常用 emoji 点选 + 手动输入）──
+const AVATAR_EMOJIS = ["🐱", "🐶", "🦊", "🐼", "🐸", "🐙", "🦋", "🌻", "🚀", "⭐", "🌈", "🍀"];
+
+// ── OC 可执行文件路径浏览（B1：engine.opencodePath；空=内置 sidecar/系统自动解析）──
+async function handleOpencodePathPick() {
+  const selected = await openDialog({ directory: false, title: t("settings.opencodePathPick") });
+  if (!selected) return;
+  const p = Array.isArray(selected) ? selected[0] : selected;
+  settings.opencodePath = p;
+}
 
 // ── 模型预设（DeepSeek 专属，store 已固定）──
 const modelPresets = computed(() => settings.models);
@@ -652,7 +670,69 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
             </div>
           </div>
 
-          <!-- 重新显示引导页：重置 dismissed 标记，AppShell 检测到 dismissed 复位即切回 onboarding 全屏（不再依赖 apiKey） -->
+          <!-- 消息排布（B1：split=左右分列默认 / left=全部靠左，实时生效） -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.messageLayout') }}</label>
+            <div
+              class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center gap-1.5 select-none transition-colors"
+              :style="{
+                background: 'var(--bg-elevated)',
+                border: openDropdown === 'layout' ? '1px solid var(--accent)' : '1px solid var(--border-default)'
+              }"
+              @click.stop="toggleDropdown('layout')"
+            >
+              <span class="font-medium truncate flex-1">{{ $t(currentLayout.labelKey) }}</span>
+              <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                :style="{ opacity: 0.4, transition: 'transform 150ms', transform: openDropdown === 'layout' ? 'rotate(180deg)' : '' }">
+                <polyline points="6 9 12 15 18 9"/>
+              </svg>
+              <Transition name="drop-settings">
+                <div
+                  v-if="openDropdown === 'layout'"
+                  class="absolute right-0 top-full mt-1 py-1 rounded-lg z-30 w-full"
+                  style="background: var(--bg-elevated); border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0,0,0,0.35)"
+                >
+                  <button
+                    v-for="o in layoutOptions"
+                    :key="o.value"
+                    @click="settings.messageLayout = o.value; closeDropdowns()"
+                    class="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-[var(--bg-hover)]"
+                    :style="{ background: settings.messageLayout === o.value ? 'var(--accent-glow)' : 'transparent', color: settings.messageLayout === o.value ? 'var(--accent)' : 'var(--text-primary)' }"
+                  >{{ $t(o.labelKey) }}</button>
+                </div>
+              </Transition>
+            </div>
+          </div>
+
+          <!-- 昵称（B1：消息区用户名显示，空=「我」兜底，即时生效） -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.nickname') }}</label>
+            <input v-model="settings.nickname" type="text" maxlength="20"
+              :placeholder="$t('settings.nicknamePlaceholder')"
+              class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+          </div>
+
+          <!-- 头像（B1：emoji 快捷点选 + 手动输入；空=「我」字兜底，即时生效） -->
+          <div>
+            <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.avatar') }}</label>
+            <div class="flex flex-wrap gap-1.5 mb-1.5">
+              <button
+                v-for="e in AVATAR_EMOJIS"
+                :key="e"
+                @click="settings.avatar = e"
+                class="w-8 h-8 rounded-lg text-base flex items-center justify-center transition-colors"
+                :style="{
+                  background: settings.avatar === e ? 'var(--accent-glow)' : 'var(--bg-elevated)',
+                  border: settings.avatar === e ? '1px solid var(--accent)' : '1px solid var(--border-default)'
+                }"
+              >{{ e }}</button>
+            </div>
+            <input v-model="settings.avatar" type="text" maxlength="4"
+              :placeholder="$t('settings.avatarPlaceholder')"
+              class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+          </div>
+
+          <!-- 重新显示引导页：重置 dismissed 标记，AppShell 检测到 dismissed 复位即切回 onboarding 全屏（仅未配置 key 时弹引导） -->
           <button
             @click="settings.resetOnboarding()"
             class="w-full py-2 rounded-lg text-xs font-medium transition-colors"
@@ -745,6 +825,77 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
               <template v-if="dataModeMsg.type === 'ok'">✓ </template>
               <template v-else-if="dataModeMsg.type === 'err'">✕ </template>
               {{ dataModeMsg.text }}
+            </div>
+
+            <!-- OC 可执行文件路径（B1：engine.opencodePath；空=内置 sidecar/系统安装自动解析；下次引擎启动生效） -->
+            <div class="mb-3">
+              <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.opencodePath') }}</label>
+              <div class="flex items-center gap-2">
+                <input
+                  v-model="settings.opencodePath"
+                  type="text"
+                  spellcheck="false"
+                  class="settings-input flex-1 rounded-lg px-3 py-2 text-xs font-mono truncate outline-none"
+                  :placeholder="$t('settings.opencodePathPlaceholder')"
+                />
+                <button
+                  @click="handleOpencodePathPick"
+                  class="shrink-0 px-3 py-2 rounded-lg text-xs font-medium transition-colors hover:brightness-110"
+                  style="background: var(--accent-glow); color: var(--accent); border: 1px solid var(--accent-dim)"
+                >{{ $t('settings.browseFile') }}</button>
+              </div>
+              <div class="text-[10px] mt-1" style="color: var(--text-muted)">{{ $t('settings.opencodePathDesc') }}</div>
+            </div>
+
+            <!-- 引擎日志级别（B1：engine.logLevel；spawn serve 传 --log-level；下次引擎启动生效） -->
+            <div class="mb-3">
+              <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.logLevel') }}</label>
+              <div
+                class="settings-dropdown relative cursor-pointer rounded-lg px-3.5 py-2 text-sm flex items-center select-none transition-colors"
+                :style="{
+                  background: 'var(--bg-elevated)',
+                  border: openDropdown === 'logLevel' ? '1px solid var(--accent)' : '1px solid var(--border-default)'
+                }"
+                @click.stop="toggleDropdown('logLevel')"
+              >
+                <span class="font-medium font-mono truncate flex-1">{{ settings.logLevel }}</span>
+                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"
+                  :style="{ opacity: 0.4, transition: 'transform 150ms', transform: openDropdown === 'logLevel' ? 'rotate(180deg)' : '' }">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+                <Transition name="drop-settings">
+                  <div
+                    v-if="openDropdown === 'logLevel'"
+                    class="absolute right-0 top-full mt-1 py-1 rounded-lg z-30 w-full"
+                    style="background: var(--bg-elevated); border: 1px solid var(--border-default); box-shadow: 0 8px 24px rgba(0,0,0,0.35)"
+                  >
+                    <button
+                      v-for="lv in settings.LOG_LEVEL_OPTIONS"
+                      :key="lv"
+                      @click="settings.logLevel = lv; closeDropdowns()"
+                      class="w-full text-left px-3 py-2 text-sm font-mono transition-colors hover:bg-[var(--bg-hover)]"
+                      :style="{ background: settings.logLevel === lv ? 'var(--accent-glow)' : 'transparent', color: settings.logLevel === lv ? 'var(--accent)' : 'var(--text-primary)' }"
+                    >{{ lv }}</button>
+                  </div>
+                </Transition>
+              </div>
+              <div class="text-[10px] mt-1" style="color: var(--text-muted)">{{ $t('settings.logLevelDesc') }}</div>
+            </div>
+
+            <!-- 预置技能包开关（B1：preset.skills.enabled；关闭=下次启动不加载预置 skills，用户自定义技能保留） -->
+            <div class="flex items-center justify-between gap-3 mb-2">
+              <div class="min-w-0">
+                <div class="text-xs font-medium" style="color: var(--text-primary)">{{ $t('settings.presetSkills') }}</div>
+                <div class="text-[10px] mt-0.5" style="color: var(--text-muted)">{{ $t('settings.presetSkillsDesc') }}</div>
+              </div>
+              <button
+                class="data-mode-switch shrink-0"
+                :class="{ 'data-mode-switch--on': settings.presetSkillsEnabled }"
+                :aria-pressed="settings.presetSkillsEnabled"
+                @click="settings.presetSkillsEnabled = !settings.presetSkillsEnabled"
+              >
+                <span class="data-mode-switch__knob"></span>
+              </button>
             </div>
 
             <SettingsJsonEditor />
