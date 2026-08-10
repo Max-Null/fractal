@@ -5,16 +5,19 @@ import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { createRouter, createMemoryHistory } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
+import { useSessionStore } from "@/stores/session";
 import AppShell from "./AppShell.vue";
 
 // mock electron-bridge：保留原模块（store 链条其他函数有 catch 兜底），仅覆盖 listSessions 返回可控会话
 // vi.hoisted：mock 工厂被提升到文件顶部，mock 变量必须同层提升否则工厂执行时尚未初始化
-const { listSessionsMock, getEngineStatusMock, openWorkspaceWindowMock, onInitWorkspaceMock, revealInExplorerMock } = vi.hoisted(() => ({
+const { listSessionsMock, getEngineStatusMock, openWorkspaceWindowMock, onInitWorkspaceMock, revealInExplorerMock, refreshEngineMock, listMessagesMock } = vi.hoisted(() => ({
   listSessionsMock: vi.fn(),
   getEngineStatusMock: vi.fn(),
   openWorkspaceWindowMock: vi.fn(),
   onInitWorkspaceMock: vi.fn(),
   revealInExplorerMock: vi.fn(),
+  refreshEngineMock: vi.fn(),
+  listMessagesMock: vi.fn(),
 }));
 vi.mock("@/lib/electron-bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/electron-bridge")>();
@@ -25,6 +28,8 @@ vi.mock("@/lib/electron-bridge", async (importOriginal) => {
     openWorkspaceWindow: openWorkspaceWindowMock,
     onInitWorkspace: onInitWorkspaceMock,
     revealInExplorer: revealInExplorerMock,
+    refreshEngine: refreshEngineMock,
+    listMessages: listMessagesMock,
   };
 });
 
@@ -137,10 +142,14 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
     onInitWorkspaceMock.mockReset();
     onInitWorkspaceMock.mockReturnValue(() => {});
+    // 刷新引擎默认成功（handleRefresh 用例单独控制）
+    refreshEngineMock.mockReset();
+    refreshEngineMock.mockResolvedValue(undefined);
+    listMessagesMock.mockReset();
   });
 
   afterEach(() => {
-    // 超时用例用 fake timers 推进 15s；断言失败也要恢复，避免遗留 fake timers 影响后续用例
+    // 超时用例用 fake timers 推进 5s；断言失败也要恢复，避免遗留 fake timers 影响后续用例
     vi.useRealTimers();
   });
 
@@ -168,6 +177,26 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     const wrapper = mountAppShell();
 
     expect(await openMenuAndGetPaths(wrapper)).toEqual([LOCAL_A]);
+  });
+
+  it("刷新引擎成功 → 活跃会话绿点清除（result 事件可能在重启期间丢失，2026-08-10 反馈）", async () => {
+    const session = useSessionStore();
+    listSessionsMock.mockResolvedValue([makeSession("s1", SERVE_A)]);
+    listMessagesMock.mockResolvedValue([
+      { id: "m1", role: "assistant", content: "ok", created_at: "2026-01-01T00:00:00" },
+    ]);
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 停留
+
+    // 模拟发送后残留的绿点（事件缺失未清除）
+    session.setActiveSession("s1");
+    session.setSessionActivity("s1", "processing");
+
+    await wrapper.find('[title="刷新引擎"]').trigger("click");
+    await flushPromises();
+
+    // setSessionActivity(null) = 删除 key → undefined
+    expect(session.sessionActivity["s1"]).toBeUndefined();
   });
 
   it("serve 目录含空 cwd（未绑定工作区）→ 过滤空值", async () => {
@@ -302,7 +331,7 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     expect(openWorkspaceWindowMock).not.toHaveBeenCalled();
   });
 
-  it("引擎 15s 未就绪 → 超时降级进主界面（不卡死，且绝不发 session:list）", async () => {
+  it("引擎 5s 未就绪 → 超时降级进主界面（不卡死，且绝不发 session:list）", async () => {
     getEngineStatusMock.mockResolvedValue({ running: false });
     vi.useFakeTimers();
     const wrapper = mountAppShell();
@@ -312,8 +341,8 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     expect(wrapper.find(".ws-pill-arrow").exists()).toBe(false);
     expect(wrapper.find(".boot-timeout").exists()).toBe(false);
 
-    // 15s 超时 → waitEngineReady 返回 false → 跳过 loadSessions，展示「引擎未就绪」提示
-    await vi.advanceTimersByTimeAsync(15_000);
+    // 5s 超时 → waitEngineReady 返回 false → 跳过 loadSessions，展示「引擎未就绪」提示
+    await vi.advanceTimersByTimeAsync(5_000);
     expect(wrapper.find(".boot-timeout").exists()).toBe(true);
     // 引擎未就绪期间绝不发 session:list（问题根因：serve 未就绪时并发请求会打崩 serve）
     expect(listSessionsMock).not.toHaveBeenCalled();

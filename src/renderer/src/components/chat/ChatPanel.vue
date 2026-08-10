@@ -13,6 +13,7 @@ import {
 } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
+import { getLastStreamEventAt } from "@/composables/useStreamProcessor";
 import {
   sendMessage,
   respondPermission,
@@ -461,6 +462,8 @@ onUnmounted(() => {
   window.removeEventListener("attach-files", onAttachFiles);
   // 清理历史摘要预拉防抖定时器（卸载后不再触发空跑）
   if (prefetchTimer) clearTimeout(prefetchTimer);
+  // 清理引擎无响应超时检测 interval（组件卸载后不再轮询，避免泄漏）
+  if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
 });
 function onTestKey(e: KeyboardEvent) {
   if (e.ctrlKey && e.shiftKey && e.key === "T") { e.preventDefault(); showTestPanel.value = !showTestPanel.value; }
@@ -794,7 +797,8 @@ async function handleSend(text: string) {
   sid = session.activeSessionId;
   if (!sid) {
     chat.clearMessages();  // 新建会话时清空旧消息记录
-    sid = await session.createSession(settings.model, undefined, undefined, settings.locale);
+    // cwd 必须绑当前工作区：后端在默认目录创建会导致列表按工作区过滤后看不到该会话（2026-08-10 反馈）
+    sid = await session.createSession(settings.model, settings.cwd, undefined, settings.locale);
   }
 
   // Collect attached file paths + DOM snippet before clearing
@@ -846,6 +850,28 @@ async function handleSend(text: string) {
     chat.finishAssistantMessage();
   }
 }
+
+// ── 引擎无响应超时检测（2026-08-10 反馈：发送后卡「思考中」且事件日志为空 → 用户进不了引擎日志页）──
+// send_message 仅返回 accepted，结果全走事件流；30s 无任何 engine:event = 引擎未响应。
+// 超时后自动弹出诊断面板（引擎日志页可读 serve.log），只提示一次，不打断可能仍在进行的处理。
+let stallTimer: ReturnType<typeof setInterval> | null = null;
+let stallSentAt = 0;
+// 必须用 getter 形式：pinia store 的 ref 经代理访问是解包后的 boolean，watch(boolean) 静默无效
+watch(() => chat.isProcessing, (v) => {
+  if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
+  if (v) {
+    stallSentAt = Date.now();
+    stallTimer = setInterval(() => {
+      // 引擎事件时间戳早于发送时刻 → 期间无任何事件（长工具执行有事件不断刷新，不会误报）
+      if (Date.now() - stallSentAt > 30_000 && getLastStreamEventAt() < stallSentAt) {
+        // 显式传 sid：useDebugLog 为工厂（实例间仅 store 共享），且初始会话 currentSessionId 未设置时无 sid 的行会被丢弃
+        debugLog.add(`⚠️ ${t("chat.engineTimeout")}`, session.activeSessionId || undefined);
+        debugLog.visible.value = true;
+        if (stallTimer) { clearInterval(stallTimer); stallTimer = null; }
+      }
+    }, 5000);
+  }
+});
 
 // 审批响应：OC serve 权限事件 permission.updated → control_request.request_id 即 permission id
 // （events.ts 映射 request_id: p.id），respond 三选一：once（本次允许）/ always（会话记住）/ reject
@@ -1343,18 +1369,17 @@ watch(
         @show-context="showContextModal = true"
       >
         <template #left>
-          <!-- 诊断按钮显示条件：只看事件日志非空（引擎日志有无渲染层无从得知，引擎页空态兜底——方案 4.5） -->
-          <template v-if="debugLog.lines.value.length > 0">
-            <button
-              @click="debugLog.toggle()"
-              class="debug-btn"
-              :style="{ color: debugLog.visible.value ? 'var(--text-bright)' : 'var(--text-muted)' }"
-            >
-              <span>{{ debugLog.visible.value ? '▾' : '▸' }}</span>
-              <span>{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
-            </button>
-            <div class="debug-divider"></div>
-          </template>
+          <!-- 诊断按钮常显：卡思考中事件日志可能为空，但引擎日志页（serve.log）始终可读——
+               排查入口不能被显示条件藏掉（2026-08-10 反馈：无事件时找不到日志入口） -->
+          <button
+            @click="debugLog.toggle()"
+            class="debug-btn"
+            :style="{ color: debugLog.visible.value ? 'var(--text-bright)' : 'var(--text-muted)' }"
+          >
+            <span>{{ debugLog.visible.value ? '▾' : '▸' }}</span>
+            <span>{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
+          </button>
+          <div class="debug-divider"></div>
         </template>
       </InputBar>
 

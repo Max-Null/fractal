@@ -72,7 +72,8 @@ async function startLookupUrl() {
   isLookingUpUrl.value = true;
   let sid = sessionStore.activeSessionId;
   if (!sid) {
-    sid = await sessionStore.createSession(settings.model, undefined, undefined, settings.locale);
+    // cwd 绑当前工作区：与 ChatPanel 创建会话一致，否则会话列表按工作区过滤后找不到该会话
+    sid = await sessionStore.createSession(settings.model, settings.cwd, undefined, settings.locale);
     chat.clearMessages();  // 新建会话时清空旧消息记录
   }
   chat.addUserMessage(prompt);

@@ -100,6 +100,7 @@
     "debugNoServeLog": "No engine logs yet",
     "debugPrivacyHint": "Logs may contain local paths — share with care",
     "debugFooter": "Logs help troubleshooting — copy and send them to developers",
+    "engineTimeout": "Engine unresponsive for 30s — check the Engine Log tab for serve output",
     "aboutTitle": "About Fractal",
     "aboutSubtitle": "Fractal — Smart Bridge for OpenCode",
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · Multi-provider API",

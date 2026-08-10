@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
-import { useStreamProcessor } from "./useStreamProcessor";
+import { useStreamProcessor, getLastStreamEventAt } from "./useStreamProcessor";
 
 const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
@@ -137,6 +137,44 @@ describe("useStreamProcessor", () => {
       expect.any(String),
       "{}",
     );
+
+    stopListening();
+  });
+
+  it("result 事件 session_id 缺失 → 兜底清活跃会话 activity（绿点不残留，2026-08-10 反馈）", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("active-session");
+    session.setSessionActivity("active-session", "processing");
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "result",
+      text: "",
+      thinking: "",
+      is_final: true,
+      duration_ms: 800,
+    });
+
+    // setSessionActivity(null) = 删除 key（session store L58），读取为 undefined
+    expect(session.sessionActivity["active-session"]).toBeUndefined();
+
+    stopListening();
+  });
+
+  it("engine:event 到达更新 lastStreamEventAt（卡死超时检测的活跃基准）", async () => {
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    // 模块级时间戳随事件更新：任何事件（含后台会话）都代表 SSE 连接活着
+    const t0 = getLastStreamEventAt();
+    listeners.get("engine:event")?.({
+      type: "assistant",
+      session_id: "some-other-session",
+      text: "后台输出",
+    });
+    expect(getLastStreamEventAt()).toBeGreaterThan(t0);
 
     stopListening();
   });

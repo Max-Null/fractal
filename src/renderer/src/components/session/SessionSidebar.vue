@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import { useI18n } from "vue-i18n";
 
 import { useSessionStore } from "@/stores/session";
 import { useChatStore } from "@/stores/chat";
@@ -9,6 +10,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { stopSession } from "@/lib/electron-bridge";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
+import { emitChatCommand } from "@/composables/useCommandPalette";
 import { formatTokenCount } from "@/lib/utils";
 
 const emit = defineEmits<{
@@ -16,6 +18,7 @@ const emit = defineEmits<{
   collapse: [];
 }>();
 
+const { t } = useI18n();
 const router = useRouter();
 
 const sessionStore = useSessionStore();
@@ -28,6 +31,14 @@ const { switchTo } = useSessionSwitch();
 /** 切换会话 */
 function switchByMode(id: string) {
   return switchTo(id);
+}
+
+/** 新会话按钮：当前会话无消息时给出「已是新会话」提示，否则 handleNew 内部创建并跳转 */
+async function newSession() {
+  const result = await handleNew();
+  if (result === "current-empty") {
+    emitChatCommand("show-status:" + t("session.alreadyNew"));
+  }
 }
 
 // 当前活跃会话 ID
@@ -86,7 +97,7 @@ async function handleDelete(id: string) {
       <span class="text-[11px] font-semibold uppercase tracking-[0.08em]" style="color:var(--text-secondary)">{{ $t('session.title') }}</span>
       <div class="flex items-center gap-1">
         <button
-          @click="handleNew"
+          @click="newSession"
           class="w-[26px] h-[26px] flex items-center justify-center rounded-[7px] transition-colors hover:bg-[var(--bg-hover)]"
           style="color:var(--text-secondary)"
           :title="$t('session.new')"

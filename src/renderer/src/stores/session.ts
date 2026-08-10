@@ -124,6 +124,8 @@ export const useSessionStore = defineStore("session", () => {
         totalTokens: null,
         totalCost: null,
         mode: "cc",
+        // fallback 也保留 cwd：后端恢复后按工作区过滤列表时该会话仍能归位
+        cwd,
       };
       sessions.value.unshift(session);
       setActiveSession(id);

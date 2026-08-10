@@ -9,6 +9,12 @@ import { translateError } from "@/lib/utils";
 let unlisten: (() => void) | null = null;
 let unlistenStatus: (() => void) | null = null;
 
+// 最近一次引擎事件时间戳（模块级，供 ChatPanel 卡死超时检测：发送后长时间无任何事件 = 引擎无响应）
+let lastStreamEventAt = 0;
+export function getLastStreamEventAt(): number {
+  return lastStreamEventAt;
+}
+
 function notifyComplete(durationMs?: number, inputTokens?: number, outputTokens?: number) {
   if (!("Notification" in window)) return;
   if (Notification.permission === "denied") return;
@@ -178,6 +184,8 @@ export function useStreamProcessor() {
     // 分形主链路：serve SSE 映射事件（主进程 startEngineEvents 转发 engine:event）
     unlisten = window.electronBridge.on("engine:event", (payload) => {
       const data = payload as StreamEvent;
+      // 任何事件到达都代表 SSE 连接活着（含后台会话事件）——卡死超时检测的活跃基准
+      lastStreamEventAt = Date.now();
       // 逐条事件明细已移除（D6 精简：原 debug.json 每事件 50 字截断刷屏且不含错误内容；
       // 保留的关键记录点在：control_request 权限 / error 错误 / unknown type / 引擎状态 / 历史重载）
 
@@ -344,8 +352,10 @@ export function useStreamProcessor() {
 
         case "result":
         case "done": {
-          // 活跃会话完成 → 用户正在看，无需指示器
+          // 活跃会话完成 → 用户正在看，无需指示器；session_id 缺失时兜底清活跃会话——
+          // 绿点只由 result 事件清除，漏清会永久残留（2026-08-10 反馈：刷新引擎后列表仍显示处理中）
           if (data.session_id) session.setSessionActivity(data.session_id, null);
+          else if (session.activeSessionId) session.setSessionActivity(session.activeSessionId, null);
           const msg = chat.currentAssistantMsg;
           if (msg) {
             const targetSessionId = data.session_id || session.activeSessionId;
@@ -475,6 +485,8 @@ export function useStreamProcessor() {
             // loadFullHistory 内部已 setHistoryLoading(false)（成功路径），此处不再重复设置
             chat.loadFullHistory(msgs);
             chat.setHistoryError(false);
+            // 历史重载完成 = 会话已有完整消息（此前绿点残留说明 result 事件在刷新期间丢失）→ 清指示器
+            session.setSessionActivity(sid, null);
             debugLog.add(`🔌 历史消息已自动重载: ${msgs.length} 条`, sid);
           })
           .catch(() => {

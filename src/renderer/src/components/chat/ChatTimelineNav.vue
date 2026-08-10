@@ -202,11 +202,10 @@ function onClick(index: number) {
   gap: 18px;
 }
 .chat-timeline-nav--expanded {
-  /* 展开时加微弱背景提示 + 圆点溢出滚动（消息多时全部点超出可视区，需能滚动到每个点） */
+  /* 展开时加微弱背景提示 + 圆点溢出滚动（消息多时全部点超出可视区，需能滚动到每个点）；
+     滚动条不自定义——继承 body 全局 thin 样式，与会话列表同设计（2026-08-10 反馈：窄条上自定义滚动条突兀） */
   background: linear-gradient(to left, var(--bg-hover), transparent);
   overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border-default) transparent;
   justify-content: flex-start;
   padding: 6px 0;
 }

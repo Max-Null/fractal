@@ -100,6 +100,7 @@
     "debugNoServeLog": "暂无引擎日志",
     "debugPrivacyHint": "日志可能包含本地路径，谨慎发送",
     "debugFooter": "日志用于排查问题，可复制后发给开发者",
+    "engineTimeout": "引擎 30 秒无响应，请打开「引擎日志」标签页查看 serve 输出",
     "aboutTitle": "关于分形",
     "aboutSubtitle": "分形 — 连接 OpenCode 的智能桥梁",
     "aboutTech": "Tauri 2 + Vue 3 + TypeScript · Rust · SQLite · 多厂商 API",

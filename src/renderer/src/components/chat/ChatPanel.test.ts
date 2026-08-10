@@ -72,6 +72,7 @@ const i18n = createI18n({
         debugNoServeLog: "No engine logs yet",
         debugPrivacyHint: "Logs may contain local paths",
         debugFooter: "Logs help troubleshooting",
+        engineTimeout: "Engine unresponsive for 30s",
         copied: "Copied",
         close: "Close",
         copy: "Copy",
@@ -620,6 +621,53 @@ describe("ChatPanel 弹窗", () => {
       expect(captured[0]).toContain("[12:00:00] engine boot");
     } finally {
       document.execCommand = origExec;
+    }
+  });
+
+  it("诊断按钮常显：事件日志为空时仍可见（卡思考中也能进引擎日志页，2026-08-10 反馈）", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    // 无持久化事件日志（[null] = debug.json 不存在）——按钮显示不再依赖日志非空
+    loadSessionLogsMock.mockResolvedValue([null]);
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    const debugBtn = wrapper.find(".debug-btn");
+    expect(debugBtn.exists()).toBe(true);
+    expect(debugBtn.text()).toContain("Diagnostics");
+  });
+
+  it("发送后 30s 无引擎事件 → 自动弹出诊断面板 + 警告行（只提示一次）", async () => {
+    vi.useFakeTimers();
+    try {
+      const chat = useChatStore();
+      const session = useSessionStore();
+      session.setActiveSession("ses-1");
+      const wrapper = mountChatPanel();
+      // fake timers 下不能用 flush()（setTimeout(0) 永挂）——advance 0ms 推进挂载期微任务与 0ms 定时器
+      await vi.advanceTimersByTimeAsync(0);
+
+      // 模拟发送后进入处理中（handleSend 置 isProcessing=true 触发 watch）
+      chat.isProcessing = true;
+      // flush Vue scheduler → watch 回调执行（interval 注册）；再推进 35s 触发超时
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(35_000);
+
+      // 诊断面板自动打开（Teleport stub 渲染进组件树：visible=true → .attach-bar 出现；
+      // useDebugLog 是工厂函数，visible 为实例私有——只能通过组件 DOM 断言）
+      expect(wrapper.find(".attach-bar").exists()).toBe(true);
+      // 警告行写入共享 store（按会话分桶；exportLines 直接读共享 store）
+      const { useDebugLog } = await import("@/composables/useDebugLog");
+      const lines = useDebugLog().exportLines("ses-1");
+      expect(lines.some((l) => l.includes("Engine unresponsive"))).toBe(true);
+
+      // 只提示一次：interval 已清理，再推进不重复警告
+      const lineCount = lines.length;
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(useDebugLog().exportLines("ses-1").length).toBe(lineCount);
+    } finally {
+      vi.useRealTimers();
     }
   });
 

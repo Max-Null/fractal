@@ -123,6 +123,9 @@ async function handleRefresh() {
         // 重载失败（serve 未就绪）→ 置离线标记，消息区灰显占位（G3）
         chat.setHistoryError(true);
       }
+      // 刷新是用户主动操作：无论重载成败，活跃会话不再处理中——清绿点
+      // （result 事件可能在重启期间丢失，不在此清除则绿点永久残留——2026-08-10 反馈）
+      sessionStore.setSessionActivity(sid, null);
     }
   } catch {
     // 刷新失败静默：serve 状态由 engine:status 事件自行上报，UI 不额外弹错
@@ -280,12 +283,11 @@ async function handleCommand(action: string) {
   switch (action) {
     // ── 💬 会话 ──
     case "new-session": {
+      // handleNew 语义：当前会话有消息→创建新会话；无消息→提示「已是新会话」。
+      // 不再跳转最新空会话（2026-08-10 用户反馈：点新会话跳到旧空会话，感知为 bug）
       const result = await handleNew();
       if (result === "current-empty") {
         emitChatCommand("show-status:" + t("session.alreadyNew"));
-      } else if (result !== "created") {
-        // result 是最新空会话的 id → 直接切换，无需新建
-        switchTo(result);
       }
       break;
     }
@@ -381,8 +383,9 @@ const initializing = ref(true);
 // 启动链路：serve 刚启动 1s 未稳时立即发引擎请求会 ECONNRESET 并把 serve 打崩（win:2 实测），
 // 因此 loadSessions 等引擎请求必须等 running 确认后才发出。
 // 实现：首查 + 500ms 轮询 getEngineStatus（主进程本地状态，不碰 serve 端口，安全）+ engine:status
-// 事件监听，任一先到 running 即返回 true；15s 超时返回 false（不抛错）——转圈最久 15s，超时降级进主界面。
-const ENGINE_READY_TIMEOUT_MS = 15_000;
+// 事件监听，任一先到 running 即返回 true；5s 超时返回 false（不抛错）——serve 正常启动 1-3s，
+// 5s 足够；崩溃场景用户少等 10s（2026-08-10 反馈：卡 45% 15s 太久，超时降级进主界面）。
+const ENGINE_READY_TIMEOUT_MS = 5_000;
 const ENGINE_POLL_INTERVAL_MS = 500;
 /** 引擎等待超时标记：转圈界面显示「引擎未就绪」提示（超时降级路径），并短暂停留让用户看到 */
 const engineReadyTimedOut = ref(false);
@@ -435,7 +438,7 @@ function waitEngineReady(): Promise<boolean> {
         // 主进程暂不可达——继续下一轮，不在此处终止
       }
     }, ENGINE_POLL_INTERVAL_MS);
-    // 超时兜底：15s 未就绪返回 false（不抛错），降级进主界面（引擎离线态：列表空 + 离线占位）
+    // 超时兜底：5s 未就绪返回 false（不抛错），降级进主界面（引擎离线态：列表空 + 离线占位）
     timeoutTimer = setTimeout(() => {
       engineReadyTimedOut.value = true;
       done(false);
@@ -494,8 +497,8 @@ onMounted(async () => {
       await sessionStore.loadSessions(settings.cwd || undefined);
       bootPercent.value = 92;
     } else {
-      // 超时降级：引擎 15s 未就绪（崩溃/未启动），展示「引擎未就绪」提示片刻再进主界面，
-      // 避免用户无感知进入离线态（转圈最久 15s + 1s 提示 + 0 列表 ≈ 16s，仍在 20s 上限内）
+      // 超时降级：引擎 5s 未就绪（崩溃/未启动），展示「引擎未就绪」提示片刻再进主界面，
+      // 避免用户无感知进入离线态（转圈最久 5s + 1s 提示 + 0 列表 ≈ 6s）
       bootStage.value = 'timeout'; pushBootLog(t('boot.timeout'));
       await new Promise((r) => setTimeout(r, 1_000));
     }
