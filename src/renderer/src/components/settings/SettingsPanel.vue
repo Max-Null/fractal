@@ -651,7 +651,7 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
             </div>
           </div>
 
-          <!-- 重新显示引导页：重置 dismissed 标记，AppShell 检测到 apiKey 为空即切回 onboarding 全屏 -->
+          <!-- 重新显示引导页：重置 dismissed 标记，AppShell 检测到 dismissed 复位即切回 onboarding 全屏（不再依赖 apiKey） -->
           <button
             @click="settings.resetOnboarding()"
             class="w-full py-2 rounded-lg text-xs font-medium transition-colors"

@@ -45,7 +45,13 @@ nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
   uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
+  # 辅助安装器（向导模式）：默认 oneClick=true 是一键安装，无任何选项页；
+  # 安装路径选择与快捷方式复选框均依赖此开关（electron.build/docs/nsis 查证）
+  oneClick: false
+  # 安装路径可配置：向导显示目录选择页（assisted installer only，默认 false）
+  allowToChangeInstallationDirectory: true
+  # 桌面快捷方式：true=向导显示复选框（默认勾选，用户可取消）；always=强制创建无选项（原配置）
+  createDesktopShortcut: true
 mac:
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

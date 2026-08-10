@@ -4,7 +4,7 @@
  * 对齐原型 v0.23 `.ob` 卡片：居中卡片 + 步骤指示 + 字段区 + 操作按钮；右上角可跳过。
  * 完成/跳过由 AppShell 统一处理持久化（settings.markOnboardingDismissed）。
  */
-import { ref, computed } from "vue";
+import { ref, computed, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { useSettingsStore } from "@/stores/settings";
 import { testConnection } from "@/lib/electron-bridge";
@@ -29,17 +29,31 @@ const isTesting = ref(false);
 const testSuccess = ref(false);
 const testError = ref<string | null>(null);
 
+// 最小展示时间（ms）：步骤 2 成功提示 / 步骤 3 完成页——防止流程一闪而过看不清（2026-08-10 用户反馈）
+const STEP_OK_MIN_MS = 1500;
+const STEP3_MIN_MS = 1500;
+// 步骤 3 最小展示计时：进入后 step3Ready=false，满 STEP3_MIN_MS 才放开主按钮
+const step3Ready = ref(false);
+// 两个计时器统一引用，组件卸载时对称清理——skip 按钮全程可见，
+// 用户在成功提示/完成页期间跳过后组件即被卸载，残留 timer 回调应一并清除
+let step2Timer: ReturnType<typeof setTimeout> | null = null;
+let step3Timer: ReturnType<typeof setTimeout> | null = null;
+onUnmounted(() => {
+  if (step2Timer) clearTimeout(step2Timer);
+  if (step3Timer) clearTimeout(step3Timer);
+});
+
 const translatedTestError = computed(() => {
   if (!testError.value) return null;
   const { key, params } = translateError(testError.value);
   return t(key, params as Record<string, string>);
 });
 
-// 步骤 2 测试中/成功后均禁用主按钮（成功等待自动跳转时防止重复点击）
+// 步骤 2 测试中/成功后均禁用主按钮（成功等待自动跳转时防止重复点击）；步骤 3 完成页满最小展示时间前禁用
 const primaryDisabled = computed(() => {
   if (step.value === 1) return !settings.apiKey.trim() || isTesting.value;
   if (step.value === 2) return isTesting.value || testSuccess.value;
-  return false;
+  return !step3Ready.value;
 });
 
 const primaryLabel = computed(() => {
@@ -60,10 +74,21 @@ async function runTest() {
     if (r.ok) {
       testSuccess.value = true;
       // 显式保存配置到 SQLite + 重启 serve（settings watch 防抖也会存，此处确保退出引导前已落盘）
+      // 保存顺序关键：先落盘制图师 kimi key（restart=false，不重启），再保存 deepseek key
+      // （restart=true 重启 serve）——重启时 provider-configs.json 已含 moonshotai-cn，
+      // 一次重启两个 provider 都生效；若 kimi 走 restart=true，moonshotai-cn 槽位
+      // 在主进程 keyChanged 恒为 true（ipc.ts），会额外再重启一次 serve
+      if (settings.kimiApiKey.trim()) {
+        try { await settings.saveKimiKey(false); } catch { /* 后台静默，watch 防抖兜底 */ }
+      }
       // restart=true：首次配置的 key 对运行中的 serve 是新的，不重启则发消息仍用无 key 的旧配置
       try { await settings.saveCurrentConfig(true); } catch { /* 后台静默，防抖 watch 兜底 */ }
-      // 展示成功提示后自动进入完成页
-      setTimeout(() => { step.value = 3; }, 700);
+      // 成功提示停留 STEP_OK_MIN_MS 让用户看清，再进入完成页
+      step2Timer = setTimeout(() => {
+        step.value = 3;
+        step3Ready.value = false;
+        step3Timer = setTimeout(() => { step3Ready.value = true; }, STEP3_MIN_MS);
+      }, STEP_OK_MIN_MS);
     } else {
       testError.value = r.message;
     }
@@ -127,6 +152,20 @@ function skip() { emit("skip"); }
             </button>
           </div>
           <div class="ob-hint">{{ $t('onboarding.apiKeyHint') }}</div>
+
+          <!-- 制图师多模态 Key（选填）：VISION 槽位（kimi-k3）需要独立 provider key，不填则制图师不可用 -->
+          <label class="ob-kimi-label">{{ $t('onboarding.kimiLabel') }}</label>
+          <div class="ob-key-wrap">
+            <input
+              v-model="settings.kimiApiKey"
+              type="password"
+              :placeholder="$t('onboarding.kimiPlaceholder')"
+              spellcheck="false"
+              autocomplete="off"
+              @keydown.enter="runTest"
+            />
+          </div>
+          <div class="ob-hint">{{ $t('onboarding.kimiHint') }}</div>
         </template>
 
         <!-- 步骤 2：测试连接状态 -->
@@ -303,6 +342,10 @@ function skip() { emit("skip"); }
   margin-top: 8px;
   font-size: 11px;
   color: var(--text-muted);
+}
+/* 制图师 key 标签：与上方 deepseek 的 hint 之间留出分组间距（默认 label 紧贴 hint 太挤） */
+.ob-kimi-label {
+  margin-top: 14px;
 }
 
 /* 步骤 2 状态展示 */

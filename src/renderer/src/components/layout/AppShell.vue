@@ -447,8 +447,10 @@ function waitEngineReady(): Promise<boolean> {
 // AppShell 是单例根组件，onMounted 仅执行一次——不会重复注册
 let stopInitWorkspace: (() => void) | null = null;
 
-// ── Onboarding 首屏引导：初始化完成后若仍无 API Key 且未跳过/完成过，则全屏展示引导 ──
-const showOnboarding = computed(() => !settings.apiKey && !settings.onboardingDismissed);
+// ── Onboarding 首屏引导：未跳过/完成过则全屏展示引导 ──
+// 只看 dismissed 不看 apiKey：测试成功保存 key 的瞬间 computed 若翻转，v-if 立即卸载引导，
+// 步骤 2/3 一闪而过（2026-08-10 用户反馈）；流程结束由 Onboarding emit finish/skip → 标记 dismissed
+const showOnboarding = computed(() => !settings.onboardingDismissed);
 function dismissOnboarding() { settings.markOnboardingDismissed(); }
 
 onMounted(async () => {
