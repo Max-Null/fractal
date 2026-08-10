@@ -1,9 +1,9 @@
 {
-  "name": "oc-gui",
-  "version": "0.1.0",
-  "description": "分形（oc-gui）——面向非编程人员的 OpenCode 桌面 GUI",
+  "name": "fractal",
+  "version": "1.0.0",
+  "description": "分形（fractal）——面向非编程人员的 OpenCode 桌面 GUI",
   "main": "./out/main/index.js",
-  "author": "oc-gui",
+  "author": "fractal",
   "scripts": {
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.cjs,.mjs,.ts,.tsx,.cts,.mts,.vue --fix",

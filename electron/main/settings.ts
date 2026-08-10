@@ -132,7 +132,7 @@ export function parseAndValidate(jsoncText: string): { config: Record<string, un
 
 // ── 路径 ──
 
-/** settings.json 路径：<userDataDir>/settings.json（Windows %APPDATA%/oc-gui/settings.json） */
+/** settings.json 路径：<userDataDir>/settings.json（Windows %APPDATA%/fractal/settings.json，2026-08-08 起 userData 固定 fractal） */
 export function getSettingsPath(userDataDir: string): string {
   return join(userDataDir, 'settings.json')
 }
