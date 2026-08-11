@@ -201,8 +201,8 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     expect(cfg.default_agent).toBe('双星')
     // plugin 声明格式对齐用户全局 opencode.json：file:// 绝对路径
     const plugins = cfg.plugin as string[]
-    // guardian 临时停用（2026-08-11 日志风暴阻塞 serve 事件循环，oc-plus 修复后恢复）——声明不应出现
-    expect(plugins.some((p) => p.includes('fractal-guardian'))).toBe(false)
+    // guardian 已恢复（2026-08-12 oc-plus 修复日志风暴后恢复声明）
+    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(true)
     expect(plugins).toContain(
       `file:///${join(getPresetTarget(userData), 'plugins', 'agents-priority.ts').replace(/\\/g, '/')}`
     )
@@ -238,7 +238,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     expect(cfg.default_agent).toBe('build') // 用户选择优先，不覆盖
     const plugins = cfg.plugin as string[]
     expect(plugins).toContain(existingPlugin) // 用户插件保留
-    expect(plugins.length).toBe(2) // superpowers + 1 个预置插件（guardian 临时停用）
+    expect(plugins.length).toBe(3) // superpowers + 2 个预置插件（agents-priority + fractal-guardian 已恢复）
     const instructions = cfg.instructions as string[]
     expect(instructions).toContain(existingInstruction) // 用户指令保留
     expect(instructions.length).toBe(2) // 用户指令 + 预置指令文件
@@ -254,7 +254,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
       unknown
     >
     expect(cfg.default_agent).toBe('双星')
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
     expect(
       (cfg.instructions as string[]).filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length
     ).toBe(1)
@@ -270,7 +270,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
       unknown
     >
     const plugins = (cfg.plugin as string[] | undefined) ?? []
-    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(false)
+    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(true)
     expect(plugins.some((p) => p.includes('agents-priority'))).toBe(false)
   })
 
@@ -291,7 +291,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     const plugins = cfg.plugin as string[]
     expect(plugins.some((p) => p.includes('/oc-gui/'))).toBe(false) // 幽灵条目清理
     expect(plugins).toContain(custom) // 用户自定义保留
-    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用不追加
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(1) // guardian 已恢复（oc-plus 修复后追加声明）
   })
 
   it('mcp 段：无配置时写入 预置内置 + 用户全局迁移（同名全局优先）', async () => {
@@ -360,7 +360,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     >
     const plugins = cfg.plugin as string[]
     expect(plugins).toContain(custom) // BOM 未导致配置重置，自定义插件保留
-    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用不追加
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(1) // guardian 已恢复（oc-plus 修复后追加声明）
   })
 
 
@@ -421,7 +421,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     >
     expect(cfg.default_agent).toBe(manifest.defaultAgent)
     const plugins = cfg.plugin as string[]
-    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(1) // guardian 已恢复（oc-plus 修复后追加声明）
     expect(plugins.filter((p) => p.includes('agents-priority.ts')).length).toBe(1)
     const instructions = cfg.instructions as string[]
     expect(instructions.filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
@@ -446,7 +446,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
       string,
       unknown
     >
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
     expect((cfg.instructions as string[]).length).toBe(1)
   })
 
@@ -463,7 +463,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     >
     expect(cfg.default_agent).toBe('双星')
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
     expect((cfg.instructions as string[]).filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
   })
 })

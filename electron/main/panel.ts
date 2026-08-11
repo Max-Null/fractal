@@ -1,6 +1,7 @@
 // 右侧面板数据源（阶段 6 遗留 P1-P3 拍板：GUI 文件监听实时刷新）
 // 数据来源与路径约定：
-//  - 记忆：隔离 <userDataDir>/config/opencode/memories/blocks（XDG 隔离目录）+ 项目 <cwd>/.opencode/memories/blocks
+//  - 记忆：全局 ~/.config/opencode/memories/blocks（真实全局——serve 会话的 AGENTS.md 实际加载真实全局，
+//           agent 记忆写入约定即此目录，隔离目录从未产生记忆）+ 项目 <cwd>/.opencode/memories/blocks
 //  - 计划：隔离 <userDataDir>/config/opencode/plans + 系统 ~/.config/opencode/plans（%USERPROFILE%）
 //  - 状态：<userDataDir>/config/opencode/.fractal-state.json（Guardian 插件未来写入，可能不存在 → 容错）
 import { promises as fsp, watch as fsWatch, type FSWatcher } from 'node:fs'
@@ -42,9 +43,9 @@ export function isolatedOpenCodeDir(userDataDir: string): string {
   return join(userDataDir, 'config', 'opencode')
 }
 
-/** 隔离全局记忆目录 */
-export function memoriesDir(userDataDir: string): string {
-  return join(isolatedOpenCodeDir(userDataDir), 'memories', 'blocks')
+/** 全局记忆目录（真实全局：serve 会话的 AGENTS.md 加载真实全局，记忆写入约定即此——隔离目录无写入方） */
+export function globalMemoriesDir(): string {
+  return join(homedir(), '.config', 'opencode', 'memories', 'blocks')
 }
 
 /** 项目记忆目录（跟随渲染进程工作区） */
@@ -124,8 +125,8 @@ async function readMemoryDir(dir: string): Promise<MemoryEntry[]> {
   return entries.sort((a, b) => a.title.localeCompare(b.title))
 }
 
-export async function listMemories(userDataDir: string, projectCwd: string): Promise<{ global: MemoryEntry[]; project: MemoryEntry[] }> {
-  const global = await readMemoryDir(memoriesDir(userDataDir))
+export async function listMemories(projectCwd: string): Promise<{ global: MemoryEntry[]; project: MemoryEntry[] }> {
+  const global = await readMemoryDir(globalMemoriesDir())
   // 无工作区（ui-settings.json 未记录）→ 项目记忆返回空，前端空态提示
   const project = projectCwd ? await readMemoryDir(projectMemoriesDir(projectCwd)) : []
   return { global, project }
@@ -150,8 +151,8 @@ export function assertInsideDir(dir: string, file: unknown): asserts file is str
 }
 
 /** file 归属的记忆目录（全局或项目，二选一；都不归属抛错） */
-function resolveMemoryDir(userDataDir: string, projectCwd: string, file: unknown): string {
-  const dirs = [memoriesDir(userDataDir), ...(projectCwd ? [projectMemoriesDir(projectCwd)] : [])]
+function resolveMemoryDir(projectCwd: string, file: unknown): string {
+  const dirs = [globalMemoriesDir(), ...(projectCwd ? [projectMemoriesDir(projectCwd)] : [])]
   for (const d of dirs) {
     try {
       assertInsideDir(d, file)
@@ -164,9 +165,9 @@ function resolveMemoryDir(userDataDir: string, projectCwd: string, file: unknown
 }
 
 /** 确认记忆：把 `<!-- status: pending -->` 替换为 `<!-- status: auto -->`（无 pending 则不写） */
-export async function confirmMemory(userDataDir: string, projectCwd: string, file: unknown): Promise<{ ok: boolean }> {
+export async function confirmMemory(projectCwd: string, file: unknown): Promise<{ ok: boolean }> {
   // resolveMemoryDir 仅做越界校验（file 必须位于记忆目录内）
-  resolveMemoryDir(userDataDir, projectCwd, file)
+  resolveMemoryDir(projectCwd, file)
   const target = file as string
   try {
     const content = await fsp.readFile(target, 'utf-8')
@@ -179,8 +180,8 @@ export async function confirmMemory(userDataDir: string, projectCwd: string, fil
 }
 
 /** 删除记忆文件（force 容错：文件已不存在不抛错） */
-export async function removeMemory(userDataDir: string, projectCwd: string, file: unknown): Promise<{ ok: boolean }> {
-  void resolveMemoryDir(userDataDir, projectCwd, file)
+export async function removeMemory(projectCwd: string, file: unknown): Promise<{ ok: boolean }> {
+  void resolveMemoryDir(projectCwd, file)
   await fsp.rm(file as string, { force: true })
   return { ok: true }
 }
@@ -329,7 +330,7 @@ export function startPanelWatchers(win: BrowserWindow, userDataDir: string): { d
       })
   }
 
-  watchDir(memoriesDir(userDataDir), 'memory')
+  watchDir(globalMemoriesDir(), 'memory')
   watchDir(isolatedPlansDir(userDataDir), 'plans')
   watchDir(systemPlansDir(), 'plans')
   // 状态文件：watch 其所在目录；仅 .fractal-state.json（或文件名缺失的保守事件）触发 status。

@@ -970,19 +970,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // 项目记忆目录跟随渲染进程工作区（ui-settings.json 持久化）；工作区切换时重建项目 watcher
     const cwd = await readProjectCwd(userDataDir)
     getPanelWatchers()?.refreshProject(cwd)
-    return listMemories(userDataDir, cwd)
+    return listMemories(cwd)
   })
 
   ipcMain.handle('memory:confirm', async (_e, args: { file: string }) => {
     // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界改写）
-    const userDataDir = app.getPath('userData')
-    return confirmMemory(userDataDir, await readProjectCwd(userDataDir), args?.file)
+    return confirmMemory(await readProjectCwd(app.getPath('userData')), args?.file)
   })
 
   ipcMain.handle('memory:remove', async (_e, args: { file: string }) => {
     // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界删除）
-    const userDataDir = app.getPath('userData')
-    return removeMemory(userDataDir, await readProjectCwd(userDataDir), args?.file)
+    return removeMemory(await readProjectCwd(app.getPath('userData')), args?.file)
   })
 
   ipcMain.handle('plans:list', async () => {

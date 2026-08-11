@@ -256,8 +256,8 @@ export async function ensurePresetConfig(
   if (pluginDecls.length > 0) {
     const plugins = Array.isArray(cfg.plugin)
       ? (cfg.plugin as unknown[]).filter(
-          // oc-gui 死路径清理 + guardian 临时停用（日志风暴阻塞 serve 事件循环，待 oc-plus 修复后恢复）
-          (p) => !(typeof p === 'string' && (p.includes('/oc-gui/') || p.includes('fractal-guardian')))
+          // oc-gui 死路径清理（分形前身配置目录残留，目录已删，声明是死路径）
+          (p) => !(typeof p === 'string' && p.includes('/oc-gui/'))
         )
       : []
     for (const decl of pluginDecls) {
@@ -398,10 +398,10 @@ export async function applyModelAliases(
 }
 
 /** 预置插件声明：仅声明实际存在的插件文件（防用户删除后 serve 加载失效路径报错）。
- *  注意：fractal-guardian 已临时停用（2026-08-11 日志风暴阻塞 serve 事件循环导致 GUI 卡死，oc-plus 修复后恢复）。 */
+ *  fractal-guardian 已于 2026-08-12 恢复（oc-plus 修复日志风暴：rotateLog O(1) 归档 + raw-events 按类型去重）。 */
 async function buildPluginDecls(target: string): Promise<string[]> {
   const pluginsDir = join(target, 'plugins')
-  const files = ['agents-priority.ts']
+  const files = ['agents-priority.ts', 'fractal-guardian.js']
   const decls: string[] = []
   for (const f of files) {
     const abs = join(pluginsDir, f)

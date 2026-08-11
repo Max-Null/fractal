@@ -14,11 +14,22 @@ import {
   listMemories,
   listPlans,
   getStatusState,
-  memoriesDir,
+  globalMemoriesDir,
   projectMemoriesDir,
   isolatedPlansDir,
   statusStateFile,
 } from './panel'
+
+// ── 全局记忆目录测试注入：globalMemoriesDir 读真实全局（homedir()），
+//    测试把 USERPROFILE 指向临时目录使 homedir() 返回 tmp，隔离真实用户记忆 ──
+const realUserProfile = process.env.USERPROFILE
+function setHomeForTest(home: string) {
+  process.env.USERPROFILE = home
+}
+function restoreHome() {
+  if (realUserProfile === undefined) delete process.env.USERPROFILE
+  else process.env.USERPROFILE = realUserProfile
+}
 
 // ── 记忆解析 ──
 
@@ -66,19 +77,21 @@ describe('记忆操作（confirm/remove/越界拦截）', () => {
   beforeEach(async () => {
     userDataDir = await fsp.mkdtemp(join(tmpdir(), 'panel-mem-'))
     cwd = await fsp.mkdtemp(join(tmpdir(), 'panel-cwd-'))
+    setHomeForTest(userDataDir)
   })
 
   afterEach(async () => {
+    restoreHome()
     await fsp.rm(userDataDir, { recursive: true, force: true })
     await fsp.rm(cwd, { recursive: true, force: true })
   })
 
   it('confirmMemory：pending → auto 写回', async () => {
-    const dir = memoriesDir(userDataDir)
+    const dir = globalMemoriesDir()
     await fsp.mkdir(dir, { recursive: true })
     const file = join(dir, 'a.md')
     await fsp.writeFile(file, '<!-- type: knowledge --><!-- status: pending -->\n# A\n正文', 'utf-8')
-    const r = await confirmMemory(userDataDir, '', file)
+    const r = await confirmMemory('', file)
     expect(r.ok).toBe(true)
     const after = await fsp.readFile(file, 'utf-8')
     expect(after).toContain('<!-- status: auto -->')
@@ -86,21 +99,21 @@ describe('记忆操作（confirm/remove/越界拦截）', () => {
   })
 
   it('confirmMemory：无 pending 不写（内容不变）', async () => {
-    const dir = memoriesDir(userDataDir)
+    const dir = globalMemoriesDir()
     await fsp.mkdir(dir, { recursive: true })
     const file = join(dir, 'auto.md')
     await fsp.writeFile(file, '<!-- status: auto -->\n# A', 'utf-8')
-    const r = await confirmMemory(userDataDir, '', file)
+    const r = await confirmMemory('', file)
     expect(r.ok).toBe(false)
     expect(await fsp.readFile(file, 'utf-8')).toBe('<!-- status: auto -->\n# A')
   })
 
   it('removeMemory：删除文件', async () => {
-    const dir = memoriesDir(userDataDir)
+    const dir = globalMemoriesDir()
     await fsp.mkdir(dir, { recursive: true })
     const file = join(dir, 'del.md')
     await fsp.writeFile(file, '# A', 'utf-8')
-    const r = await removeMemory(userDataDir, '', file)
+    const r = await removeMemory('', file)
     expect(r.ok).toBe(true)
     await expect(fsp.access(file)).rejects.toThrow()
   })
@@ -108,8 +121,8 @@ describe('记忆操作（confirm/remove/越界拦截）', () => {
   it('confirm/remove：越界路径（记忆目录外）被拦截', async () => {
     const outside = join(userDataDir, 'secret.md')
     await fsp.writeFile(outside, 'x', 'utf-8')
-    await expect(confirmMemory(userDataDir, '', outside)).rejects.toThrow('记忆文件不在记忆目录内')
-    await expect(removeMemory(userDataDir, '', outside)).rejects.toThrow('记忆文件不在记忆目录内')
+    await expect(confirmMemory('', outside)).rejects.toThrow('记忆文件不在记忆目录内')
+    await expect(removeMemory('', outside)).rejects.toThrow('记忆文件不在记忆目录内')
     // 文件未被误删
     expect(await fsp.readFile(outside, 'utf-8')).toBe('x')
   })
@@ -119,7 +132,7 @@ describe('记忆操作（confirm/remove/越界拦截）', () => {
     await fsp.mkdir(dir, { recursive: true })
     const file = join(dir, 'p.md')
     await fsp.writeFile(file, '<!-- status: pending -->\n# P', 'utf-8')
-    const r = await confirmMemory(userDataDir, cwd, file)
+    const r = await confirmMemory(cwd, file)
     expect(r.ok).toBe(true)
     expect(await fsp.readFile(file, 'utf-8')).toContain('<!-- status: auto -->')
   })
@@ -143,31 +156,33 @@ describe('listMemories（全局 + 项目）', () => {
   beforeEach(async () => {
     userDataDir = await fsp.mkdtemp(join(tmpdir(), 'panel-list-'))
     cwd = await fsp.mkdtemp(join(tmpdir(), 'panel-list-cwd-'))
+    setHomeForTest(userDataDir)
   })
 
   afterEach(async () => {
+    restoreHome()
     await fsp.rm(userDataDir, { recursive: true, force: true })
     await fsp.rm(cwd, { recursive: true, force: true })
   })
 
   it('目录不存在 → 全局/项目都返回空（不抛错）', async () => {
-    const r = await listMemories(userDataDir, cwd)
+    const r = await listMemories(cwd)
     expect(r.global).toEqual([])
     expect(r.project).toEqual([])
   })
 
   it('项目 cwd 为空 → project 空数组', async () => {
-    const r = await listMemories(userDataDir, '')
+    const r = await listMemories('')
     expect(r.project).toEqual([])
   })
 
   it('解析全局 + 项目记忆文件', async () => {
-    await fsp.mkdir(memoriesDir(userDataDir), { recursive: true })
-    await fsp.writeFile(join(memoriesDir(userDataDir), 'g.md'), '<!-- status: pending --><!-- description: 全局描述 -->\n# 全局记忆\n正文', 'utf-8')
+    await fsp.mkdir(globalMemoriesDir(), { recursive: true })
+    await fsp.writeFile(join(globalMemoriesDir(), 'g.md'), '<!-- status: pending --><!-- description: 全局描述 -->\n# 全局记忆\n正文', 'utf-8')
     await fsp.mkdir(projectMemoriesDir(cwd), { recursive: true })
     await fsp.writeFile(join(projectMemoriesDir(cwd), 'p.md'), '<!-- status: auto -->\n# 项目记忆\n正文', 'utf-8')
 
-    const r = await listMemories(userDataDir, cwd)
+    const r = await listMemories(cwd)
     expect(r.global).toHaveLength(1)
     expect(r.global[0]).toMatchObject({ title: '全局记忆', status: 'pending', desc: '全局描述' })
     expect(r.project).toHaveLength(1)

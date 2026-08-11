@@ -38,7 +38,7 @@ describe("MemoryPanel", () => {
     removeMemoryMock.mockResolvedValue({ ok: true });
   });
 
-  it("拉取记忆并渲染三层分组 + 条目（title/desc/preview/状态角标）", async () => {
+  it("拉取记忆并渲染两层分组 + 条目（title/desc/preview/状态角标）", async () => {
     listMemoriesMock.mockResolvedValue({
       global: [
         { file: "g1.md", title: "全局记忆A", status: "pending", desc: "跨项目习惯", preview: "正文预览…" },
@@ -50,12 +50,11 @@ describe("MemoryPanel", () => {
     await flushPromises();
 
     expect(listMemoriesMock).toHaveBeenCalledOnce();
-    // 三层分组保留
+    // 两层分组（全局 + 项目；会话层是误读占位，2026-08-12 已删）
     const groups = wrapper.findAll(".mem-group-head span:first-child").map(s => s.text());
-    expect(groups).toHaveLength(3);
+    expect(groups).toHaveLength(2);
     expect(groups.join()).toContain("全局记忆");
     expect(groups.join()).toContain("项目记忆");
-    expect(groups.join()).toContain("会话记忆");
     // 条目渲染
     expect(wrapper.text()).toContain("全局记忆A");
     expect(wrapper.text()).toContain("跨项目习惯");
@@ -107,10 +106,10 @@ describe("MemoryPanel", () => {
     expect(listMemoriesMock).toHaveBeenCalledTimes(3);
   });
 
-  it("空态保留（三层全空时显示空态提示）", async () => {
+  it("空态保留（两层全空时显示空态提示）", async () => {
     const wrapper = mount(MemoryPanel);
     await flushPromises();
-    expect(wrapper.findAll(".mem-empty").length).toBe(3);
+    expect(wrapper.findAll(".mem-empty").length).toBe(2);
     expect(wrapper.text()).toContain("暂无");
   });
 });

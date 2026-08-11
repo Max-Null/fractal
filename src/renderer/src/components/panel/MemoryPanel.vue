@@ -2,11 +2,12 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { listMemories, confirmMemory, removeMemory, onPanelUpdate, type MemoryEntry } from "@/lib/electron-bridge";
 
-// 三层记忆分组（全局=隔离记忆 / 项目=当前工作区 / 会话=本次会话临时上下文，会话层数据源未接入始终空态）
+// 两层记忆分组（全局=真实全局 ~/.config/opencode/memories/blocks / 项目=当前工作区 .opencode/memories/blocks）。
+// 注意：guardian 记忆框架的「三层」= memPath 0/1/2（全局/个人项目级/共享项目级），
+// 不存在「会话记忆」——旧版 session 占位层是误读自创，已删除（2026-08-12）
 const layers = [
   { key: "global", label: "🌐 全局记忆", desc: "跨项目通用 · 双星偏好与习惯" },
   { key: "project", label: "📁 项目记忆", desc: "当前工作区 · 业务上下文" },
-  { key: "session", label: "💬 会话记忆", desc: "本次会话 · 临时上下文" },
 ];
 
 // 状态筛选 chips（原型 v0.23 记忆 tab：全部 / 待确认 / 已生效 / 观察中）
@@ -39,7 +40,7 @@ const statusMeta: Record<MemoryEntry["status"], { label: string; cls: string }> 
   suggest: { label: "观察中", cls: "mem-badge--suggest" },
 };
 
-// 搜索 + chips 双条件过滤（title/desc/preview 包含搜索词）；session 层无数据源恒空
+// 搜索 + chips 双条件过滤（title/desc/preview 包含搜索词）
 const visible = computed<Record<string, MemoryEntry[]>>(() => {
   const q = searchQuery.value.trim().toLowerCase();
   const filter = (list: MemoryEntry[]): MemoryEntry[] =>
@@ -51,7 +52,6 @@ const visible = computed<Record<string, MemoryEntry[]>>(() => {
   return {
     global: filter(memoryData.value.global),
     project: filter(memoryData.value.project),
-    session: [],
   };
 });
 
@@ -108,7 +108,7 @@ onUnmounted(() => {
         <span class="mem-group-desc">{{ layer.desc }}</span>
       </div>
 
-      <!-- 会话层无数据源（本次会话临时上下文由引擎事件流承载）→ 恒空态；global/project 过滤后为空也显示空态 -->
+      <!-- global/project 过滤后为空也显示空态 -->
       <div v-if="visible[layer.key].length === 0" class="mem-empty">
         <div class="mem-empty-big">🧠</div>
         <div>暂无{{ layer.label }}条目</div>
