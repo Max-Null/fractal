@@ -9,10 +9,12 @@ import FileTree from "./FileTree.vue";
 import FilePreview from "./FilePreview.vue";
 import GitPanel from "./GitPanel.vue";
 import MemoryPanel from "@/components/panel/MemoryPanel.vue";
-import StatusPanel from "@/components/panel/StatusPanel.vue";
+import ContextPanel from "@/components/panel/ContextPanel.vue";
 import PlansPanel from "@/components/panel/PlansPanel.vue";
 import CapabilitiesPanel from "@/components/panel/CapabilitiesPanel.vue";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
+import { Files, BookOpenText, BarChart3, ListChecks, Puzzle } from "lucide-vue-next";
+import type { Component } from "vue";
 import { useSettingsStore } from "@/stores/settings";
 
 const props = defineProps<{ navCounter?: number; navPath?: string; forceClose?: number }>();
@@ -40,17 +42,20 @@ provide("file-clipboard", { state: clipState as Ref<ClipState | null>, set: setC
 // Drag-to-resize splitter between file tree and preview
 // 内层文件 tab（文件/Git 子 tab，仅在「文件」外层 tab 内生效）
 const fileTab = ref<"files" | "git">("files");
-// 外层增强面板 Tab：文件 / 记忆 / 状态 / 计划 / 技能（原型 v0.23 panel-tabs）
-type PanelTab = "files" | "memory" | "status" | "plans" | "skills";
+// 外层增强面板 Tab：文件 / 记忆 / 上下文 / 计划 / 生态（原型 v0.23 panel-tabs；状态面板 2026-08-12 改为上下文详情）
+type PanelTab = "files" | "memory" | "context" | "plans" | "skills";
 const panelTab = ref<PanelTab>("files");
-const panelTabs: { id: PanelTab; icon: string; label: string }[] = [
-  { id: "files", icon: "📁", label: "文件" },
-  { id: "memory", icon: "🧠", label: "记忆" },
-  { id: "status", icon: "📊", label: "状态" },
-  { id: "plans", icon: "📋", label: "计划" },
-  { id: "skills", icon: "🧩", label: "生态" },
+// icon 为 lucide 组件引用（规范 2026-08-12：禁止 emoji 图标），模板 <component :is> 渲染
+const panelTabs: { id: PanelTab; icon: Component; label: string }[] = [
+  { id: "files", icon: Files, label: "文件" },
+  { id: "memory", icon: BookOpenText, label: "记忆" },
+  { id: "context", icon: BarChart3, label: "上下文" },
+  { id: "plans", icon: ListChecks, label: "计划" },
+  { id: "skills", icon: Puzzle, label: "生态" },
 ];
 const refreshKey = ref(0);  // 文件操作后触发 FileTree 刷新展开目录
+// 收起态标签：跟随当前活跃 tab——面板已有文件/记忆/上下文/计划/生态多个功能，收起固定显示「文件」语义不符
+const collapsedTabLabel = computed(() => panelTabs.find((t) => t.id === panelTab.value)?.label ?? "文件");
 const splitRatio = ref(35); // 文件树占比 %
 const draggingSplit = ref(false);
 function onSplitDragStart(e: MouseEvent) {
@@ -75,7 +80,7 @@ function onSplitDragStart(e: MouseEvent) {
 }
 
 // CC 修改工作区文件后自动刷新文件面板
-function onCcFileChanged() {
+function onOcFileChanged() {
   refreshDir();
   // 当前预览的文件可能已被修改 → 重新加载预览内容
   if (selectedFilePath.value) openFile({ name: selectedFile.value || "", path: selectedFilePath.value, is_dir: false, size: 0 });
@@ -88,11 +93,11 @@ onMounted(async () => {
     rootPath.value = props.navPath || workspaceRoot.value;
     files.value = await listDir(rootPath.value);
   } catch { workspaceRoot.value = ""; }
-  window.addEventListener("cc-file-changed", onCcFileChanged);
+  window.addEventListener("oc-file-changed", onOcFileChanged);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("cc-file-changed", onCcFileChanged);
+  window.removeEventListener("oc-file-changed", onOcFileChanged);
 });
 
 // Listen for external navigation signal (e.g. header CWD click)
@@ -213,10 +218,10 @@ function goUp() {
       @click="collapsed = !collapsed"
       class="file-panel-tab"
       :class="{ 'file-panel-tab--open': !collapsed }"
-      :title="collapsed ? $t('file.title') : ''"
+      :title="collapsed ? collapsedTabLabel : ''"
     >
       <span class="file-panel-tab-label" :class="{ 'file-panel-tab-label--open': !collapsed }">
-        {{ collapsed ? $t('file.title') : '◀' }}
+        {{ collapsed ? collapsedTabLabel : '◀' }}
       </span>
     </button>
 
@@ -235,7 +240,7 @@ function goUp() {
             @click="panelTab = tab.id"
             class="panel-tab"
             :class="{ 'panel-tab--active': panelTab === tab.id }"
-          >{{ tab.icon }} {{ tab.label }}</button>
+          ><component :is="tab.icon" :size="13" class="mr-1 inline" />{{ tab.label }}</button>
         </div>
 
         <!-- 文件 tab：保留原有面包屑 + 文件/Git 子 tab + 文件树 + 内联预览 -->
@@ -344,7 +349,7 @@ function goUp() {
         <!-- 记忆 tab：三层记忆浏览骨架（阶段 6 接入数据） -->
         <MemoryPanel v-else-if="panelTab === 'memory'" />
         <!-- 状态 tab：触发线监控骨架 -->
-        <StatusPanel v-else-if="panelTab === 'status'" />
+        <ContextPanel v-else-if="panelTab === 'context'" />
         <!-- 计划 tab：plans/ 计划列表骨架 -->
         <PlansPanel v-else-if="panelTab === 'plans'" />
         <!-- 技能 tab：预置技能分组骨架 -->

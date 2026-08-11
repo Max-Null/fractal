@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, shallowRef, nextTick, inject } from "vue";
 
-import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled } from "@/lib/electron-bridge";
+import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged } from "@/lib/electron-bridge";
 import { isImageFile, mimeType } from "@/composables/useFilePreview";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
@@ -11,6 +11,7 @@ import DOMPurify from "dompurify";
 import { useI18n } from "vue-i18n";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 import { useSelectionTip } from "@/composables/useSelectionTip";
+import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2 } from "lucide-vue-next";
 import PptxPreview from "./PptxPreview.vue";
 import * as XLSX from "xlsx";
 // CodeMirror 6（编辑 tab）
@@ -32,6 +33,8 @@ import { yaml } from "@codemirror/lang-yaml";
 
 const props = defineProps<{
   file: { name: string; path: string } | null;
+  /** 独立预览窗口模式（无会话上下文）：隐藏 docx 转换等会话相关操作，✕ 关闭自身窗口 */
+  standalone?: boolean;
 }>();
 
 const emit = defineEmits<{ close: [] }>();
@@ -138,27 +141,24 @@ function onIframeMessage(e: MessageEvent) {
 onMounted(() => window.addEventListener("message", onIframeMessage));
 onUnmounted(() => window.removeEventListener("message", onIframeMessage));
 
-// CC 修改文件后自动重载编辑器内容
-function onCcFileChanged() {
-  if (!props.file) return;
-  readFileContent(props.file.path).then(raw => {
-      content.value = raw;
-      // HTML 预览 tab：重新生成 iframe 的 blob URL，让预览区刷新
-      if (fileKind.value === "html") {
-        const injected = raw.replace("<body>", "<body>" + INSPECTOR_SCRIPT)
-          || raw + INSPECTOR_SCRIPT;
-        updateHtmlBlob(injected);
-      }
-      // 编辑 tab 才重建编辑器；Markdown/docx 等预览只刷新 content
-      if (activeTab.value === "edit") {
-        destroyEditor();
-        dirty.value = false;
-        maybeCreateEditor();
-      }
-    }).catch(() => {});
+// OC 修改文件后自动重载（silent：不闪 loading、保持滚动位置）
+function onOcFileChanged() {
+  void reloadFile(true);
 }
-onMounted(() => window.addEventListener("cc-file-changed", onCcFileChanged));
-onUnmounted(() => window.removeEventListener("cc-file-changed", onCcFileChanged));
+onMounted(() => window.addEventListener("oc-file-changed", onOcFileChanged));
+onUnmounted(() => window.removeEventListener("oc-file-changed", onOcFileChanged));
+
+// 独立预览窗口：收不到主窗口的 oc-file-changed（跨 BrowserWindow）——主窗口经主进程广播刷新信号（2026-08-12）
+let stopPreviewChanged: (() => void) | null = null;
+onMounted(() => {
+  if (props.standalone) {
+    stopPreviewChanged = onPreviewChanged(() => { void reloadFile(true); });
+  }
+});
+onUnmounted(() => {
+  stopPreviewChanged?.();
+  stopPreviewChanged = null;
+});
 
 // 点击 tip 外部关闭
 onMounted(() => document.addEventListener("click", onClickOutside));
@@ -197,9 +197,18 @@ function sendDomToChat() {
   if (d.text) parts.push(`\n  ${d.text}\n`);
   parts.push(`</${d.tag}>`);
   const msg = `我在 \`${props.file.path}\` 中选中了这个元素，请修改其内容：\n\`\`\`html\n${parts.join("")}\n\`\`\``;
-  emitChatCommand(`attach-dom:${msg}`);
+  chatSend(`attach-dom:${msg}`);
   selectedDom.value = null;
   // panel 模式不关闭，保持编辑  // panel 模式不关闭，保持编辑
+}
+
+// ── 发送到会话统一出口：standalone（独立预览窗口）无会话上下文，载荷经主进程转投主窗口 ──
+function chatSend(payload: string) {
+  if (props.standalone) {
+    forwardChat(payload);
+  } else {
+    emitChatCommand(payload);
+  }
 }
 
 // ── MD 选中 → 发送修改建议到对话 ──
@@ -208,10 +217,15 @@ const mdSuggestion = ref("");
 
 function domTipStyle() {
   if (!selectedDom.value) return { left: '-9999px', top: '-9999px' };
-  return {
-    left: Math.min(selectedDom.value.left, window.innerWidth - 300) + 'px',
-    top: Math.max(selectedDom.value.bottom + 6, 8) + 'px',
-  };
+  const d = selectedDom.value;
+  // 固定宽高估算 + 视口钳制：tip 在元素下方放不下（元素贴近底部）时翻转到元素上方
+  const TIP_W = 320, TIP_H = 34, GAP = 6;
+  let left = Math.min(d.left, window.innerWidth - TIP_W - GAP);
+  if (left < GAP) left = GAP;
+  let top = d.bottom + GAP;
+  if (top + TIP_H > window.innerHeight) top = d.top - TIP_H - GAP;
+  if (top < GAP) top = GAP;
+  return { left: left + 'px', top: top + 'px' };
 }
 
 function sendMdToChat() {
@@ -223,7 +237,7 @@ function sendMdToChat() {
   const body = suggestion
     ? `${loc}，请修改以下内容：\n\n\`\`\`markdown\n${sel.text}\n\`\`\`\n\n修改建议：${suggestion}`
     : `${loc}，请修改以下内容：\n\n\`\`\`markdown\n${sel.text}\n\`\`\``;
-  emitChatCommand(`md-selection:${props.file.name}|${body}`);
+  chatSend(`md-selection:${props.file.name}|${body}`);
   // 清除选区和输入 + 关闭 tip
   mdSelection.value = null;
   mdSuggestion.value = "";
@@ -232,6 +246,9 @@ function sendMdToChat() {
 }
 
 // ── 注入到 HTML 预览 iframe 的选择器脚本 ──
+// 内联注入（sandbox iframe 的 blob 文档不能再加载 blob 子资源——Playwright 实证 2026-08-12，
+// 故弃 blob 外部脚本方案，恢复 cc-gui 原版内联注入；CSP script-src 需 'unsafe-inline'，见 index.html）
+// \x3C 转义：vue SFC 编译器扫描 <script> 块时把字面闭合标签当块结束
 const INSPECTOR_SCRIPT = `\x3Cscript\x3E
 var __o=document.createElement('div');
 __o.style.cssText='position:fixed;pointer-events:none;z-index:99999;border:2px solid #3b82f6;background:rgba(59,130,246,0.08);display:none;border-radius:2px;';
@@ -271,9 +288,6 @@ left:r.left,top:r.top,bottom:r.bottom
 
 type FileKind = "text" | "html" | "markdown" | "docx" | "xlsx" | "pptx" | "image" | "unsupported";
 
-/** 可「引用为附件」的文件类别：serve 能按 file:// 读取文本内容的类型（含图片，模型可多模态处理） */
-const ATTACHABLE_KINDS: readonly string[] = ["markdown", "text", "image"];
-
 const DOCX_EXTS = new Set(["docx", "doc"]);
 const HTML_EXTS = new Set(["html", "htm"]);
 const MD_EXTS = new Set(["md", "mdx", "markdown"]);
@@ -311,15 +325,55 @@ const hasPreview = computed(() =>
 
 // ── 加载文件 ──
 
-watch(() => props.file, async (f) => {
+// 预览滚动容器 ref（MD 预览 / docx 预览）：自动刷新时保持滚动位置
+const mdPreviewBody = ref<HTMLElement | null>(null);
+const docxPreviewBody = ref<HTMLElement | null>(null);
+// editorView 声明必须早于 reloadFile：watch immediate 在 setup 期同步调用 reloadFile，
+// 若此处晚声明会触发 TDZ（Cannot access 'editorView' before initialization）→ 首次打开白屏
+const editorView = shallowRef<EditorView | null>(null);
+
+/** 重载后恢复滚动位置：编辑器/iframe/MD/docx 四类各保存一次，双拍恢复（微任务 + 120ms 兜底 blob 加载）。
+ * scrollTimer 模块级持有：restoreScroll 可被 silent 刷新高频触发，旧 timer 先清再设；onUnmounted 对称清理 */
+let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+function restoreScroll(s: { editor: number; iframe: number; md: number; docx: number }) {
+  const restore = () => {
+    if (s.editor > 0) {
+      const dom = editorView.value?.scrollDOM;
+      if (dom) dom.scrollTop = s.editor;
+    }
+    if (s.iframe > 0) {
+      const se = previewIframe.value?.contentDocument?.scrollingElement;
+      if (se) se.scrollTop = s.iframe;
+    }
+    if (s.md > 0 && mdPreviewBody.value) mdPreviewBody.value.scrollTop = s.md;
+    if (s.docx > 0 && docxPreviewBody.value) docxPreviewBody.value.scrollTop = s.docx;
+  };
+  nextTick(restore);
+  if (scrollTimer) clearTimeout(scrollTimer);
+  scrollTimer = setTimeout(restore, 120);
+}
+
+/** 重新加载当前文件（手动刷新按钮 / 文件变更事件共用——watch props.file 与刷新按钮同一路径，2026-08-12）。
+ * silent=true（自动刷新）：不清空内容不闪 loading，保持滚动位置——手动刷新保持默认行为 */
+async function reloadFile(silent = false) {
+  const f = props.file;
   if (!f) return;
-  content.value = "";
-  previewHtml.value = "";
-  error.value = "";
-  imageSrc.value = "";
-  loading.value = true;
-  mdSelection.value = null;
-  mdSuggestion.value = "";
+  // 自动刷新（silent）不改变滚动位置：重载前记录各预览形态滚动位置，完成后恢复（2026-08-12）
+  const savedScroll = {
+    editor: editorView.value?.scrollDOM.scrollTop ?? 0,
+    iframe: previewIframe.value?.contentDocument?.scrollingElement?.scrollTop ?? 0,
+    md: mdPreviewBody.value?.scrollTop ?? 0,
+    docx: docxPreviewBody.value?.scrollTop ?? 0,
+  };
+  if (!silent) {
+    content.value = "";
+    previewHtml.value = "";
+    error.value = "";
+    imageSrc.value = "";
+    loading.value = true;
+    mdSelection.value = null;
+    mdSuggestion.value = "";
+  }
 
   const kind = detectKind(f.name);
 
@@ -328,20 +382,20 @@ watch(() => props.file, async (f) => {
     // data URL 附件（共享 storage 旧会话 file part url 内嵌图片）：直接显示，不能当文件路径读
     if (f.path.startsWith("data:")) {
       imageSrc.value = f.path;
-      loading.value = false;
+      if (!silent) loading.value = false;
       return;
     }
     try {
       const b64 = await readFileBase64(f.path);
       imageSrc.value = `data:${mimeType(f.name)};base64,${b64}`;
     } catch (e) { error.value = String(e); }
-    loading.value = false;
+    if (!silent) loading.value = false;
     return;
   }
 
   if (kind === "unsupported") {
     activeTab.value = "edit";
-    loading.value = false;
+    if (!silent) loading.value = false;
     return;
   }
 
@@ -355,7 +409,9 @@ watch(() => props.file, async (f) => {
       previewHtml.value = DOMPurify.sanitize(rawHtml);
       content.value = (await mammoth.extractRawText({ arrayBuffer: buf })).value;
     } catch (e) { error.value = String(e); }
-    loading.value = false;
+    if (!silent) loading.value = false;
+    // docx 分支提前返回：恢复滚动位置（silent 自动刷新保持阅读位置）
+    restoreScroll(savedScroll);
     return;
   }
 
@@ -403,13 +459,13 @@ watch(() => props.file, async (f) => {
         error.value = t("preview.xlsxPassword");
       }
     }
-    loading.value = false;
+    if (!silent) loading.value = false;
     return;
   }
 
   if (kind === "pptx") {
     activeTab.value = "preview";
-    loading.value = false;
+    if (!silent) loading.value = false;
     return;
   }
 
@@ -426,8 +482,12 @@ watch(() => props.file, async (f) => {
     }
     // markdown 预览由 MarkdownRenderer 处理，不需要 previewHtml
   } catch (e) { error.value = String(e); }
-  loading.value = false;
-}, { immediate: true });
+  if (!silent) loading.value = false;
+  // 恢复滚动位置（silent 自动刷新保持阅读位置——2026-08-12）
+  restoreScroll(savedScroll);
+}
+
+watch(() => props.file, () => { void reloadFile(); }, { immediate: true });
 
 // ═══ Excel 拖拽选区 ═══
 const excelAnchor = ref<{ r: number; c: number } | null>(null);
@@ -536,7 +596,7 @@ function sendExcelSelection() {
   }
   const table = lines.join("\n");
   const msg = `在 \`${props.file.name}\` 的 ${xlsxActiveSheet.value}!${rangeStr} 区域，当前内容为：\n\n${table}\n\n请修改为...`;
-  emitChatCommand(`excel-selection:${props.file.name}|${msg}`);
+  chatSend(`excel-selection:${props.file.name}|${msg}`);
   excelSelection.value = null;
   clearSelectionHighlight();
   selTip.hideTip();
@@ -579,7 +639,7 @@ function sendTextSelection() {
   } else {
     msg = `在 \`${props.file.name}\` 中选中了以下内容：\n\n> ${text}`;
   }
-  emitChatCommand(`selection:${props.file.name}|${msg}`);
+  chatSend(`selection:${props.file.name}|${msg}`);
   selTip.hideTip();
   window.getSelection()?.removeAllRanges();
 }
@@ -608,7 +668,6 @@ function findClosestHeading(): string {
 // ── CodeMirror 编辑器 ──
 
 const editorContainer = ref<HTMLElement | null>(null);
-const editorView = shallowRef<EditorView | null>(null);
 const dirty = ref(false);
 const saving = ref(false);
 
@@ -710,7 +769,11 @@ watch(content, (val) => {
 });
 
 onMounted(() => maybeCreateEditor());
-onUnmounted(() => destroyEditor());
+onUnmounted(() => {
+  destroyEditor();
+  // 清理滚动恢复兜底 timer（restoreScroll 双拍的第二拍——组件卸载后不再需要）
+  if (scrollTimer) { clearTimeout(scrollTimer); scrollTimer = null; }
+});
 
 // 切换到编辑 tab 时初始化编辑器，离开时销毁——v-else-if 会重建 DOM，
 // 旧 EditorView 挂载的父元素已不在文档中，必须重建
@@ -763,30 +826,25 @@ function confirmClose() {
   }
 }
 
+/** 关闭预览：独立窗口直接 window.close()（Electron 渲染进程可关自身窗口）；嵌入模式 dirty 走确认弹窗 */
 function handleClose() {
+  if (props.standalone) { window.close(); return; }
   if (dirty.value) { confirmClose(); } else { emit("close"); }
-}
-
-/** 将当前预览文件作为附件引用到对话：走 FileTree 同款 attach-files 全局事件（ChatPanel 已监听去重入 chip） */
-function attachToChat() {
-  if (!props.file) return;
-  window.dispatchEvent(
-    new CustomEvent("attach-files", { detail: [{ name: props.file.name, path: props.file.path }] })
-  );
 }
 </script>
 
 <template>
   <div v-if="file" class="flex h-full">
-    <!-- 拖拽把手 -->
+    <!-- 拖拽把手（独立窗口无 panel layout——隐藏，窗口级拖拽由系统标题栏承担） -->
     <div
+      v-if="!standalone"
       @mousedown="layout.startResize('preview', $event)"
       class="panel-drag-handle"
       :class="{ 'panel-drag-handle--active': layout.previewDragging.value }"
     />
 
-    <!-- 面板主体 -->
-    <div class="panel-body" :style="{ width: layout.previewWidth.value + 'px' }">
+    <!-- 面板主体（独立窗口 standalone：全宽布局，不依赖 panel layout 注入） -->
+    <div class="panel-body" :style="{ width: standalone ? '100%' : layout.previewWidth.value + 'px' }">
       <!-- Header -->
       <div class="panel-header">
         <div class="flex items-center gap-1.5 min-w-0 flex-1">
@@ -808,26 +866,33 @@ function attachToChat() {
           :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'"
           style="background: var(--accent); color: var(--bg-root)"
         >{{ saving ? '…' : $t('preview.save') }}</button>
-        <button v-if="ATTACHABLE_KINDS.includes(fileKind)" @click="attachToChat"
+        <!-- 手动刷新：重新读取文件并刷新各类型预览（agent/外部改动后无需重开面板） -->
+        <button v-if="!loading" @click="reloadFile()"
           class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
-          style="background: var(--accent); color: var(--bg-root)"
-          :title="$t('preview.attachToChat')"
-        >📎</button>
+          style="border: 1px solid var(--border-dim); color: var(--text-muted)"
+          :title="$t('preview.refresh')"
+        ><RefreshCw :size="13" /></button>
+        <!-- 独立窗口：双屏联调时把大预览单独开一窗（主界面内嵌模式可用） -->
+        <button v-if="!standalone" @click="openPreviewWindow(file.path)"
+          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
+          style="border: 1px solid var(--border-dim); color: var(--text-muted)"
+          :title="$t('preview.openInWindow')"
+        ><ExternalLink :size="13" /></button>
         <button v-if="fileKind === 'markdown'" @click="showMdOutline = !showMdOutline"
           class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
           :style="{ background: showMdOutline ? 'var(--accent)' : 'transparent', color: showMdOutline ? 'var(--bg-root)' : 'var(--text-muted)', border: showMdOutline ? 'none' : '1px solid var(--border-dim)' }"
-        >☰</button>
-        <button v-if="fileKind === 'markdown'" @click="sendConvertDocx" :disabled="converting"
+        ><PanelLeft :size="13" /></button>
+        <button v-if="!standalone && fileKind === 'markdown'" @click="sendConvertDocx" :disabled="converting"
           class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0"
           :class="converting ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'"
           style="background: var(--accent); color: var(--bg-root)"
           :title="$t('preview.convertDocx')"
-        >{{ converting ? '⏳' : $t('preview.toDocx') }}</button>
+        >{{ converting ? '' : $t('preview.toDocx') }}<Loader2 v-if="converting" :size="13" class="animate-spin" /></button>
         <button @click="handleClose"
           class="w-6 h-6 flex items-center justify-center rounded-md transition-colors hover:bg-[var(--bg-hover)] shrink-0"
           style="color: var(--text-muted)"
           :title="$t('file.closePreview')"
-        >&times;</button>
+        ><X :size="14" /></button>
       </div>
 
       <!-- Body -->
@@ -918,11 +983,11 @@ function attachToChat() {
               :title="h.text"
             >{{ h.text }}</a>
           </div>
-          <div class="flex-1 overflow-auto p-5" @mouseup="onTextSelectionMouseUp">
+          <div class="flex-1 overflow-auto p-5" ref="mdPreviewBody" @mouseup="onTextSelectionMouseUp">
             <MarkdownRenderer :content="content" />
           </div>
         </div>
-        <div v-else-if="fileKind === 'docx'" class="flex-1 overflow-auto p-5 docx-preview" v-html="previewHtml" @mouseup="onTextSelectionMouseUp"></div>
+        <div v-else-if="fileKind === 'docx'" ref="docxPreviewBody" class="flex-1 overflow-auto p-5 docx-preview" v-html="previewHtml" @mouseup="onTextSelectionMouseUp"></div>
         <div v-else-if="hasEdit" ref="editorContainer" class="flex-1 overflow-auto"></div>
         <div v-else class="flex-1 flex items-center justify-center" style="color: var(--text-muted)">
           <span class="text-xs">{{ $t('preview.noPreview') }}</span>
@@ -944,11 +1009,11 @@ function attachToChat() {
           }"
         >
           <div class="flex items-center gap-2">
-            <span style="color: var(--amber)">📝</span>
+            <span style="color: var(--amber)"><Pencil :size="13" /></span>
             <span class="truncate" style="color: var(--text-secondary)">"{{ selTip.tipSummary.value }}"</span>
-            <button @click="selTip.hideTip()" class="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] ml-auto" style="color: var(--text-muted)">×</button>
+            <button @click="selTip.hideTip()" class="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-hover)] ml-auto" style="color: var(--text-muted)"><X :size="13" /></button>
           </div>
-          <!-- MD 编辑器：建议输入框 + 发送 -->
+          <!-- MD 编辑器：建议输入框 + 发送（独立预览窗口经主进程转发主窗口会话） -->
           <template v-if="fileKind === 'markdown' && activeTab === 'edit' && mdSelection">
             <input
               v-model="mdSuggestion"
@@ -962,7 +1027,7 @@ function attachToChat() {
                 @click="sendMdToChat"
                 class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
-              >[-] {{ $t('preview.sendToChat') }}</button>
+              ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
             </div>
           </template>
           <!-- Excel / 文本划选：无建议输入 -->
@@ -973,13 +1038,13 @@ function attachToChat() {
                 @click="sendExcelSelection"
                 class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
-              >⊞ {{ $t('preview.sendToChat') }}</button>
+              ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
               <button
                 v-else
                 @click="sendTextSelection"
                 class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
-              >[-] {{ $t('preview.sendToChat') }}</button>
+              ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
             </div>
           </template>
         </div>
@@ -998,8 +1063,9 @@ function attachToChat() {
         &lt;{{ selectedDom.tag }}<template v-if="selectedDom.id">#{{ selectedDom.id }}</template><template v-if="selectedDom.classes">.{{ selectedDom.classes.split(' ').join('.') }}</template>&gt;
       </span>
       <span class="truncate flex-1" style="color: var(--text-muted)">{{ selectedDom.text.slice(0, 50) }}</span>
-      <button @click="selectedDom = null" class="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-hover)]" style="color: var(--text-muted)">×</button>
-      <button @click.stop="sendDomToChat" class="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80" style="background: var(--accent); color: var(--bg-root)">发送到对话</button>
+      <button @click="selectedDom = null" class="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-hover)]" style="color: var(--text-muted)"><X :size="13" /></button>
+      <!-- 发送到对话：独立预览窗口无会话上下文——载荷经主进程转发主窗口（双屏联调核心场景） -->
+      <button v-if="selectedDom" @click.stop="sendDomToChat" class="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80" style="background: var(--accent); color: var(--bg-root)">发送到对话</button>
     </div>
   </Teleport>
 </template>

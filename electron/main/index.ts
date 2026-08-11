@@ -164,6 +164,57 @@ function createWindow(workspace?: string): BrowserWindow {
   return mainWindow
 }
 
+/**
+ * 打开文件预览独立窗口（双屏联调：大预览脱离主界面单开一窗）。
+ * 照搬 createWindow(workspace) 模式：页面 load 完成后主进程下发文件路径（window:init-preview），
+ * 渲染层 AppShell 监听后切换为独立预览布局（仅 FilePreviewPanel）。
+ */
+function openPreviewWindow(filePath: string): void {
+  const previewWindow = new BrowserWindow({
+    width: 1000,
+    height: 800,
+    minWidth: 560,
+    minHeight: 400,
+    show: false,
+    title: `预览 — ${basename(filePath)}`,
+    autoHideMenuBar: true,
+    ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      sandbox: false,
+    },
+  })
+  // 阻止页面 <title>（恒为「分形」）覆盖自定义标题——预览窗口用标题区分文件
+  previewWindow.on('page-title-updated', (e) => e.preventDefault())
+
+  previewWindow.on('ready-to-show', () => previewWindow.show())
+  // 超时兜底（同主窗口）：慢盘/首帧延迟时强制显示
+  setTimeout(() => {
+    if (!previewWindow.isDestroyed() && !previewWindow.isVisible()) previewWindow.show()
+  }, 3000)
+
+  // 页面 load 完成后下发预览文件路径（300ms 冗余防 Vue 挂载竞态——照搬 init-workspace 模式）
+  previewWindow.webContents.once('did-finish-load', () => {
+    previewWindow.setTitle(`预览 — ${basename(filePath)}`)
+    setTimeout(() => {
+      previewWindow.webContents.send('window:init-preview', filePath)
+    }, 300)
+  })
+
+  // 外部链接一律走系统浏览器（同主窗口策略）
+  previewWindow.webContents.setWindowOpenHandler((details) => {
+    shell.openExternal(details.url)
+    return { action: 'deny' }
+  })
+
+  // dev 用 ELECTRON_RENDERER_URL，prod 用打包 html（无 workspace query——预览窗口不绑定工作区）
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    previewWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    previewWindow.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+}
+
 app.whenReady().then(async () => {
   // Windows 通知/任务栏分组需要固定的 app user model id
   electronApp.setAppUserModelId('com.oc-gui')
@@ -229,6 +280,39 @@ app.whenReady().then(async () => {
     if (typeof args?.cwd !== 'string' || args.cwd.length === 0) return
     const win = BrowserWindow.fromWebContents(e.sender)
     if (win) winWorkspaces.set(win.id, args.cwd)
+  })
+
+  // 打开文件预览独立窗口（双屏联调）：path 校验非空字符串，异常吞掉不抛（预览失败不打断用户）
+  ipcMain.handle('preview:open', (_e, args: { path?: unknown }) => {
+    if (typeof args?.path !== 'string' || args.path.length === 0) return
+    try {
+      openPreviewWindow(args.path)
+    } catch (err) {
+      console.log(`[preview:open] ERROR ${String(err)}`)
+    }
+  })
+
+  // 预览独立窗口「发送到对话」转发：standalone 预览窗口无会话上下文，载荷转投主窗口。
+  // 主窗口识别 = 注册过工作区的窗口（winWorkspaces 有记录；预览窗口不注册）——多主窗口场景全部广播
+  ipcMain.on('preview:forward-chat', (e, payload: unknown) => {
+    if (typeof payload !== 'string' || payload.length === 0) return
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.id === e.sender.id) continue // 跳过发送方（预览窗口自身）
+      if (!win.isDestroyed() && winWorkspaces.has(win.id)) {
+        win.webContents.send('window:forward-chat', payload)
+      }
+    }
+  })
+
+  // 预览窗口自动刷新广播：主窗口 oc-file-changed（agent 改文件）→ 通知所有预览窗口重载。
+  // 预览窗口识别 = 未注册工作区（openPreviewWindow 不调 registerWorkspace）——与 forward-chat 互补
+  ipcMain.on('preview:file-changed', (e) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      if (win.id === e.sender.id) continue // 跳过发送方（主窗口自身）
+      if (!win.isDestroyed() && !winWorkspaces.has(win.id)) {
+        win.webContents.send('window:preview-changed')
+      }
+    }
   })
 
   const win = createWindow()

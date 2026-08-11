@@ -26,6 +26,8 @@ export interface Session {
   mode: string;
   /** 会话绑定的工作区目录（serve directory；前端过滤用） */
   cwd?: string;
+  /** 会话主模型（serve 会话列表返回；上下文详情面板展示用） */
+  model?: string;
   /** 子会话归属的主会话 id（serve parentID；主会话无此字段） */
   parentId?: string;
   /** 子会话 agent 名（serve 会话列表实测返回） */
@@ -236,5 +238,6 @@ function toLocalSession(s: SessionData): Session {
     cwd: s.directory || s.cwd,
     parentId: s.parentId,
     agent: s.agent,
+    model: s.model,
   };
 }

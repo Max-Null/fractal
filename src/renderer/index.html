@@ -6,9 +6,13 @@
     <!-- 分形品牌图标（public/logo.svg，与窗口/打包图标同源） -->
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
     <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
+    <!-- frame-src blob: HTML 预览 iframe 加载 blob 文档（2026-08-12 白屏修复）；
+         script-src 'unsafe-inline'：HTML 预览选择器脚本走内联注入（sandbox iframe 的 blob 文档不能加载 blob 子资源，Playwright 实证 2026-08-12），
+         主文档自身是 electron-vite 外部 bundle，无内联脚本，放开仅影响 blob 预览文档；
+         img-src https:：HTML 预览文档里的外链图片（picsum 等）继承主文档 CSP 被拦（2026-08-12），img 标签不执行脚本，放开 https 外链图 -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; frame-src 'self' blob:"
     />
   </head>
 

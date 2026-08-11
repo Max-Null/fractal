@@ -293,6 +293,9 @@ export async function ensurePresetConfig(
 
   // 模型槽位替换：HIGH 跟随主模型（cfg.model 由 ensureConfig 联动设置页选择）、LOW 跟随设置页轻量模型、VISION 用 oc-config 常量
   await applyModelAliases(userDataDir, cfg.model)
+
+  // guardian 语义向量依赖按需安装（fire-and-forget：不阻塞启动链；失败自动降级 BM25 不报错）
+  void installVectorDeps(getPresetTarget(userDataDir)).catch(() => {})
 }
 
 /** 模型槽位：agent 文件 → 对应槽位（HIGH=主模型 / LOW=轻量 / VISION=多模态）；无 model 行的 agent 继承主模型（天然 HIGH）不处理 */
@@ -302,6 +305,66 @@ const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: ModelSlot }> = [
   { agents: ['制图师.md'], slot: 'vision' },
   { agents: ['侦查兵.md'], slot: 'anthropic' }
 ]
+
+// ── guardian 语义向量依赖按需安装（2026-08-12 定案：安装环境可联网则装，不可用降级 BM25）──
+
+/** 失败标记文件：安装失败/无 npm 后写入，后续启动跳过（避免每次启动 npm 超时等待）；用户可删标记重试 */
+const VECTOR_DEP_FAIL_FLAG = '.vector-install-failed'
+
+/**
+ * 按需安装 guardian 语义向量依赖（@huggingface/transformers → onnxruntime-node ~200MB）。
+ * 设计（2026-08-12 用户拍板）：安装器不内置大依赖（安装包 138MB → 350MB+ 不可接受），
+ * 首次启动联网时 npm 安装；无网络/npm 缺失/失败 → 写失败标记降级 BM25（guardian 主路径不受影响）。
+ * 幂等：依赖已存在或失败标记存在 → 直接返回。fire-and-forget 调用（不阻塞启动链），spawn 超时 90s。
+ */
+export async function installVectorDeps(openCodeDir: string): Promise<void> {
+  const depDir = join(openCodeDir, 'node_modules', '@huggingface', 'transformers')
+  try {
+    await fsp.access(depDir)
+    // 依赖已存在（手动补装或上次成功）→ 幂等返回；若残留失败标记（曾失败后手动补装）→ 顺带清除，恢复下次自动检测
+    await fsp.rm(join(openCodeDir, VECTOR_DEP_FAIL_FLAG), { force: true })
+    return
+  } catch {
+    // 未安装 → 继续
+  }
+  if (existsSync(join(openCodeDir, VECTOR_DEP_FAIL_FLAG))) return // 之前失败过 → 跳过（防反复超时）
+
+  try {
+    const { spawn } = await import('node:child_process')
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn('npm', ['install', '@huggingface/transformers', '--prefix', openCodeDir], {
+        cwd: openCodeDir,
+        shell: true, // Windows npm 是 npm.cmd，需 shell 解析
+        windowsHide: true,
+        stdio: 'ignore',
+      })
+      const timer = setTimeout(() => {
+        child.kill()
+        reject(new Error('npm install 超时（90s）'))
+      }, 90_000)
+      child.on('error', (err) => {
+        clearTimeout(timer)
+        reject(err)
+      })
+      child.on('close', (code) => {
+        clearTimeout(timer)
+        if (code === 0) resolve()
+        else reject(new Error(`npm install 退出码 ${code}`))
+      })
+    })
+    // 安装成功 → 清除失败标记（之前失败过但本次成功）
+    await fsp.rm(join(openCodeDir, VECTOR_DEP_FAIL_FLAG), { force: true })
+    console.log('[preset] guardian 语义向量依赖安装成功（@huggingface/transformers）')
+  } catch (err) {
+    // 无网络/npm 缺失/安装失败 → 写失败标记（后续启动跳过），guardian 自动降级 BM25
+    try {
+      await fsp.writeFile(join(openCodeDir, VECTOR_DEP_FAIL_FLAG), String(err), 'utf-8')
+    } catch {
+      // 标记写入失败（目录只读等）→ 下次启动重试
+    }
+    console.log(`[preset] guardian 语义向量依赖安装失败（降级 BM25，可删 ${VECTOR_DEP_FAIL_FLAG} 重试）: ${String(err).slice(0, 120)}`)
+  }
+}
 
 /**
  * 读契约清单 agents-manifest.json（oc-plus sync-to-fractal.mjs 生成）。

@@ -532,6 +532,7 @@ details summary::-webkit-details-marker { display: none; }
   justify-content: space-between;
   padding: 0.75rem 1.25rem 0.5rem;
   border-bottom: 1px solid var(--border-dim);
+  gap: 0.75rem;
 }
 .modal-shell-body {
   overflow-y: auto; flex: 1;
@@ -540,6 +541,9 @@ details summary::-webkit-details-marker { display: none; }
 }
 .modal-shell-footer {
   flex-shrink: 0;
+  /* 统一弹窗设计：footer 按钮右对齐（项目惯例，ChangelogDialog/ChatPanel 均右对齐；含 flex wrapper 的使用方嵌套后布局不变） */
+  display: flex; align-items: center; justify-content: flex-end;
+  gap: 0.5rem;
   padding: 0.5rem 1.25rem;
   border-top: 1px solid var(--border-dim);
 }
@@ -551,7 +555,9 @@ details summary::-webkit-details-marker { display: none; }
   width: 1.5rem; height: 1.5rem;
   display: flex; align-items: center; justify-content: center;
   border-radius: 0.25rem; transition: background-color 150ms;
-  flex-shrink: 0; margin-left: 0.5rem;
+  flex-shrink: 0;
+  /* 强制靠右：header slot 为空时 space-between 会把唯一子项推到最左（记忆详情读取失败场景实测） */
+  margin-left: auto;
   color: var(--text-muted);
 }
 .modal-shell-close:hover { background: var(--bg-hover); }

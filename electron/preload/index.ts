@@ -32,12 +32,13 @@ const ALLOWED_INVOKE = [
   'engine:testConnection',
   'engine:refresh',
   'ai:polishMessage',
-  'memory:list', 'memory:confirm', 'memory:remove',
-  'plans:list',
+  'memory:list', 'memory:confirm', 'memory:remove', 'memory:read',
+  'plans:list', 'plans:read',
   'status:get',
   'capabilities:list',
   'window:openWorkspace',
-  'window:registerWorkspace'
+  'window:registerWorkspace',
+  'preview:open'
 ] as const
 
 /** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */
@@ -67,6 +68,40 @@ const electronBridge = {
     ipcRenderer.on('window:init-workspace', listener)
     return () => {
       ipcRenderer.removeListener('window:init-workspace', listener)
+    }
+  },
+  // 预览独立窗口文件路径下发（window:init-preview）：主进程 openPreviewWindow 在 did-finish-load 后推送，
+  // 渲染层 AppShell 监听后切换为独立预览布局（同 init-workspace 模式）
+  onInitPreview: (cb: (path: string) => void) => {
+    const listener = (_e: IpcRendererEvent, path: string) => cb(path)
+    ipcRenderer.on('window:init-preview', listener)
+    return () => {
+      ipcRenderer.removeListener('window:init-preview', listener)
+    }
+  },
+  // 预览独立窗口「发送到对话」转发：standalone 预览窗口无会话上下文，把 tip 载荷发给主进程
+  // 转投主窗口（主窗口 AppShell 收到后走本地命令总线，等价面板内发送）。双向：
+  // forwardChat = 本窗口发起转发（send）；onForwardChat = 主窗口接收被转发载荷（on）
+  forwardChat: (payload: string) => {
+    ipcRenderer.send('preview:forward-chat', payload)
+  },
+  onForwardChat: (cb: (payload: string) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: string) => cb(payload)
+    ipcRenderer.on('window:forward-chat', listener)
+    return () => {
+      ipcRenderer.removeListener('window:forward-chat', listener)
+    }
+  },
+  // 预览窗口自动刷新：主窗口 oc-file-changed（agent 改文件）→ 主进程广播预览窗口。
+  // notifyPreviewChanged = 主窗口发起（send）；onPreviewChanged = 预览窗口接收刷新信号（on）
+  notifyPreviewChanged: () => {
+    ipcRenderer.send('preview:file-changed')
+  },
+  onPreviewChanged: (cb: () => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('window:preview-changed', listener)
+    return () => {
+      ipcRenderer.removeListener('window:preview-changed', listener)
     }
   },
   // 渲染层 console 桥上报（main.ts 拦截 console 后调用）：单向 fire-and-forget，

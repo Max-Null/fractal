@@ -9,7 +9,7 @@ import { execFile } from 'node:child_process'
 import { type ServerManager, getEngineVersion, type ServerInfo, appendServeLog } from './server-manager'
 import { getPresetVersion } from './preset'
 import { type OcClient, type SessionMessage, type CapabilityBundle, basicAuthHeader } from './oc-sdk'
-import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
+import { listMemories, confirmMemory, removeMemory, readMemory, listPlans, readPlan, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
 import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents, positiveDuration, type ToolStateTime } from './events'
@@ -978,13 +978,26 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return confirmMemory(await readProjectCwd(app.getPath('userData')), args?.file)
   })
 
+  ipcMain.handle('memory:read', async (_e, args: { file: string }) => {
+    // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界读）
+    return readMemory(await readProjectCwd(app.getPath('userData')), args?.file)
+  })
+
   ipcMain.handle('memory:remove', async (_e, args: { file: string }) => {
     // 路径安全：file 必须位于记忆目录内（panel.ts resolveMemoryDir 校验，防越界删除）
     return removeMemory(await readProjectCwd(app.getPath('userData')), args?.file)
   })
 
   ipcMain.handle('plans:list', async () => {
-    return listPlans(app.getPath('userData'))
+    // 项目计划目录跟随渲染进程工作区（ui-settings.json 持久化）；工作区切换时重建项目 watcher
+    const cwd = await readProjectCwd(app.getPath('userData'))
+    getPanelWatchers()?.refreshProject(cwd)
+    return listPlans(app.getPath('userData'), cwd)
+  })
+
+  ipcMain.handle('plans:read', async (_e, args: { file: string }) => {
+    // 路径安全：file 必须位于计划目录内（panel.ts resolvePlanDir 校验，防越界读）
+    return readPlan(app.getPath('userData'), await readProjectCwd(app.getPath('userData')), args?.file)
   })
 
   ipcMain.handle('status:get', async () => {

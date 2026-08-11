@@ -77,7 +77,7 @@ function mountPanel() {
         FilePreview: stub("FilePreview"),
         GitPanel: stub("GitPanel"),
         MemoryPanel: stub("MemoryPanel"),
-        StatusPanel: stub("StatusPanel"),
+        ContextPanel: stub("ContextPanel"),
         PlansPanel: stub("PlansPanel"),
         CapabilitiesPanel: stub("CapabilitiesPanel"),
       },
@@ -261,7 +261,7 @@ describe("FilePanel", () => {
     expect(labels).toHaveLength(5);
     expect(labels[0]).toContain("文件");
     expect(labels[1]).toContain("记忆");
-    expect(labels[2]).toContain("状态");
+    expect(labels[2]).toContain("上下文");
     expect(labels[3]).toContain("计划");
     expect(labels[4]).toContain("生态");
   });
@@ -283,18 +283,18 @@ describe("FilePanel", () => {
     expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(false);
   });
 
-  it("switches to status/plans/ecosystem tabs and back to files", async () => {
+  it("switches to context/plans/ecosystem tabs and back to files", async () => {
     const { wrapper, vm } = mountPanel();
     await wrapper.vm.$nextTick();
     vm.collapsed = false;
     await wrapper.vm.$nextTick();
 
-    await clickPanelTab(wrapper, "状态");
-    expect(wrapper.findComponent({ name: "StatusPanel" }).exists()).toBe(true);
+    await clickPanelTab(wrapper, "上下文");
+    expect(wrapper.findComponent({ name: "ContextPanel" }).exists()).toBe(true);
 
     await clickPanelTab(wrapper, "计划");
     expect(wrapper.findComponent({ name: "PlansPanel" }).exists()).toBe(true);
-    expect(wrapper.findComponent({ name: "StatusPanel" }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: "ContextPanel" }).exists()).toBe(false);
 
     await clickPanelTab(wrapper, "生态");
     expect(wrapper.findComponent({ name: "CapabilitiesPanel" }).exists()).toBe(true);

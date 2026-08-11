@@ -19,6 +19,11 @@ window.electronBridge = {
   },
   // 多窗口通道：本测试不触发，仅满足 Window 类型声明
   onInitWorkspace: () => () => {},
+  onInitPreview: () => () => {},
+  forwardChat: () => {},
+  onForwardChat: () => () => {},
+  notifyPreviewChanged: () => {},
+  onPreviewChanged: () => () => {},
   debugLog: () => {},
   getPathForFile: () => "",
 };
@@ -105,6 +110,66 @@ describe("useStreamProcessor", () => {
       "event-session",
     );
 
+    stopListening();
+  });
+
+  it("result 回合含文件修改工具（Write/Edit/Bash 等）→ 派发 oc-file-changed（文件面板/预览自动刷新链路）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("event-session");
+
+    chat.addUserMessage("改一下 a.txt");
+    chat.startAssistantMessage();
+    chat.appendText("好的，已修改");
+
+    // 轮次中调用了 Write 工具（assistant 事件 tool_use 累积到 toolUses）——
+    // 真实 OC 工具 ID 是小写（"edit"/"write"），测试同时覆盖大写（cc-gui 遗留）与大小写混合
+    chat.addToolUse({ id: "call_write", name: "write", input: { file_path: "a.txt" } });
+    chat.addToolUse({ id: "call_edit", name: "Edit", input: { file_path: "a.txt" } });
+
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "result",
+      session_id: "event-session",
+      text: "",
+      thinking: "",
+      is_final: true,
+    });
+
+    // 文件修改工具出现 → 通知文件面板/预览刷新
+    expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: "oc-file-changed" }));
+    dispatchSpy.mockRestore();
+    stopListening();
+  });
+
+  it("result 回合仅只读工具（Read/Grep）→ 不派发 oc-file-changed", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("event-session");
+
+    chat.addUserMessage("读一下 a.txt");
+    chat.startAssistantMessage();
+    chat.appendText("内容是：hi");
+    chat.addToolUse({ id: "call_read", name: "Read", input: { file_path: "a.txt" } });
+
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "result",
+      session_id: "event-session",
+      text: "",
+      thinking: "",
+      is_final: true,
+    });
+
+    const fired = dispatchSpy.mock.calls.some((c) => (c[0] as CustomEvent)?.type === "oc-file-changed");
+    expect(fired).toBe(false);
+    dispatchSpy.mockRestore();
     stopListening();
   });
 

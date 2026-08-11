@@ -26,6 +26,8 @@ export interface PlanEntry {
   totalSteps: number
   status: '执行中' | '已完成' | '未知'
   lastCompletedStep: string
+  /** 文件最后修改时间（mtimeMs，面板按此倒序显示） */
+  updatedAt: number
 }
 
 export interface PanelActivePlan {
@@ -53,12 +55,17 @@ export function projectMemoriesDir(cwd: string): string {
   return join(cwd, '.opencode', 'memories', 'blocks')
 }
 
-/** 隔离计划目录（opencode 计划面板写入方） */
+/** 隔离计划目录（分形自身数据目录的计划面板写入方） */
 export function isolatedPlansDir(userDataDir: string): string {
   return join(isolatedOpenCodeDir(userDataDir), 'plans')
 }
 
-/** 系统计划目录（%USERPROFILE%\.config\opencode\plans） */
+/** 项目计划目录（2026-08-12 约定：临时计划写入当前工作区 .opencode/plans，与项目记忆目录对称） */
+export function projectPlansDir(cwd: string): string {
+  return join(cwd, '.opencode', 'plans')
+}
+
+/** 系统计划目录（跨项目共享旧约定，2026-08-12 起不再作为面板数据源；保留导出供迁移/测试） */
 export function systemPlansDir(): string {
   return join(homedir(), '.config', 'opencode', 'plans')
 }
@@ -150,6 +157,14 @@ export function assertInsideDir(dir: string, file: unknown): asserts file is str
   }
 }
 
+/** 读取单条记忆全文（越界校验 + 元数据解析复用），详情弹窗数据源 */
+export async function readMemory(projectCwd: string, file: unknown): Promise<MemoryEntry & { content: string }> {
+  // resolveMemoryDir 仅做越界校验（file 必须位于记忆目录内）
+  resolveMemoryDir(projectCwd, file)
+  const content = await fsp.readFile(file as string, 'utf-8')
+  return { ...parseMemoryEntry(file as string, content), content }
+}
+
 /** file 归属的记忆目录（全局或项目，二选一；都不归属抛错） */
 function resolveMemoryDir(projectCwd: string, file: unknown): string {
   const dirs = [globalMemoriesDir(), ...(projectCwd ? [projectMemoriesDir(projectCwd)] : [])]
@@ -208,12 +223,18 @@ export function parsePlanEntry(file: string, content: string): PlanEntry {
     status,
     // lastCompletedStep 由 .active.json 填充（md 内无此字段）
     lastCompletedStep: '',
+    // updatedAt 由 listPlans/readPlan 按文件 mtime 覆盖（解析层占位 0）
+    updatedAt: 0,
   }
 }
 
-/** 读 .active.json（隔离优先，没有读系统的），返回 activePlans 数组或 null */
-async function readActivePlansJson(userDataDir: string, systemDir?: string): Promise<Array<{ file: string; title: string; progress: string; lastCompletedStep: string }> | null> {
-  for (const dir of [isolatedPlansDir(userDataDir), systemDir ?? systemPlansDir()]) {
+/** 读 .active.json（隔离优先，没有读项目级；systemDir 仅测试注入），返回 activePlans 数组或 null */
+async function readActivePlansJson(userDataDir: string, projectCwd: string, systemDir?: string): Promise<Array<{ file: string; title: string; progress: string; lastCompletedStep: string }> | null> {
+  const dirs = [isolatedPlansDir(userDataDir), projectCwd ? projectPlansDir(projectCwd) : '']
+  // 生产不读系统全局（2026-08-12 约定迁移）；systemDir 仅测试注入（隔离真实 ~/.config/opencode/plans）
+  if (systemDir) dirs.push(systemDir)
+  for (const dir of dirs) {
+    if (!dir) continue
     try {
       const raw = await fsp.readFile(join(dir, '.active.json'), 'utf-8')
       const data = JSON.parse(raw) as { activePlans?: Array<{ file?: string; title?: string; progress?: string; lastCompletedStep?: string }> }
@@ -226,23 +247,28 @@ async function readActivePlansJson(userDataDir: string, systemDir?: string): Pro
         }))
       }
     } catch {
-      // 该目录无 active.json（系统目录未创建）→ 试下一个
+      // 该目录无 active.json → 试下一个
     }
   }
   return null
 }
 
 /**
- * 计划列表（两目录合并，按文件名+目录去重；lastCompletedStep 从 active.json 按文件名回填）。
+ * 计划列表（隔离 + 项目级两目录合并，按最后更新时间倒序；lastCompletedStep 从 .active.json 按文件名回填）。
  * systemDir 仅测试注入（隔离真实 ~/.config/opencode/plans），生产不传。
+ * 2026-08-12 约定变更：系统全局目录不再作为面板数据源（计划写入已迁移到当前工作区 .opencode/plans）。
  */
-export async function listPlans(userDataDir: string, systemDir?: string): Promise<{ plans: PlanEntry[]; active: PanelActivePlan | null }> {
-  const activeList = await readActivePlansJson(userDataDir, systemDir)
+export async function listPlans(userDataDir: string, projectCwd: string, systemDir?: string): Promise<{ plans: PlanEntry[]; active: PanelActivePlan | null }> {
+  const activeList = await readActivePlansJson(userDataDir, projectCwd, systemDir)
   const activeByFile = new Map((activeList ?? []).map((p) => [p.file, p]))
 
   const plans: PlanEntry[] = []
   const seen = new Set<string>()
-  for (const dir of [isolatedPlansDir(userDataDir), systemDir ?? systemPlansDir()]) {
+  const dirs = [isolatedPlansDir(userDataDir), projectCwd ? projectPlansDir(projectCwd) : '']
+  // 生产不读系统全局（2026-08-12 约定迁移）；systemDir 仅测试注入（隔离真实 ~/.config/opencode/plans）
+  if (systemDir) dirs.push(systemDir)
+  for (const dir of dirs) {
+    if (!dir) continue
     let files: string[]
     try {
       files = await fsp.readdir(dir)
@@ -256,22 +282,20 @@ export async function listPlans(userDataDir: string, systemDir?: string): Promis
       if (seen.has(key)) continue
       seen.add(key)
       try {
-        const content = await fsp.readFile(join(dir, f), 'utf-8')
-        const entry = parsePlanEntry(join(dir, f), content)
+        const filePath = join(dir, f)
+        const content = await fsp.readFile(filePath, 'utf-8')
+        const stat = await fsp.stat(filePath)
+        const entry = parsePlanEntry(filePath, content)
         const activeMeta = activeByFile.get(f)
         if (activeMeta?.lastCompletedStep) entry.lastCompletedStep = activeMeta.lastCompletedStep
-        plans.push(entry)
+        plans.push({ ...entry, updatedAt: stat.mtimeMs })
       } catch {
         // 单个文件读取失败（竞态删除）→ 跳过
       }
     }
   }
-  // 文件名带时间前缀（yyyy-MM-dd-HHmm-…），按 basename 倒序 = 最新在前
-  plans.sort((a, b) => {
-    const na = basename(a.file)
-    const nb = basename(b.file)
-    return na < nb ? 1 : na > nb ? -1 : 0
-  })
+  // 按最后更新时间倒序（最新修改在前）——2026-08-12 用户需求（原按文件名时间前缀，编辑/改名后不准）
+  plans.sort((a, b) => b.updatedAt - a.updatedAt)
   const active = activeList && activeList.length > 0 ? { title: activeList[0].title, progress: activeList[0].progress, lastCompletedStep: activeList[0].lastCompletedStep } : null
   return { plans, active }
 }
@@ -286,6 +310,29 @@ export async function getStatusState(userDataDir: string): Promise<{ exists: boo
     // 文件不存在（Guardian 未写入）或 JSON 损坏 → 容错返回空态，不抛错
     return { exists: false, state: null }
   }
+}
+
+/** 读取单条计划全文（越界校验：隔离 + 项目级二选一），详情弹窗数据源 */
+export async function readPlan(userDataDir: string, projectCwd: string, file: unknown): Promise<PlanEntry & { content: string }> {
+  resolvePlanDir(userDataDir, projectCwd, file)
+  const target = file as string
+  const content = await fsp.readFile(target, 'utf-8')
+  const stat = await fsp.stat(target)
+  return { ...parsePlanEntry(target, content), content, updatedAt: stat.mtimeMs }
+}
+
+/** file 归属的计划目录（隔离或项目级，二选一；都不归属抛错） */
+function resolvePlanDir(userDataDir: string, projectCwd: string, file: unknown): string {
+  const dirs = [isolatedPlansDir(userDataDir), ...(projectCwd ? [projectPlansDir(projectCwd)] : [])]
+  for (const d of dirs) {
+    try {
+      assertInsideDir(d, file)
+      return d
+    } catch {
+      // 不在该目录 → 试下一个
+    }
+  }
+  throw new Error('计划文件不在计划目录内')
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -332,18 +379,19 @@ export function startPanelWatchers(win: BrowserWindow, userDataDir: string): { d
 
   watchDir(globalMemoriesDir(), 'memory')
   watchDir(isolatedPlansDir(userDataDir), 'plans')
-  watchDir(systemPlansDir(), 'plans')
+  // 系统全局 plans 不再是面板数据源（2026-08-12 约定迁移到项目级）→ 不监听，避免 oc-plus 等跨项目计划触发面板刷新
   // 状态文件：watch 其所在目录；仅 .fractal-state.json（或文件名缺失的保守事件）触发 status。
   // 记忆/计划子目录在 config/opencode 下的目录条目变更被过滤，不会误映射为 status
   watchDir(isolatedOpenCodeDir(userDataDir), 'status', (filename) => filename === null || filename === '.fractal-state.json')
 
-  // 项目记忆 watcher 单独管理：工作区切换时重建（跟随 ui-settings.json 的 cwd 变更）
+  // 项目目录 watcher 单独管理：工作区切换时重建（跟随 ui-settings.json 的 cwd 变更）
+  // 2026-08-12 起同时监听项目记忆 + 项目计划（写入约定均迁移到当前工作区 .opencode/ 下）
   const projectWatchers: FSWatcher[] = []
-  function projectWatchDir(dir: string) {
+  function projectWatchDir(dir: string, kind: PanelKind) {
     void fsp
       .mkdir(dir, { recursive: true })
       .then(() => {
-        const w = fsWatch(dir, { encoding: 'utf-8' }, () => notify('memory'))
+        const w = fsWatch(dir, { encoding: 'utf-8' }, () => notify(kind))
         projectWatchers.push(w)
       })
       .catch(() => {})
@@ -354,12 +402,17 @@ export function startPanelWatchers(win: BrowserWindow, userDataDir: string): { d
     for (const w of projectWatchers) w.close()
     projectWatchers.length = 0
     projectWatched = newDir
-    if (newDir) projectWatchDir(newDir)
+    // newDir 非空即 cwd 非空（上方三目同源）——此处再判一次让 TS 窄化，避免断言
+    if (newDir && cwd) {
+      projectWatchDir(newDir, 'memory')
+      projectWatchDir(projectPlansDir(cwd), 'plans')
+    }
   }
   void readProjectCwd(userDataDir).then((cwd) => {
     if (cwd) {
       projectWatched = projectMemoriesDir(cwd)
-      projectWatchDir(projectWatched)
+      projectWatchDir(projectWatched, 'memory')
+      projectWatchDir(projectPlansDir(cwd), 'plans')
     }
   })
 

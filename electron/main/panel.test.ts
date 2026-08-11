@@ -9,14 +9,17 @@ import {
   parseMemoryEntry,
   confirmMemory,
   removeMemory,
+  readMemory,
   assertInsideDir,
   parsePlanEntry,
   listMemories,
   listPlans,
+  readPlan,
   getStatusState,
   globalMemoriesDir,
   projectMemoriesDir,
   isolatedPlansDir,
+  projectPlansDir,
   statusStateFile,
 } from './panel'
 
@@ -127,6 +130,29 @@ describe('记忆操作（confirm/remove/越界拦截）', () => {
     expect(await fsp.readFile(outside, 'utf-8')).toBe('x')
   })
 
+  it('readMemory：返回元数据 + 全文（详情弹窗数据源）', async () => {
+    const dir = globalMemoriesDir()
+    await fsp.mkdir(dir, { recursive: true })
+    const file = join(dir, 'detail.md')
+    await fsp.writeFile(
+      file,
+      '<!-- type: knowledge --><!-- status: pending --><!-- description: 一句话摘要 -->\n# 标题\n正文第一行\n正文第二行',
+      'utf-8'
+    )
+    const r = await readMemory('', file)
+    expect(r.title).toBe('标题')
+    expect(r.status).toBe('pending')
+    expect(r.desc).toBe('一句话摘要')
+    expect(r.content).toContain('正文第一行')
+    expect(r.content).toContain('<!-- status: pending -->') // 全文保留元数据（渲染层自行剥注释）
+  })
+
+  it('readMemory：越界路径被拦截', async () => {
+    const outside = join(userDataDir, 'secret.md')
+    await fsp.writeFile(outside, 'x', 'utf-8')
+    await expect(readMemory('', outside)).rejects.toThrow('记忆文件不在记忆目录内')
+  })
+
   it('项目记忆：file 位于项目记忆目录内可操作', async () => {
     const dir = projectMemoriesDir(cwd)
     await fsp.mkdir(dir, { recursive: true })
@@ -217,49 +243,90 @@ describe('parsePlanEntry（计划文件解析）', () => {
   })
 })
 
-// ── 计划列表（两目录合并 + active）──
-// 注意：listPlans 第二参 systemDir 为测试注入（隔离真实 ~/.config/opencode/plans）
+// ── 计划列表（隔离 + 项目级合并 + active）──
+// 注意：listPlans 第三参 systemDir 为测试注入（隔离真实 ~/.config/opencode/plans），第二参为项目工作区
 
-describe('listPlans（两目录合并 + .active.json）', () => {
+describe('listPlans（隔离 + 项目级 + .active.json）', () => {
   let userDataDir: string
   let sysPlansDir: string
+  let cwd: string
 
   beforeEach(async () => {
     userDataDir = await fsp.mkdtemp(join(tmpdir(), 'panel-plans-'))
     sysPlansDir = await fsp.mkdtemp(join(tmpdir(), 'panel-plans-sys-'))
+    cwd = await fsp.mkdtemp(join(tmpdir(), 'panel-plans-cwd-'))
   })
 
   afterEach(async () => {
     await fsp.rm(userDataDir, { recursive: true, force: true })
     await fsp.rm(sysPlansDir, { recursive: true, force: true })
+    await fsp.rm(cwd, { recursive: true, force: true })
   })
 
   it('两目录都不存在 → 空列表 + active null（不抛错）', async () => {
-    const r = await listPlans(userDataDir, sysPlansDir)
+    const r = await listPlans(userDataDir, '', sysPlansDir)
     expect(r.plans).toEqual([])
     expect(r.active).toBeNull()
   })
 
-  it('合并隔离 + 系统两目录 + lastCompletedStep 回填 + active 第一项', async () => {
+  it('合并隔离 + 项目级两目录 + lastCompletedStep 回填 + active 第一项 + updatedAt', async () => {
     const iso = isolatedPlansDir(userDataDir)
     await fsp.mkdir(iso, { recursive: true })
-    await fsp.writeFile(join(iso, '2026-08-07-0300-隔离计划.md'), '# 隔离计划\n## 当前步骤：2/4 | 状态：执行中', 'utf-8')
-    await fsp.writeFile(join(sysPlansDir, '2026-07-26-0135-系统计划.md'), '# 系统计划\n## 当前步骤：1/3 | 状态：执行中', 'utf-8')
+    await fsp.mkdir(projectPlansDir(cwd), { recursive: true })
+    const isoFile = join(iso, '2026-08-07-0300-隔离计划.md')
+    const projFile = join(projectPlansDir(cwd), '2026-08-12-0045-项目计划.md')
+    await fsp.writeFile(isoFile, '# 隔离计划\n## 当前步骤：2/4 | 状态：执行中', 'utf-8')
+    await fsp.writeFile(projFile, '# 项目计划\n## 当前步骤：1/3 | 状态：执行中', 'utf-8')
+    // 显式固定 mtime（连续写入的 mtime 精度可能相同导致排序不稳定）——项目计划更新
+    const tBase = Date.UTC(2026, 7, 12, 10, 0, 0)
+    await fsp.utimes(isoFile, new Date(tBase), new Date(tBase))
+    await fsp.utimes(projFile, new Date(tBase + 60_000), new Date(tBase + 60_000))
     // .active.json 在隔离目录（隔离优先），回填 lastCompletedStep
     await fsp.writeFile(join(iso, '.active.json'), JSON.stringify({ activePlans: [{ file: '2026-08-07-0300-隔离计划.md', title: '隔离计划', progress: '2/4', lastCompletedStep: '步骤二完成' }] }), 'utf-8')
 
-    const r = await listPlans(userDataDir, sysPlansDir)
+    const r = await listPlans(userDataDir, cwd, sysPlansDir)
     expect(r.plans).toHaveLength(2)
-    // 倒序（最新文件名在前）
-    expect(r.plans[0]).toMatchObject({ title: '隔离计划', currentStep: 2, totalSteps: 4, status: '执行中', lastCompletedStep: '步骤二完成' })
-    expect(r.plans[1]).toMatchObject({ title: '系统计划', currentStep: 1, totalSteps: 3, status: '执行中' })
+    // mtime 倒序（项目计划 mtime 更新 → 最前）
+    expect(r.plans[0]).toMatchObject({ title: '项目计划', currentStep: 1, totalSteps: 3, status: '执行中' })
+    expect(r.plans[1]).toMatchObject({ title: '隔离计划', currentStep: 2, totalSteps: 4, status: '执行中', lastCompletedStep: '步骤二完成' })
+    expect(r.plans[0].updatedAt).toBeGreaterThan(r.plans[1].updatedAt)
     expect(r.active).toEqual({ title: '隔离计划', progress: '2/4', lastCompletedStep: '步骤二完成' })
   })
 
-  it('active.json 在系统目录（隔离无）→ 读系统的', async () => {
-    await fsp.writeFile(join(sysPlansDir, '.active.json'), JSON.stringify({ activePlans: [{ file: 'x.md', title: '系统活跃', progress: '5/5', lastCompletedStep: '全绿' }] }), 'utf-8')
-    const r = await listPlans(userDataDir, sysPlansDir)
-    expect(r.active).toEqual({ title: '系统活跃', progress: '5/5', lastCompletedStep: '全绿' })
+  it('系统全局目录（注入）仅测试语义：显式注入才读', async () => {
+    await fsp.writeFile(join(sysPlansDir, '2026-07-26-0135-跨项目计划.md'), '# 跨项目计划', 'utf-8')
+    const injected = await listPlans(userDataDir, cwd, sysPlansDir)
+    expect(injected.plans).toHaveLength(1)
+  })
+
+  it('生产不传 systemDir → 不读系统全局（跨项目隔离）', async () => {
+    await fsp.writeFile(join(sysPlansDir, '2026-07-26-0135-跨项目计划.md'), '# 跨项目计划', 'utf-8')
+    const r = await listPlans(userDataDir, cwd)
+    expect(r.plans).toHaveLength(0)
+  })
+
+  it('active.json 在项目级目录（隔离无）→ 读项目级的', async () => {
+    await fsp.mkdir(projectPlansDir(cwd), { recursive: true })
+    await fsp.writeFile(join(projectPlansDir(cwd), '.active.json'), JSON.stringify({ activePlans: [{ file: 'x.md', title: '项目活跃', progress: '5/5', lastCompletedStep: '全绿' }] }), 'utf-8')
+    const r = await listPlans(userDataDir, cwd)
+    expect(r.active).toEqual({ title: '项目活跃', progress: '5/5', lastCompletedStep: '全绿' })
+  })
+
+  it('readPlan：返回元数据 + 全文（详情弹窗数据源）', async () => {
+    await fsp.mkdir(projectPlansDir(cwd), { recursive: true })
+    const file = join(projectPlansDir(cwd), '2026-08-12-0100-详情计划.md')
+    await fsp.writeFile(file, '# 详情计划\n## 当前步骤：2/5 | 状态：执行中\n正文行一\n正文行二', 'utf-8')
+    const r = await readPlan(userDataDir, cwd, file)
+    expect(r.title).toBe('详情计划')
+    expect(r.currentStep).toBe(2)
+    expect(r.status).toBe('执行中')
+    expect(r.content).toContain('正文行二')
+  })
+
+  it('readPlan：越界路径被拦截', async () => {
+    const outside = join(userDataDir, 'secret.md')
+    await fsp.writeFile(outside, 'x', 'utf-8')
+    await expect(readPlan(userDataDir, cwd, outside)).rejects.toThrow('计划文件不在计划目录内')
   })
 })
 

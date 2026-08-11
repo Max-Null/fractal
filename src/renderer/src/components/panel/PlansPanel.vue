@@ -1,11 +1,19 @@
 <script setup lang="ts">
-// 计划面板：plans/ 目录计划列表（隔离 + 系统两目录合并，文件监听实时刷新）
+// 计划面板：当前工作区 .opencode/plans + 隔离 plans 目录计划列表（2026-08-12 约定迁移到项目级），
+// 按最后更新时间倒序；点击卡片打开详情弹窗（ModalShell + Markdown 全文渲染）
 // 数据源：plans:list（IPC）→ { plans, active }；active 为 .active.json 第一项（当前计划高亮）
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { listPlans, onPanelUpdate, type PlanEntry, type PanelActivePlan } from "@/lib/electron-bridge";
+import { listPlans, readPlan, onPanelUpdate, type PlanEntry, type PanelActivePlan, type PlanDetail } from "@/lib/electron-bridge";
+import ModalShell from "@/components/shared/ModalShell.vue";
+import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 
 const plans = ref<PlanEntry[]>([]);
 const active = ref<PanelActivePlan | null>(null);
+// 详情弹窗状态（与记忆详情弹窗同构）：detailTitle 快照保证读取失败时 header 仍有标题
+const detail = ref<PlanDetail | null>(null);
+const detailLoading = ref(false);
+const detailError = ref("");
+const detailTitle = ref("");
 let stopPanel: (() => void) | null = null;
 
 async function load() {
@@ -16,6 +24,25 @@ async function load() {
   } catch (err) {
     console.error("[PlansPanel] 加载计划失败：", err);
   }
+}
+
+// 打开详情弹窗：先存标题快照（列表里有），再按 file 读全文（主进程越界校验）
+async function openDetail(p: PlanEntry) {
+  detailTitle.value = p.title;
+  detailLoading.value = true;
+  detailError.value = "";
+  try {
+    detail.value = await readPlan(p.file);
+  } catch (err) {
+    detailError.value = `读取计划失败：${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+function closeDetail() {
+  detail.value = null;
+  detailError.value = "";
 }
 
 // 状态标签映射：执行中 accent / 已完成 success / 未知 faint
@@ -32,6 +59,17 @@ function pctOf(p: PlanEntry): number {
 }
 function stepText(p: PlanEntry): string {
   return p.totalSteps > 0 ? `${p.currentStep}/${p.totalSteps}` : "0/0";
+}
+
+// 更新时间格式化：MM-DD HH:mm（今年内）；跨年显示 YYYY-MM-DD
+function fmtTime(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const now = new Date();
+  if (d.getFullYear() === now.getFullYear()) {
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 // 当前计划进度（.active.json progress 形如 "5/5" 或 "?/?"；解析失败显示原文）
@@ -78,8 +116,8 @@ onUnmounted(() => {
       <div class="plan-empty-sub">让双星规划复杂任务后，计划会显示在这里</div>
     </div>
 
-    <!-- 计划卡片 -->
-    <div v-for="p in plans" :key="p.file" class="plan">
+    <!-- 计划卡片：点击打开详情弹窗 -->
+    <div v-for="p in plans" :key="p.file" class="plan" @click="openDetail(p)">
       <div class="plan-title">
         {{ p.title }}
         <span class="plan-status" :class="statusMeta[p.status].cls">{{ statusMeta[p.status].label }}</span>
@@ -89,7 +127,29 @@ onUnmounted(() => {
         <span class="plan-pct">{{ stepText(p) }}</span>
       </div>
       <div v-if="p.lastCompletedStep" class="plan-desc">上一步完成：{{ p.lastCompletedStep }}</div>
+      <div class="plan-time" :title="new Date(p.updatedAt).toLocaleString()">更新于 {{ fmtTime(p.updatedAt) }}</div>
     </div>
+
+    <!-- 计划详情弹窗：header 仅标题（快照）；meta 行（状态/进度/路径）+ Markdown 正文；
+         无 footer 操作（关闭走 ESC/遮罩/header ×，与记忆详情一致） -->
+    <ModalShell :open="detail !== null || detailLoading || detailError !== ''" size="lg" @close="closeDetail">
+      <template #header>
+        <span class="modal-shell-title">{{ detailTitle || (detail?.title ?? "") }}</span>
+      </template>
+
+      <div v-if="detailLoading" class="plan-detail-loading">读取中…</div>
+      <div v-else-if="detailError" class="plan-detail-error">{{ detailError }}</div>
+      <div v-else-if="detail" class="plan-detail-body">
+        <div class="plan-detail-meta">
+          <span class="plan-status" :class="statusMeta[detail.status].cls">{{ statusMeta[detail.status].label }}</span>
+          <span class="plan-detail-steps">{{ stepText(detail) }}</span>
+          <span class="plan-detail-file" :title="detail.file">{{ detail.file }}</span>
+        </div>
+        <div class="plan-detail-time">更新于 {{ fmtTime(detail.updatedAt) }}</div>
+        <!-- 计划正文直接渲染（计划 md 无元数据注释行，无需剥离） -->
+        <MarkdownRenderer :content="detail.content" />
+      </div>
+    </ModalShell>
   </div>
 </template>
 
@@ -193,4 +253,52 @@ onUnmounted(() => {
   color: var(--text-secondary);
   line-height: 1.6;
 }
+
+/* 更新时间行（2026-08-12：按最后更新时间倒序显示） */
+.plan-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+/* ── 计划详情弹窗：meta 行（状态/进度/路径）/ 时间 / 加载与错误态 ── */
+.plan-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.plan-detail-steps {
+  font-size: 11px;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+.plan-detail-file {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.plan-detail-time {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.plan-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.plan-detail-loading,
+.plan-detail-error {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.plan-detail-error { color: var(--coral); }
 </style>

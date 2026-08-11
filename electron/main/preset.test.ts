@@ -1,9 +1,15 @@
 // preset 单元测试：幂等初始化、预置字段 merge（不覆盖用户配置）、排除 node_modules/.git
 // 不依赖 electron 运行时——preset.ts 仅用 node:fs/path + oc-config 的纯路径函数
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { spawn } from 'node:child_process'
+// 模块级 mock child_process：installVectorDeps 是 ensurePresetConfig 内 fire-and-forget 调用，
+// 真实 spawn 会拖慢/挂起全部现有用例——mock 后 spawn 立即返回无害 child（close 永不触发）
+vi.mock('node:child_process', () => ({
+  spawn: vi.fn(() => ({ on: () => ({}), kill: vi.fn(), pid: 0 }))
+}))
 import { getConfigPath, getJsoncPath, ensureConfig } from './oc-config'
 import {
   getDefaultPresetRoot,
@@ -14,6 +20,7 @@ import {
   getPresetVersion,
   applyModelAliases,
   readAgentsManifest,
+  installVectorDeps,
   PRESET_INSTRUCTION_FILE
 } from './preset'
 
@@ -773,5 +780,88 @@ describe('initPreset（B1 预置技能包开关 preset.skills.enabled）', () =>
     // agents/plugins 不受开关影响
     expect(await fsp.access(join(getPresetTarget(userData), 'agents', '双星.md')).then(() => true).catch(() => false)).toBe(true)
     expect(await fsp.access(join(getPresetTarget(userData), 'plugins', 'fractal-guardian.js')).then(() => true).catch(() => false)).toBe(true)
+  })
+})
+
+describe('installVectorDeps（guardian 语义向量依赖按需安装）', () => {
+  // spawn mock 定制：捕获 close 回调供测试手动触发（模拟 npm 成功/失败退出）
+  let closeCb: ((code: number | null) => void) | null = null
+  let spawnMock: ReturnType<typeof vi.mocked<typeof spawn>>
+
+  beforeEach(() => {
+    spawnMock = vi.mocked(spawn)
+    spawnMock.mockReset()
+    closeCb = null
+    spawnMock.mockImplementation((() => {
+      const child: any = {
+        on: (ev: string, cb: any) => {
+          if (ev === 'close') closeCb = cb
+          return child
+        },
+        kill: vi.fn(),
+        pid: 999,
+      }
+      return child
+    }) as unknown as typeof spawn)
+  })
+
+  it('依赖已安装（含失败标记残留）→ 跳过安装并清除失败标记（手动补装后恢复自动检测）', async () => {
+    const openCodeDir = join(tmpdir(), `vector-deps-${Date.now()}-installed`)
+    // 模拟已安装：node_modules/@huggingface/transformers 存在 + 历史失败标记
+    await fsp.mkdir(join(openCodeDir, 'node_modules', '@huggingface', 'transformers'), { recursive: true })
+    await fsp.writeFile(join(openCodeDir, '.vector-install-failed'), 'boom', 'utf-8')
+    await installVectorDeps(openCodeDir)
+    expect(spawnMock).not.toHaveBeenCalled()
+    // 标记被清除（下次依赖缺失时重新走安装）
+    await expect(fsp.access(join(openCodeDir, '.vector-install-failed'))).rejects.toThrow()
+  })
+
+  it('失败标记存在（依赖未装）→ 跳过安装（防反复 90s 超时等待）', async () => {
+    const openCodeDir = join(tmpdir(), `vector-deps-${Date.now()}-flagged`)
+    await fsp.mkdir(openCodeDir, { recursive: true })
+    await fsp.writeFile(join(openCodeDir, '.vector-install-failed'), 'boom', 'utf-8')
+    await installVectorDeps(openCodeDir)
+    expect(spawnMock).not.toHaveBeenCalled()
+    // 标记保留
+    await expect(fsp.access(join(openCodeDir, '.vector-install-failed'))).resolves.toBeUndefined()
+  })
+
+  it('npm 安装成功 → 不写失败标记', async () => {
+    const openCodeDir = join(tmpdir(), `vector-deps-${Date.now()}-ok`)
+    await fsp.mkdir(openCodeDir, { recursive: true })
+    const p = installVectorDeps(openCodeDir)
+    // 等动态 import + spawn 执行完（close 回调注册）
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled())
+    expect(spawnMock).toHaveBeenCalledWith(
+      'npm',
+      ['install', '@huggingface/transformers', '--prefix', openCodeDir],
+      expect.objectContaining({ cwd: openCodeDir, shell: true })
+    )
+    closeCb?.(0)
+    await p
+    // 成功 → 无失败标记
+    await expect(fsp.access(join(openCodeDir, '.vector-install-failed'))).rejects.toThrow()
+  })
+
+  it('npm 安装失败 → 写失败标记（guardian 降级 BM25，下次启动跳过）', async () => {
+    const openCodeDir = join(tmpdir(), `vector-deps-${Date.now()}-fail`)
+    await fsp.mkdir(openCodeDir, { recursive: true })
+    const p = installVectorDeps(openCodeDir)
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalled())
+    closeCb?.(1)
+    await p
+    const flag = await fsp.readFile(join(openCodeDir, '.vector-install-failed'), 'utf-8')
+    expect(flag).toContain('退出码 1')
+  })
+
+  it('spawn 同步错误（npm 不存在）→ 写失败标记不抛', async () => {
+    const openCodeDir = join(tmpdir(), `vector-deps-${Date.now()}-no-npm`)
+    await fsp.mkdir(openCodeDir, { recursive: true })
+    spawnMock.mockImplementation((() => {
+      throw new Error('spawn npm ENOENT')
+    }) as unknown as typeof spawn)
+    await expect(installVectorDeps(openCodeDir)).resolves.toBeUndefined()
+    const flag = await fsp.readFile(join(openCodeDir, '.vector-install-failed'), 'utf-8')
+    expect(flag).toContain('ENOENT')
   })
 })

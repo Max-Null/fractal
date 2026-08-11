@@ -1026,6 +1026,7 @@ var MODEL_ID = "Xenova/bge-small-zh-v1.5";
 var DIM = 384;
 var RRF_K = 60;
 var W_BM25 = 0.7;
+var ensureModelWarned = false;
 var W_VEC = 0.3;
 function rrfFuse(bm25Ranks, vecRanks, topK = 5) {
   const acc = /* @__PURE__ */ new Map();
@@ -1075,7 +1076,10 @@ var VectorIndex = class {
       this.extractor = pipe;
       return true;
     } catch (e) {
-      console.error(`[vector] ensureModel \u5931\u8D25\uFF0C\u964D\u7EA7 BM25: ${String(e)}`);
+      if (!ensureModelWarned) {
+        ensureModelWarned = true;
+        console.error(`[vector] ensureModel \u5931\u8D25\uFF0C\u964D\u7EA7 BM25\uFF08\u5B89\u88C5\u4F9D\u8D56\u53EF\u542F\u7528\u8BED\u4E49\u68C0\u7D22: npm install @huggingface/transformers\uFF09: ${String(e)}`);
+      }
       this.extractor = null;
       return false;
     }

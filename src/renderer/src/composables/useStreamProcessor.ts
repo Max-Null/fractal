@@ -416,10 +416,12 @@ export function useStreamProcessor() {
           notifyComplete(data.duration_ms, data.input_tokens, data.output_tokens);
 
           // OC 可能修改了工作区文件 → 通知文件面板刷新
+          // 注意：OC 工具 ID 是小写（"edit"/"write"/"bash"），cc-gui 时代 CC 工具名是大写——统一 toLowerCase 判定
+          //（2026-08-12 实测 DB tool part：tool 字段小写，大写集合匹配恒 false 导致预览永不刷新）
           if (msg) {
-            const fileModifiers = new Set(["Write", "Edit", "Bash", "PowerShell", "Skill", "Workflow", "Agent"]);
-            const didModify = msg.toolUses.some(tu => fileModifiers.has(tu.name));
-            if (didModify) window.dispatchEvent(new CustomEvent("cc-file-changed"));
+            const fileModifiers = new Set(["write", "edit", "bash", "powershell", "skill", "workflow", "agent"]);
+            const didModify = msg.toolUses.some(tu => fileModifiers.has((tu.name ?? "").toLowerCase()));
+            if (didModify) window.dispatchEvent(new CustomEvent("oc-file-changed"));
           }
           break;
         }

@@ -691,6 +691,8 @@ export interface PlanEntry {
   totalSteps: number;
   status: "执行中" | "已完成" | "未知";
   lastCompletedStep: string;
+  /** 文件最后修改时间（mtimeMs，面板按此倒序显示） */
+  updatedAt: number;
 }
 
 export interface PanelActivePlan {
@@ -709,14 +711,34 @@ export async function confirmMemory(file: string): Promise<{ ok: boolean }> {
   return invoke<{ ok: boolean }>("memory:confirm", { file });
 }
 
+/** 记忆详情：元数据 + 全文（详情弹窗数据源） */
+export interface MemoryDetail extends MemoryEntry {
+  content: string;
+}
+
+/** 读取单条记忆全文（路径越界由主进程校验） */
+export async function readMemory(file: string): Promise<MemoryDetail> {
+  return invoke<MemoryDetail>("memory:read", { file });
+}
+
 /** 删除记忆文件，返回 ok */
 export async function removeMemory(file: string): Promise<{ ok: boolean }> {
   return invoke<{ ok: boolean }>("memory:remove", { file });
 }
 
-/** 计划列表（隔离 + 系统两目录合并）+ 当前活跃计划 */
+/** 计划列表（隔离 + 项目级两目录合并）+ 当前活跃计划 */
 export async function listPlans(): Promise<{ plans: PlanEntry[]; active: PanelActivePlan | null }> {
   return invoke<{ plans: PlanEntry[]; active: PanelActivePlan | null }>("plans:list", {});
+}
+
+/** 计划详情：元数据 + 全文（详情弹窗数据源） */
+export interface PlanDetail extends PlanEntry {
+  content: string;
+}
+
+/** 读取单条计划全文（路径越界由主进程校验） */
+export async function readPlan(file: string): Promise<PlanDetail> {
+  return invoke<PlanDetail>("plans:read", { file });
 }
 
 /** Guardian 状态读取（.fractal-state.json）：文件不存在返回 { exists: false, state: null } */
@@ -785,4 +807,34 @@ export async function registerWorkspace(cwd: string): Promise<void> {
 /** 订阅新窗口工作区下发（主进程 createWindow(workspace) 后主动推送），返回取消订阅函数 */
 export function onInitWorkspace(cb: (path: string) => void): () => void {
   return window.electronBridge.onInitWorkspace(cb);
+}
+
+/** 打开文件预览独立窗口（主进程 openPreviewWindow → 新窗口 did-finish-load 后下发 init-preview） */
+export async function openPreviewWindow(path: string): Promise<void> {
+  return invoke("preview:open", { path });
+}
+
+/** 订阅预览窗口文件路径下发（主进程 openPreviewWindow 后主动推送），返回取消订阅函数 */
+export function onInitPreview(cb: (path: string) => void): () => void {
+  return window.electronBridge.onInitPreview(cb);
+}
+
+/** 预览独立窗口发起「发送到对话」转发：载荷经主进程转投主窗口（standalone 无会话上下文） */
+export function forwardChat(payload: string): void {
+  window.electronBridge?.forwardChat(payload);
+}
+
+/** 主窗口接收预览窗口转发载荷（主进程 window:forward-chat 推送），返回取消订阅函数 */
+export function onForwardChat(cb: (payload: string) => void): () => void {
+  return window.electronBridge.onForwardChat(cb);
+}
+
+/** 主窗口发起预览自动刷新：oc-file-changed（agent 改文件）→ 主进程广播所有预览窗口 */
+export function notifyPreviewChanged(): void {
+  window.electronBridge?.notifyPreviewChanged();
+}
+
+/** 预览窗口接收刷新信号（主进程 window:preview-changed 推送），返回取消订阅函数 */
+export function onPreviewChanged(cb: () => void): () => void {
+  return window.electronBridge.onPreviewChanged(cb);
 }

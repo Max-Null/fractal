@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import { listMemories, confirmMemory, removeMemory, onPanelUpdate, type MemoryEntry } from "@/lib/electron-bridge";
+import { listMemories, confirmMemory, removeMemory, readMemory, onPanelUpdate, type MemoryEntry, type MemoryDetail } from "@/lib/electron-bridge";
+import ModalShell from "@/components/shared/ModalShell.vue";
+import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 
 // 两层记忆分组（全局=真实全局 ~/.config/opencode/memories/blocks / 项目=当前工作区 .opencode/memories/blocks）。
 // 注意：guardian 记忆框架的「三层」= memPath 0/1/2（全局/个人项目级/共享项目级），
@@ -22,6 +24,12 @@ const chips = [
 const searchQuery = ref("");
 const activeChip = ref<string | null>(null); // null = 全部
 const memoryData = ref<{ global: MemoryEntry[]; project: MemoryEntry[] }>({ global: [], project: [] });
+// 详情弹窗状态：detail=当前查看的记忆全文；detailLoading=读取中；detailError=读取失败原因
+const detail = ref<MemoryDetail | null>(null);
+const detailLoading = ref(false);
+const detailError = ref("");
+// 标题快照：openDetail 时先从列表条目取标题——读取失败时 header 仍能显示标题（不依赖读取结果）
+const detailTitle = ref("");
 let stopPanel: (() => void) | null = null;
 
 // 拉取记忆列表（首次挂载 + 文件监听广播 engine:panel-update(kind=memory)）
@@ -31,6 +39,26 @@ async function load() {
   } catch (err) {
     console.error("[MemoryPanel] 加载记忆失败：", err);
   }
+}
+
+// 打开详情弹窗：先存标题快照（列表里有），再按 file 读全文（主进程越界校验），失败显示错误原因不关弹窗
+async function openDetail(m: MemoryEntry) {
+  detailTitle.value = m.title;
+  detailLoading.value = true;
+  detailError.value = "";
+  try {
+    detail.value = await readMemory(m.file);
+  } catch (err) {
+    detailError.value = `读取记忆失败：${err instanceof Error ? err.message : String(err)}`;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+// 关闭详情弹窗（ESC / 遮罩点击 / ×）
+function closeDetail() {
+  detail.value = null;
+  detailError.value = "";
 }
 
 // 状态标签文案与角标 class 映射（pending=待确认 amber / auto=已生效 accent / suggest=观察中 faint）
@@ -55,13 +83,14 @@ const visible = computed<Record<string, MemoryEntry[]>>(() => {
   };
 });
 
-// 操作：确认（pending → auto，主进程写回） / 删除（force rm），完成后重拉
+// 操作：确认（pending → auto，主进程写回） / 删除（force rm），完成后重拉并关闭详情（快照已过期）
 async function onConfirm(file: string) {
   try {
     await confirmMemory(file);
   } catch (err) {
     console.error("[MemoryPanel] 确认记忆失败：", err);
   }
+  closeDetail();
   await load();
 }
 async function onRemove(file: string) {
@@ -70,6 +99,7 @@ async function onRemove(file: string) {
   } catch (err) {
     console.error("[MemoryPanel] 删除记忆失败：", err);
   }
+  closeDetail();
   await load();
 }
 
@@ -115,8 +145,8 @@ onUnmounted(() => {
         <div class="mem-empty-sub">Agent 首次会话后将在此生成候选记忆</div>
       </div>
 
-      <!-- 记忆条目 -->
-      <div v-else v-for="m in visible[layer.key]" :key="m.file" class="mem-item">
+      <!-- 记忆条目：点击打开详情弹窗 -->
+      <div v-else v-for="m in visible[layer.key]" :key="m.file" class="mem-item" @click="openDetail(m)">
         <div class="mem-item-head">
           <span class="mem-item-title" :title="m.file">{{ m.title }}</span>
           <span class="mem-badge" :class="statusMeta[m.status].cls">{{ statusMeta[m.status].label }}</span>
@@ -124,11 +154,37 @@ onUnmounted(() => {
         <div v-if="m.desc" class="mem-item-desc">{{ m.desc }}</div>
         <div v-if="m.preview" class="mem-item-preview">{{ m.preview }}</div>
         <div class="mem-item-ops">
-          <button v-if="m.status === 'pending'" class="mini-btn" @click="onConfirm(m.file)">确认</button>
-          <button class="mini-btn mini-btn--danger" @click="onRemove(m.file)">删除</button>
+          <button v-if="m.status === 'pending'" class="mini-btn" @click.stop="onConfirm(m.file)">确认</button>
+          <button class="mini-btn mini-btn--danger" @click.stop="onRemove(m.file)">删除</button>
         </div>
       </div>
     </div>
+
+    <!-- 记忆详情弹窗：header 仅标题（快照）；状态角标/文件路径在 body 元信息行；
+         打开条件覆盖 loading/error：读取失败时 detail 为 null，但弹窗仍需展示错误原因（否则静默失败） -->
+    <ModalShell :open="detail !== null || detailLoading || detailError !== ''" size="md" @close="closeDetail">
+      <template #header>
+        <span class="modal-shell-title">{{ detailTitle || (detail?.title ?? "") }}</span>
+      </template>
+
+      <div v-if="detailLoading" class="mem-detail-loading">读取中…</div>
+      <div v-else-if="detailError" class="mem-detail-error">{{ detailError }}</div>
+      <div v-else-if="detail" class="mem-detail-body">
+        <div class="mem-detail-meta">
+          <span class="mem-badge" :class="statusMeta[detail.status].cls">{{ statusMeta[detail.status].label }}</span>
+          <span class="mem-detail-file" :title="detail.file">{{ detail.file }}</span>
+        </div>
+        <div v-if="detail.desc" class="mem-detail-desc">{{ detail.desc }}</div>
+        <!-- 剥掉 HTML 元数据注释行（type/status/description），只渲染 markdown 正文 -->
+        <MarkdownRenderer :content="detail.content.replace(/<!--[\s\S]*?-->/g, '')" />
+      </div>
+
+      <!-- footer 仅确认操作（pending 才出现，非 pending 时整个 footer 不渲染）：
+           删除入口保留在列表条目（用户需求 2026-08-12：详情弹窗去掉删除/关闭按钮，关闭走 ESC/遮罩/header ×） -->
+      <template v-if="detail && detail.status === 'pending'" #footer>
+        <button class="mini-btn" @click="onConfirm(detail.file)">确认</button>
+      </template>
+    </ModalShell>
   </div>
 </template>
 
@@ -271,4 +327,44 @@ onUnmounted(() => {
 }
 .mini-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
 .mini-btn--danger:hover { color: var(--coral); border-color: var(--coral); }
+
+/* ── 记忆详情弹窗：头部路径 / 正文排版 / 加载与错误态 ── */
+/* 元信息行：状态角标 + 文件路径（title 提示全文） */
+.mem-detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mem-detail-file {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mem-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+.mem-detail-desc {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent-line);
+  background: var(--bg-active);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.mem-detail-loading,
+.mem-detail-error {
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.mem-detail-error { color: var(--coral); }
 </style>

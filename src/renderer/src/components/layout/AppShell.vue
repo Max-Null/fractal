@@ -12,7 +12,7 @@ import LoadingScreen from "@/components/layout/LoadingScreen.vue";
 import { emitChatCommand, useGlobalCommandBus } from "@/composables/useCommandPalette";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
-import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, revealInExplorer, getEngineStatus, registerWorkspace } from "@/lib/electron-bridge";
+import { getWorkspaceRoot, openDialog, refreshEngine, listMessages, listSessions, openWorkspaceWindow, onInitWorkspace, onInitPreview, onForwardChat, notifyPreviewChanged, revealInExplorer, getEngineStatus, registerWorkspace } from "@/lib/electron-bridge";
 import { mergeWorkspaces } from "@/lib/workspace-merge";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionStore } from "@/stores/session";
@@ -164,17 +164,6 @@ provide(PANEL_LAYOUT_KEY, panelLayout);
 // ── 工作区（状态由 settings store 管理，SQLite 持久化）──
 const cwd = computed(() => settings.cwd);
 
-function switchToWorkspace(path: string) {
-  settings.cwd = path;
-  settings.addRecentWorkspace(path);
-  unDismissWorkspace(path); // 用户明确使用 → 恢复显示（清除手动移除标记）
-  emitChatCommand(`switch-workspace:${path}`);
-  filePanelForceClose.value++;  // 切工作区时收起文件面板
-  panelFile.value = null;       // 关闭编辑器面板
-  // 会话跟随工作区（OC session 绑定 project/directory）：切换后刷新会话列表
-  sessionStore.loadSessions(path);
-}
-
 // ── ws-pill 工作区管理下拉（最近工作区 + 选择目录）──
 const showWsMenu = ref(false);
 
@@ -228,11 +217,28 @@ async function onWsPillClick() {
 }
 function onWsPickDirectory() {
   showWsMenu.value = false;
-  // 对话框默认定位到当前工作区（Windows 默认是「下载」——用户要求跟随当前工作区）
-  openDialog({ directory: true, defaultPath: cwd.value || undefined }).then((picked) => {
+  // 对话框默认定位到当前工作区的父级（原为当前工作区本身——打开当前工作区看不到可切换的兄弟目录，无意义；
+  // 根目录无父级时退回系统默认位置）
+  const parent = cwd.value ? cwd.value.replace(/[\\/]+$/, "").replace(/[\\/][^\\/]*$/, "") : undefined;
+  openDialog({ directory: true, defaultPath: parent || undefined }).then((picked) => {
     if (!picked) return;
     const path = Array.isArray(picked) ? picked[0] : picked;
-    if (path) switchToWorkspace(path);
+    if (!path) return;
+    if (path === cwd.value) {
+      // 选了当前工作区：无切换动作，给可见反馈避免「点了没反应」
+      alertText.value = "已在该工作区";
+      return;
+    }
+    // 与菜单项一致的交互模式（2026-08-12 对齐）：目录选择结果同样新开窗口，不再当前窗口内切换。
+    // 主进程 createWindow(path) 创建新窗口，did-finish-load 后下发 init-workspace → 新窗口切 cwd + 按工作区加载会话。
+    unDismissWorkspace(path); // 用户明确使用该工作区（新开窗口）→ 恢复显示
+    openWorkspaceWindow(path).then(() => {
+      // 新窗口已创建：可见反馈（取目录名展示，路径分隔符兼容 Windows/Linux）
+      alertText.value = `已在新窗口打开 ${path.split(/[\\/]/).pop()}`;
+    }).catch(() => {
+      // invoke reject：提示用户（异常不应无声）
+      alertText.value = "打开新窗口失败，请重试";
+    });
   }).catch(() => {
     // invoke reject：提示用户（异常不应无声）
     alertText.value = "打开目录选择器失败，请重试";
@@ -449,6 +455,16 @@ function waitEngineReady(): Promise<boolean> {
 // 新窗口工作区下发监听（多窗口支持）：注销函数存模块作用域，onUnmounted 时清理。
 // AppShell 是单例根组件，onMounted 仅执行一次——不会重复注册
 let stopInitWorkspace: (() => void) | null = null;
+// 独立预览窗口文件（window:init-preview 下发）：非空 → 全屏渲染 FilePreviewPanel（无主界面四栏），双屏联调用
+const previewFile = ref<{ name: string; path: string } | null>(null);
+let stopInitPreview: (() => void) | null = null;
+let stopForwardChat: (() => void) | null = null;
+// 文件变更自动刷新转发：主窗口收到 oc-file-changed（agent 改文件）→ 通知主进程广播预览窗口。
+// 预览窗口是独立 BrowserWindow，收不到主窗口的 window 事件——必须经主进程中转（2026-08-12）
+// 函数提到模块作用域：onMounted 注册 + onUnmounted 对称移除
+function onOcFileChangedForward() {
+  notifyPreviewChanged();
+}
 
 // ── Onboarding 首屏引导：DeepSeek key 是唯一必填项，以 key 为准——未配置 key 才需要引导 ──
 // 判定 = !apiKey && !dismissed：
@@ -478,6 +494,17 @@ onMounted(async () => {
     unDismissWorkspace(path); // 新窗口明确切到该工作区 → 恢复显示（若之前被手动移除）
     sessionStore.loadSessions(path);
   });
+  // 独立预览窗口：主进程 openPreviewWindow did-finish-load 后下发文件路径 → 全屏预览模式
+  stopInitPreview = onInitPreview((path) => {
+    previewFile.value = { name: path.split(/[\\/]/).pop() || path, path };
+  });
+  // 独立预览窗口「发送到对话」转发：standalone 面板把 tip 载荷发到主窗口 → 本地命令总线（双屏联调）
+  stopForwardChat = onForwardChat((payload) => {
+    emitChatCommand(payload);
+  });
+  // 文件变更自动刷新转发：主窗口收到 oc-file-changed（agent 改文件）→ 通知主进程广播预览窗口。
+  // 预览窗口是独立 BrowserWindow，收不到主窗口的 window 事件——必须经主进程中转（2026-08-12）
+  window.addEventListener("oc-file-changed", onOcFileChangedForward);
   // 串行初始化链（2026-08-09 重构）：本地初始化 → 引擎就绪门禁 → 会话列表 → 解除门禁。
   // 严禁在引擎就绪前发引擎请求：实测 serve 启动 1s 内并发请求 → ECONNRESET → serve 崩溃（win:2）。
   try {
@@ -524,6 +551,11 @@ onUnmounted(() => {
   document.removeEventListener("keydown", onGlobalKeydown);
   stopInitWorkspace?.();
   stopInitWorkspace = null;
+  stopInitPreview?.();
+  stopInitPreview = null;
+  stopForwardChat?.();
+  stopForwardChat = null;
+  window.removeEventListener("oc-file-changed", onOcFileChangedForward);
 });
 
 function isActive(path: string): boolean {
@@ -552,7 +584,16 @@ async function openFilePanelTo(_path: string) {
   <!-- Onboarding 首屏引导：无 API Key 且未跳过时替代主界面（独立 v-if——LoadingScreen 被 Transition 包裹后 v-else-if 无法相邻） -->
   <Onboarding v-if="!initializing && showOnboarding" @finish="dismissOnboarding" @skip="dismissOnboarding" />
 
-  <div v-if="!initializing && !showOnboarding" class="f-shell">
+  <!-- 独立预览窗口模式：主进程 openPreviewWindow 下发 init-preview → 全屏 FilePreviewPanel（不渲染主界面四栏） -->
+  <FilePreviewPanel
+    v-if="previewFile"
+    :file="previewFile"
+    standalone
+    class="h-screen w-screen"
+    @close="previewFile = null"
+  />
+
+  <div v-if="!initializing && !showOnboarding && !previewFile" class="f-shell">
     <!-- Navbar（原型 app-bar：52px 半透明毛玻璃） -->
     <header class="f-header">
       <!-- app-bar-left：brand + ws-pill -->
@@ -916,7 +957,7 @@ async function openFilePanelTo(_path: string) {
   display: flex;
   align-items: center;
   gap: 2px;
-  background: var(--bg-card);
+  background: var(--bg-root);
   border: 1px solid var(--border-dim);
   border-radius: 999px;
   padding: 3px 4px 3px 3px;
@@ -955,7 +996,7 @@ async function openFilePanelTo(_path: string) {
   gap: 6px;
   padding: 5px 10px;
   border-radius: 999px;
-  background: var(--bg-card);
+  background: var(--bg-root);
   border: 1px solid var(--border-dim);
   font-size: 11px;
   color: var(--text-secondary);
@@ -1219,7 +1260,7 @@ async function openFilePanelTo(_path: string) {
   position: fixed;
   left: 72px;
   padding: 4px 10px;
-  background: var(--bg-card);
+  background: var(--bg-root);
   border: 1px solid var(--border-strong);
   border-radius: 7px;
   font-size: 11px;
@@ -1230,6 +1271,8 @@ async function openFilePanelTo(_path: string) {
   text-overflow: ellipsis;
   pointer-events: none;
   z-index: 60;
+  /* 悬浮在会话内容之上的 tip：阴影与背景内容分离，避免文字混叠 */
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
 /* ── Activity dot（rail 圆点角标：处理中/未读/阻塞）── */

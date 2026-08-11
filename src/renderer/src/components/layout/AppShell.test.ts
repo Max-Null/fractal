@@ -11,14 +11,18 @@ import AppShell from "./AppShell.vue";
 
 // mock electron-bridge：保留原模块（store 链条其他函数有 catch 兜底），仅覆盖 listSessions 返回可控会话
 // vi.hoisted：mock 工厂被提升到文件顶部，mock 变量必须同层提升否则工厂执行时尚未初始化
-const { listSessionsMock, getEngineStatusMock, openWorkspaceWindowMock, onInitWorkspaceMock, revealInExplorerMock, refreshEngineMock, listMessagesMock } = vi.hoisted(() => ({
+const { listSessionsMock, getEngineStatusMock, openWorkspaceWindowMock, onInitWorkspaceMock, onInitPreviewMock, onForwardChatMock, revealInExplorerMock, refreshEngineMock, listMessagesMock, getWorkspaceRootMock, openDialogMock } = vi.hoisted(() => ({
   listSessionsMock: vi.fn(),
   getEngineStatusMock: vi.fn(),
   openWorkspaceWindowMock: vi.fn(),
   onInitWorkspaceMock: vi.fn(),
+  onInitPreviewMock: vi.fn(),
+  onForwardChatMock: vi.fn(),
   revealInExplorerMock: vi.fn(),
   refreshEngineMock: vi.fn(),
   listMessagesMock: vi.fn(),
+  getWorkspaceRootMock: vi.fn(),
+  openDialogMock: vi.fn(),
 }));
 vi.mock("@/lib/electron-bridge", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/electron-bridge")>();
@@ -28,9 +32,13 @@ vi.mock("@/lib/electron-bridge", async (importOriginal) => {
     getEngineStatus: getEngineStatusMock,
     openWorkspaceWindow: openWorkspaceWindowMock,
     onInitWorkspace: onInitWorkspaceMock,
+    onInitPreview: onInitPreviewMock,
+    onForwardChat: onForwardChatMock,
     revealInExplorer: revealInExplorerMock,
     refreshEngine: refreshEngineMock,
     listMessages: listMessagesMock,
+    getWorkspaceRoot: getWorkspaceRootMock,
+    openDialog: openDialogMock,
   };
 });
 
@@ -137,6 +145,8 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     openWorkspaceWindowMock.mockReset();
     revealInExplorerMock.mockReset();
     onInitWorkspaceMock.mockReset(); // 不 reset 会导致 calls[0] 取到上个用例的旧回调（闭包旧 pinia 实例）
+    onInitPreviewMock.mockReset(); // 同 onInitWorkspace：预览下发监听也在 onMounted 同步段注册
+    onForwardChatMock.mockReset(); // 预览窗口转发载荷监听（onMounted 同步段注册）
     // 引擎就绪门禁默认放行：getEngineStatus 首查立即返回 running（串行链等待逻辑见 waitEngineReady）
     getEngineStatusMock.mockReset();
     getEngineStatusMock.mockResolvedValue({ running: true });
@@ -145,10 +155,21 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     // onInitWorkspace 在 AppShell onMounted 同步段注册监听，mock 返回取消函数（不重复注册计数）
     onInitWorkspaceMock.mockReset();
     onInitWorkspaceMock.mockReturnValue(() => {});
+    // onInitPreview 同模式：返回取消函数
+    onInitPreviewMock.mockReset();
+    onInitPreviewMock.mockReturnValue(() => {});
+    // onForwardChat 同模式：返回取消函数
+    onForwardChatMock.mockReset();
+    onForwardChatMock.mockReturnValue(() => {});
     // 刷新引擎默认成功（handleRefresh 用例单独控制）
     refreshEngineMock.mockReset();
     refreshEngineMock.mockResolvedValue(undefined);
     listMessagesMock.mockReset();
+    getWorkspaceRootMock.mockReset();
+    openDialogMock.mockReset();
+    // 工作区根目录默认空（等价真实环境 invoke 未就绪的兜底）；目录选择器默认取消
+    getWorkspaceRootMock.mockResolvedValue("");
+    openDialogMock.mockResolvedValue(null);
   });
 
   afterEach(() => {
@@ -180,6 +201,61 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     const wrapper = mountAppShell();
 
     expect(await openMenuAndGetPaths(wrapper)).toEqual([LOCAL_A]);
+  });
+
+  it("点击 ws-pill（选择工作区）→ 对话框默认定位到当前工作区的父级（而非当前工作区）", async () => {
+    getWorkspaceRootMock.mockResolvedValue("H:\\MaxNull\\WorkStation\\fractal");
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600);
+
+    await wrapper.find(".ws-pill").trigger("click");
+    await flushPromises();
+
+    expect(openDialogMock).toHaveBeenCalledWith({
+      directory: true,
+      defaultPath: "H:\\MaxNull\\WorkStation",
+    });
+  });
+
+  it("目录选择器选中其他目录 → 新开窗口（openWorkspaceWindow），当前窗口 cwd 不变", async () => {
+    getWorkspaceRootMock.mockResolvedValue("H:\\MaxNull\\WorkStation\\fractal");
+    openDialogMock.mockResolvedValue("H:\\MaxNull\\WorkStation\\doc-edit");
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600);
+
+    await wrapper.find(".ws-pill").trigger("click");
+    await flushPromises();
+
+    // 与菜单项一致的新开窗口交互（2026-08-12 对齐）：不再当前窗口内切换
+    expect(openWorkspaceWindowMock).toHaveBeenCalledWith("H:\\MaxNull\\WorkStation\\doc-edit");
+    const settings = useSettingsStore();
+    expect(settings.cwd).toBe("H:\\MaxNull\\WorkStation\\fractal"); // 当前窗口工作区未变
+  });
+
+  it("目录选择器选中当前工作区 → 不开新窗口（已在该工作区提示）", async () => {
+    getWorkspaceRootMock.mockResolvedValue("H:\\MaxNull\\WorkStation\\fractal");
+    openDialogMock.mockResolvedValue("H:\\MaxNull\\WorkStation\\fractal");
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600);
+
+    await wrapper.find(".ws-pill").trigger("click");
+    await flushPromises();
+
+    expect(openWorkspaceWindowMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("已在该工作区");
+  });
+
+  it("无当前工作区 → 对话框不传 defaultPath（退回系统默认位置）", async () => {
+    // 防御跨用例污染：settings store 的 cwd 初始值直接读 localStorage（sb-current-workspace），
+    // 前序用例的 store watch 可能延迟写回（beforeEach 的 clear 拦不住旧 store 的异步 flush）
+    localStorage.removeItem("sb-current-workspace");
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600);
+
+    await wrapper.find(".ws-pill").trigger("click");
+    await flushPromises();
+
+    expect(openDialogMock).toHaveBeenCalledWith({ directory: true, defaultPath: undefined });
   });
 
   it("刷新引擎成功 → 活跃会话绿点清除（result 事件可能在重启期间丢失，2026-08-10 反馈）", async () => {
@@ -260,6 +336,41 @@ describe("AppShell 工作区菜单（本地 recent + serve 会话目录聚合）
     // loadSessions 两次：onMounted 初始一次 + init-workspace 一次——
     // 新实现全量拉取 + store 前端过滤（listSessions 不再传 directory，绕开 serve 实例化崩溃，2026-08-08）
     expect(listSessionsMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("onInitPreview 收到预览文件下发 → 全屏 standalone 预览（独立窗口初始化链路）", async () => {
+    listSessionsMock.mockResolvedValue([]);
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    // onMounted 同步段注册监听：捕获回调并手动触发（模拟主进程 did-finish-load 下发 window:init-preview）
+    expect(onInitPreviewMock).toHaveBeenCalledTimes(1);
+    const cb = onInitPreviewMock.mock.calls[0][0] as (path: string) => void;
+    cb("H:\\demo\\page.html");
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    // 预览模式下主界面四栏隐藏（f-shell v-if 排除），仅渲染 standalone FilePreviewPanel
+    expect(wrapper.find(".f-shell").exists()).toBe(false);
+    const preview = wrapper.findComponent({ name: "FilePreviewPanel" });
+    expect(preview.exists()).toBe(true);
+    expect(preview.props("standalone")).toBe(true);
+    expect(preview.props("file")).toEqual({ name: "page.html", path: "H:\\demo\\page.html" });
+  });
+
+  it("standalone 预览关闭 → 恢复主界面（f-shell 重新渲染）", async () => {
+    listSessionsMock.mockResolvedValue([]);
+    const wrapper = mountAppShell();
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+
+    const cb = onInitPreviewMock.mock.calls[0][0] as (path: string) => void;
+    cb("H:\\demo\\page.html");
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+    expect(wrapper.find(".f-shell").exists()).toBe(false);
+
+    // @close（主进程窗口关闭或组件内部 window.close 后由主窗口状态同步）→ previewFile 置空 → 主界面恢复
+    await wrapper.findComponent({ name: "FilePreviewPanel" }).vm.$emit("close");
+    await flushPromises(); await vi.advanceTimersByTimeAsync(600); // 推进 boot 400ms 停留
+    expect(wrapper.find(".f-shell").exists()).toBe(true);
   });
 
   it("点 × 移除最近工作区 → 菜单立即消失（含 serve 聚合场景）且不触发新开窗口（click.stop）", async () => {
