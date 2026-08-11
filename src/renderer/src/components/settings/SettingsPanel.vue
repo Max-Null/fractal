@@ -889,7 +889,7 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
                 <div class="text-[10px] mt-0.5" style="color: var(--text-muted)">{{ $t('settings.presetSkillsDesc') }}</div>
               </div>
               <button
-                class="data-mode-switch shrink-0"
+                class="data-mode-switch preset-switch shrink-0"
                 :class="{ 'data-mode-switch--on': settings.presetSkillsEnabled }"
                 :aria-pressed="settings.presetSkillsEnabled"
                 @click="settings.presetSkillsEnabled = !settings.presetSkillsEnabled"

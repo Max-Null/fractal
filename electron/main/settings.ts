@@ -25,9 +25,10 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   'preset.mcp.filesystem': true,
   'engine.opencodePath': '',
   'engine.logLevel': 'INFO',
-  // 会话数据隔离：shared=共享系统 XDG_DATA_HOME（与其他工具同库）/ isolated=独立到 <userData>/data
+  // 会话数据隔离：isolated=独立到 <userData>/data（默认）——shared 与系统其他 opencode 实例
+  // 共享 XDG_DATA_HOME 同库，多实例 SQLite 锁竞争会静默杀掉 serve（官方已知，2026-08-12 实测定案）
   // （serve 数据目录跟随 XDG_DATA_HOME；startServer 注入 env 时读此值，见 server-manager.ts）
-  'dataMode': 'shared',
+  'dataMode': 'isolated',
   // 轻量任务模型（LOW 槽位）：空=跟随主模型（不写 opencode.json small_model）/ 显式值=模型全名
   'smallModel': '',
 }

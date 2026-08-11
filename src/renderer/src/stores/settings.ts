@@ -182,7 +182,8 @@ export const useSettingsStore = defineStore("settings", () => {
   // ── 数据模式（settings.json dataMode：会话数据隔离开关）──
   // 不进任何 UI 偏好 watch 数组：主题/语言 800ms 防抖写盘会用「当前文件字段 + 主题/语言」重建对象，
   // dataMode 一旦混入防抖链，切换主题会带着旧值写回，覆盖用户最新选择（军师 P0）
-  const dataMode = ref<"shared" | "isolated">("shared");
+  // 默认 isolated：shared 与其他 opencode 实例同库会被 SQLite 锁竞争静默杀掉（2026-08-12 实测定案）
+  const dataMode = ref<"shared" | "isolated">("isolated");
   /** 数据模式切换中（防连点锁；SettingsPanel 开关禁用 + 提示条） */
   const isRestarting = ref(false);
 

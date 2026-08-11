@@ -12,6 +12,8 @@ declare global {
       onInitWorkspace: (cb: (path: string) => void) => () => void
       /** 渲染层 console 桥上报（main.ts 拦截 console 后调用；主进程仅调试模式落盘） */
       debugLog: (level: string, msg: string) => void
+      /** 拖放/粘贴文件取真实绝对路径（webUtils.getPathForFile 桥；无路径返回空串） */
+      getPathForFile: (file: File) => string
     }
   }
 }

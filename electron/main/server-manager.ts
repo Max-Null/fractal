@@ -503,7 +503,8 @@ async function startServer(): Promise<StartServerResult> {
     // 数据隔离（dataMode）：options.dataMode 覆盖优先（测试/e2e 强制隔离）——
     // 否则读 settings 模块内存态（index.ts 启动链已 await loadSettings 保证已加载——
     // 否则首次启动独立模式会读到 DEFAULT 默认值 shared，数据目录注入失效）
-    const dataMode = options.dataMode ?? (typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'shared')
+    // 默认 isolated：shared 与其他 opencode 实例同库会被 SQLite 锁竞争静默杀掉（2026-08-12 实测定案）
+    const dataMode = options.dataMode ?? (typeof getConfig().config['dataMode'] === 'string' ? (getConfig().config['dataMode'] as string) : 'isolated')
 
     state.startedAt = Date.now()
     // B1 引擎日志级别（settings.json engine.logLevel）：白名单外/缺失不加参（serve 默认级别）

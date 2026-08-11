@@ -304,21 +304,21 @@ describe("settings store", () => {
 
   // ── 数据模式（dataMode 开关，方案 D1-D9 军师 P0）──
 
-  it("dataMode 默认 shared；isRestarting 默认 false", () => {
+  it("dataMode 默认 isolated；isRestarting 默认 false", () => {
     const settings = useSettingsStore();
-    expect(settings.dataMode).toBe("shared");
+    expect(settings.dataMode).toBe("isolated");
     expect(settings.isRestarting).toBe(false);
   });
 
   it("applySettingsJson 同步 dataMode（非法/缺失保持当前值）", () => {
     const settings = useSettingsStore();
-    settings.applySettingsJson({ dataMode: "isolated" });
-    expect(settings.dataMode).toBe("isolated");
     settings.applySettingsJson({ dataMode: "shared" });
     expect(settings.dataMode).toBe("shared");
+    settings.applySettingsJson({ dataMode: "isolated" });
+    expect(settings.dataMode).toBe("isolated");
     // 非法值不覆盖（config-changed 广播可能带脏值）
     settings.applySettingsJson({ dataMode: "weird" });
-    expect(settings.dataMode).toBe("shared");
+    expect(settings.dataMode).toBe("isolated");
   });
 
   // ── B1：messageLayout / nickname / avatar / opencodePath / logLevel / presetSkillsEnabled ──
@@ -358,6 +358,8 @@ describe("settings store", () => {
 
   it("setDataMode 成功：写 settings.json（合并 dataMode）→ 停止活跃会话 → 刷新引擎 → 清缓存 → 重拉会话列表", async () => {
     const settings = useSettingsStore();
+    // 默认 isolated（2026-08-12 起）；模拟用户从 shared 切到 isolated 的切换场景
+    settings.applySettingsJson({ dataMode: "shared" });
     const sessionStore = useSessionStore();
     sessionStore.setActiveSession("ses-1");
     const chat = useChatStore();
@@ -388,6 +390,8 @@ describe("settings store", () => {
 
   it("setDataMode 失败：回滚旧值 → 二次刷新成功 → 返回 error（引擎未停摆）", async () => {
     const settings = useSettingsStore();
+    // 默认 isolated：先切到 shared 模拟「从 shared 尝试切 isolated」的场景
+    settings.applySettingsJson({ dataMode: "shared" });
     const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
     // 第一次 engine:refresh 失败、第二次成功（回滚后恢复）
     let refreshCount = 0;
@@ -416,6 +420,7 @@ describe("settings store", () => {
 
   it("setDataMode 二次刷新也失败 → 返回引擎错误（引擎停摆风险提示）", async () => {
     const settings = useSettingsStore();
+    settings.applySettingsJson({ dataMode: "shared" });
     const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
     bridge.invoke.mockImplementation((channel: string) => {
       if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
@@ -434,8 +439,8 @@ describe("settings store", () => {
   it("setDataMode 同值/切换中 → 直接返回不重复执行", async () => {
     const settings = useSettingsStore();
     const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
-    // 同值
-    const r = await settings.setDataMode("shared");
+    // 默认 isolated（2026-08-12 起）：同值调用直接返回
+    const r = await settings.setDataMode("isolated");
     expect(r.ok).toBe(true);
     const refreshCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "engine:refresh");
     expect(refreshCalls).toHaveLength(0);

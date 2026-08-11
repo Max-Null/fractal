@@ -1,4 +1,4 @@
-﻿import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
+﻿import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
@@ -73,6 +73,15 @@ const electronBridge = {
   // 主进程仅调试模式落盘 renderer.log——走 ipcRenderer.send 不走 invoke（无回包，高频不阻塞）
   debugLog: (level: string, msg: string) => {
     ipcRenderer.send('debug:console', { level, msg })
+  },
+  // 拖放/粘贴文件取真实绝对路径：Electron 32+ 移除了 File.path 扩展，
+  // 必须经 webUtils.getPathForFile 转换（无路径时返回空串，渲染层退化用文件名兜底）
+  getPathForFile: (file: File) => {
+    try {
+      return webUtils.getPathForFile(file)
+    } catch {
+      return ''
+    }
   }
 }
 

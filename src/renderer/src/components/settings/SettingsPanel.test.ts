@@ -264,20 +264,20 @@ describe("SettingsPanel", () => {
     expect(wrapper.find(".data-mode-switch").exists()).toBe(true);
   });
 
-  it("toggling switch calls setDataMode and switches dataMode to isolated", async () => {
+  it("toggling switch calls setDataMode and switches dataMode to shared", async () => {
     const settings = useSettingsStore();
     const wrapper = mountPanel();
     await expandAdvanced(wrapper);
     const sw = wrapper.find(".data-mode-switch");
-    // 初始 shared（开关未开启）
-    expect(sw.classes()).not.toContain("data-mode-switch--on");
+    // 初始 isolated（2026-08-12 起默认独立会话数据，开关开启态）
+    expect(sw.classes()).toContain("data-mode-switch--on");
     await sw.trigger("click");
     // flush setDataMode 异步链（saveSettings → refreshEngine → loadSessions）
     await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(settings.dataMode).toBe("isolated");
+    expect(settings.dataMode).toBe("shared");
     expect(settings.isRestarting).toBe(false);
-    // 开关反映开启态
-    expect(wrapper.find(".data-mode-switch").classes()).toContain("data-mode-switch--on");
+    // 开关反映关闭态
+    expect(wrapper.find(".data-mode-switch").classes()).not.toContain("data-mode-switch--on");
   });
 
   it("switch disabled while isRestarting (防连点)", async () => {
@@ -293,6 +293,7 @@ describe("SettingsPanel", () => {
 
   it("shows failure message with restored mode text when setDataMode rolls back", async () => {
     const settings = useSettingsStore();
+    // 默认 isolated：切 shared 失败 → 回滚 isolated
     const wrapper = mountPanel();
     // 覆盖 bridge：engine:refresh 全部失败（回滚后仍失败 → 报错文案）
     (window as unknown as { electronBridge: { invoke: (c: string) => Promise<unknown> } }).electronBridge.invoke = (channel: string) => {
@@ -306,7 +307,7 @@ describe("SettingsPanel", () => {
     await wrapper.find(".data-mode-switch").trigger("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(wrapper.text()).toContain("Engine restart failed, restored original mode");
-    expect(settings.dataMode).toBe("shared");
+    expect(settings.dataMode).toBe("isolated");
   });
 
   // ── 轻量模型下拉（高级设置区，LOW 槽位）──
@@ -441,8 +442,8 @@ describe("SettingsPanel", () => {
     expect(pathInput).toBeTruthy();
     // 日志级别下拉显示当前值 INFO
     expect(wrapper.text()).toContain("INFO");
-    // 预置技能包开关存在（aria-pressed 初始 true）
-    const presetSwitch = wrapper.findAll("button").find((b) => b.attributes("aria-pressed") === "true" && b.classes().includes("data-mode-switch"));
+    // 预置技能包开关存在（aria-pressed 初始 true；preset-switch 为独立测试锚，区别于 dataMode 开关）
+    const presetSwitch = wrapper.findAll("button").find((b) => b.attributes("aria-pressed") === "true" && b.classes().includes("preset-switch"));
     expect(presetSwitch).toBeTruthy();
   });
 
@@ -451,7 +452,7 @@ describe("SettingsPanel", () => {
     await expandAdvanced(wrapper);
     const settings = useSettingsStore();
     expect(settings.presetSkillsEnabled).toBe(true);
-    const presetSwitch = wrapper.findAll("button").find((b) => b.classes().includes("data-mode-switch") && b.attributes("aria-pressed") === "true");
+    const presetSwitch = wrapper.findAll("button").find((b) => b.classes().includes("preset-switch") && b.attributes("aria-pressed") === "true");
     await presetSwitch!.trigger("click");
     expect(settings.presetSkillsEnabled).toBe(false);
   });

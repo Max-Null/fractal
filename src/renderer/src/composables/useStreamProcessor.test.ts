@@ -20,6 +20,7 @@ window.electronBridge = {
   // 多窗口通道：本测试不触发，仅满足 Window 类型声明
   onInitWorkspace: () => () => {},
   debugLog: () => {},
+  getPathForFile: () => "",
 };
 
 vi.mock("@/composables/useDebugLog", () => ({

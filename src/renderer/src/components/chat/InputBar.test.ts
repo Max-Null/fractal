@@ -151,16 +151,62 @@ describe("InputBar", () => {
     expect(container.classes()).not.toContain("composer--dragover");
   });
 
-  it("emits files event on drop", async () => {
+  it("emits files event on drop (path via webUtils bridge)", async () => {
+    // Electron 32+ 无 File.path：preload 暴露 getPathForFile 转换真实路径
+    (window as unknown as { electronBridge: { getPathForFile: (f: File) => string; invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      getPathForFile: () => "/home/user/test.ts",
+      invoke: () => Promise.resolve({}),
+      on: () => () => {},
+    };
     const wrapper = mountInputBar();
     const container = wrapper.find(".composer");
 
-    const files = [{ name: "test.ts", path: "/home/user/test.ts" }];
+    const files = [{ name: "test.ts" }];
     const dt = { dropEffect: "", files, items: [] };
 
     await container.trigger("drop", { dataTransfer: dt });
     expect(wrapper.emitted("files")).toBeTruthy();
     expect(wrapper.emitted("files")![0]).toEqual([[{ name: "test.ts", path: "/home/user/test.ts" }]]);
+  });
+
+  it("emits files event on drop (falls back to name when bridge missing)", async () => {
+    // 浏览器/未注入桥环境：取不到真实路径退化为文件名（主进程会拒绝，但 UI 不崩）
+    delete (window as unknown as { electronBridge?: unknown }).electronBridge;
+    const wrapper = mountInputBar();
+    const container = wrapper.find(".composer");
+
+    const files = [{ name: "test.ts" }];
+    const dt = { dropEffect: "", files, items: [] };
+
+    await container.trigger("drop", { dataTransfer: dt });
+    expect(wrapper.emitted("files")![0]).toEqual([[{ name: "test.ts", path: "test.ts" }]]);
+  });
+
+  it("emits files event on paste (path via webUtils bridge)", async () => {
+    (window as unknown as { electronBridge: { getPathForFile: (f: File) => string; invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      getPathForFile: (f) => `/paste/${f.name}`,
+      invoke: () => Promise.resolve({}),
+      on: () => () => {},
+    };
+    const wrapper = mountInputBar();
+    const textarea = wrapper.find("textarea");
+
+    // ClipboardEvent items：kind=file 的 item.getAsFile() 返回 File
+    const file = { name: "clip.png" } as File;
+    const items = [{ kind: "file", getAsFile: () => file }];
+    await textarea.trigger("paste", { clipboardData: { items } });
+
+    expect(wrapper.emitted("files")).toBeTruthy();
+    expect(wrapper.emitted("files")![0]).toEqual([[{ name: "clip.png", path: "/paste/clip.png" }]]);
+  });
+
+  it("ignores non-file paste items", async () => {
+    const wrapper = mountInputBar();
+    const textarea = wrapper.find("textarea");
+
+    const items = [{ kind: "string" }];
+    await textarea.trigger("paste", { clipboardData: { items } });
+    expect(wrapper.emitted("files")).toBeFalsy();
   });
 
   // ── composer foot：agent / model pill ──

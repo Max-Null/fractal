@@ -32,7 +32,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'preset.mcp.filesystem': true,
       'engine.opencodePath': '',
       'engine.logLevel': 'INFO',
-      'dataMode': 'shared',
+      'dataMode': 'isolated',
       'smallModel': '',
     })
   })
@@ -46,12 +46,12 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(schema.additionalProperties).toBe(true)
   })
 
-  it('getSchema 含 dataMode（enum shared/isolated，default shared）', () => {
+  it('getSchema 含 dataMode（enum shared/isolated，default isolated）', () => {
     const schema = getSchema()
     const props = schema.properties as Record<string, { enum?: string[]; default?: unknown }>
     expect(props['dataMode']).toBeDefined()
     expect(props['dataMode'].enum).toEqual(['shared', 'isolated'])
-    expect(props['dataMode'].default).toBe('shared')
+    expect(props['dataMode'].default).toBe('isolated')
   })
 
   it('getSchema 含 smallModel（enum 空/两个显式模型全名，default 空=跟随主模型）', () => {
@@ -109,9 +109,9 @@ describe('parseAndValidate（JSONC 解析 + schema 校验）', () => {
     expect(r2.warnings).toEqual([])
   })
 
-  it('dataMode 非法值 → 回退默认 shared + warning', () => {
+  it('dataMode 非法值 → 回退默认 isolated + warning', () => {
     const { config, warnings } = parseAndValidate('{ "dataMode": "public" }')
-    expect(config['dataMode']).toBe('shared')
+    expect(config['dataMode']).toBe('isolated')
     expect(warnings.some((w) => w.includes('dataMode'))).toBe(true)
   })
 

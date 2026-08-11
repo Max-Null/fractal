@@ -140,7 +140,8 @@ function onDrop(e: DragEvent) {
   const attached: Array<{ name: string; path: string }> = [];
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
-    attached.push({ name: f.name, path: (f as any).path || f.name });
+    // Electron 32+ 无 File.path：经 preload 的 webUtils 桥取真实路径，取不到（浏览器环境）退化文件名兜底
+    attached.push({ name: f.name, path: window.electronBridge?.getPathForFile?.(f) || f.name });
   }
   emit("files", attached);
 }
@@ -174,7 +175,8 @@ function onPaste(e: ClipboardEvent) {
     if (item.kind === "file") {
       const file = item.getAsFile();
       if (file) {
-        files.push({ name: file.name, path: (file as any).path || file.name });
+        // 同 onDrop：webUtils 桥取真实路径，浏览器环境退化文件名兜底
+        files.push({ name: file.name, path: window.electronBridge?.getPathForFile?.(file) || file.name });
       }
     }
   }

@@ -271,6 +271,9 @@ left:r.left,top:r.top,bottom:r.bottom
 
 type FileKind = "text" | "html" | "markdown" | "docx" | "xlsx" | "pptx" | "image" | "unsupported";
 
+/** 可「引用为附件」的文件类别：serve 能按 file:// 读取文本内容的类型（含图片，模型可多模态处理） */
+const ATTACHABLE_KINDS: readonly string[] = ["markdown", "text", "image"];
+
 const DOCX_EXTS = new Set(["docx", "doc"]);
 const HTML_EXTS = new Set(["html", "htm"]);
 const MD_EXTS = new Set(["md", "mdx", "markdown"]);
@@ -763,6 +766,14 @@ function confirmClose() {
 function handleClose() {
   if (dirty.value) { confirmClose(); } else { emit("close"); }
 }
+
+/** 将当前预览文件作为附件引用到对话：走 FileTree 同款 attach-files 全局事件（ChatPanel 已监听去重入 chip） */
+function attachToChat() {
+  if (!props.file) return;
+  window.dispatchEvent(
+    new CustomEvent("attach-files", { detail: [{ name: props.file.name, path: props.file.path }] })
+  );
+}
 </script>
 
 <template>
@@ -797,6 +808,11 @@ function handleClose() {
           :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'"
           style="background: var(--accent); color: var(--bg-root)"
         >{{ saving ? '…' : $t('preview.save') }}</button>
+        <button v-if="ATTACHABLE_KINDS.includes(fileKind)" @click="attachToChat"
+          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
+          style="background: var(--accent); color: var(--bg-root)"
+          :title="$t('preview.attachToChat')"
+        >📎</button>
         <button v-if="fileKind === 'markdown'" @click="showMdOutline = !showMdOutline"
           class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
           :style="{ background: showMdOutline ? 'var(--accent)' : 'transparent', color: showMdOutline ? 'var(--bg-root)' : 'var(--text-muted)', border: showMdOutline ? 'none' : '1px solid var(--border-dim)' }"
