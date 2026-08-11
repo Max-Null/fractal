@@ -4,7 +4,12 @@ import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import MemoryPanel from "./MemoryPanel.vue";
 import StatusPanel from "./StatusPanel.vue";
 import PlansPanel from "./PlansPanel.vue";
-import SkillsPanel from "./SkillsPanel.vue";
+import CapabilitiesPanel from "./CapabilitiesPanel.vue";
+
+// CapabilitiesPanel 用 vue-i18n（其他面板硬编码中文）——mock t 返回 key，断言不依赖文案
+vi.mock("vue-i18n", () => ({
+  useI18n: () => ({ t: (key: string) => key }),
+}));
 
 // mock electron-bridge：面板数据源通道（listMemories/confirmMemory/removeMemory/listPlans/getStatusState/onPanelUpdate）
 const listMemoriesMock = vi.fn();
@@ -12,12 +17,14 @@ const confirmMemoryMock = vi.fn();
 const removeMemoryMock = vi.fn();
 const listPlansMock = vi.fn();
 const getStatusStateMock = vi.fn();
+const listCapabilitiesMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   listMemories: (...args: unknown[]) => listMemoriesMock(...args),
   confirmMemory: (...args: unknown[]) => confirmMemoryMock(...args),
   removeMemory: (...args: unknown[]) => removeMemoryMock(...args),
   listPlans: (...args: unknown[]) => listPlansMock(...args),
   getStatusState: (...args: unknown[]) => getStatusStateMock(...args),
+  listCapabilities: (...args: unknown[]) => listCapabilitiesMock(...args),
   onPanelUpdate: () => () => {},
 }));
 
@@ -208,15 +215,60 @@ describe("PlansPanel", () => {
   });
 });
 
-describe("SkillsPanel（未改造，保留原骨架断言）", () => {
-  it("renders preset groups with agent/plugin/skill items", () => {
-    const wrapper = mount(SkillsPanel);
+describe("CapabilitiesPanel（生态清单）", () => {
+  beforeEach(() => {
+    listCapabilitiesMock.mockReset();
+    listCapabilitiesMock.mockResolvedValue({ agents: [], skills: [], plugins: [], mcp: [] });
+  });
+
+  it("渲染 技能/Agent/插件/MCP 四分组（技能最前）+ 过滤 native + 条目详情", async () => {
+    listCapabilitiesMock.mockResolvedValue({
+      agents: [
+        { name: "双星", description: "主力助手", mode: "primary", native: false },
+        { name: "plan", description: "拆解计划", mode: "subagent", native: true },
+      ],
+      skills: [{ name: "mxy-commit-review", description: "审查提交工作流", location: "file:///x" }],
+      plugins: [{ name: "fractal-guardian", source: "file:///C:/p/fractal-guardian.js" }],
+      mcp: [
+        { name: "github", status: "connected", type: "remote", target: "https://api.githubcopilot.com/mcp/" },
+        { name: "exa", status: "disabled", type: "local", target: "npx exa" },
+      ],
+    });
+    const wrapper = mount(CapabilitiesPanel);
+    await flushPromises();
+
+    // 四分组（i18n mock t 返回 key，断言 key 文本）；技能组排最前
     const groups = wrapper.findAll(".pgroup").map(s => s.text());
-    expect(groups.join()).toContain("双星四 Agent");
-    expect(groups.join()).toContain("分形插件");
-    expect(groups.join()).toContain("技能包");
-    const items = wrapper.findAll(".pitem");
-    expect(items.length).toBeGreaterThanOrEqual(8);
-    expect(wrapper.find(".switch").exists()).toBe(true);
+    expect(groups).toHaveLength(4);
+    expect(groups[0]).toContain("panel.skillGroup");
+    expect(groups.join()).toContain("panel.agentGroup");
+    expect(groups.join()).toContain("panel.pluginGroup");
+    expect(groups.join()).toContain("panel.mcpGroup");
+    // 条目渲染：自定义 agent 显示、native 内置 agent 被过滤
+    expect(wrapper.text()).toContain("双星");
+    expect(wrapper.text()).not.toContain("plan");
+    expect(wrapper.text()).toContain("fractal-guardian");
+    // MCP 状态徽标 class（connected/disabled）
+    expect(wrapper.find(".mcp-status--connected").exists()).toBe(true);
+    expect(wrapper.find(".mcp-status--disabled").exists()).toBe(true);
+    // MCP 类型标签（远程/本地）
+    expect(wrapper.text()).toContain("panel.mcpRemote");
+    expect(wrapper.text()).toContain("panel.mcpLocal");
+  });
+
+  it("空 bundle → 四分组均显示空态", async () => {
+    const wrapper = mount(CapabilitiesPanel);
+    await flushPromises();
+
+    expect(listCapabilitiesMock).toHaveBeenCalledOnce();
+    expect(wrapper.findAll(".pitem-empty")).toHaveLength(4);
+  });
+
+  it("接口失败（reject）→ 空态兜底不崩", async () => {
+    listCapabilitiesMock.mockRejectedValue(new Error("boom"));
+    const wrapper = mount(CapabilitiesPanel);
+    await flushPromises();
+
+    expect(wrapper.findAll(".pitem-empty")).toHaveLength(4);
   });
 });

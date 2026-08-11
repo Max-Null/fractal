@@ -1202,12 +1202,9 @@ watch(
           </div>
         </div>
         <div v-else class="welcome-page">
-          <!-- Icon: terminal cursor -->
+          <!-- 品牌位：分形 logo（2026-08-11 统一——原终端光标图标改为 logo.svg，与消息面板头像同源） -->
           <div class="welcome-logo" style="background:var(--accent-glow)">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4 17 10 11 4 5" />
-              <line x1="12" y1="19" x2="20" y2="19" />
-            </svg>
+            <img src="/logo.svg" alt="分形" class="welcome-logo-img" />
           </div>
           <h2 class="welcome-title" style="color:var(--text-bright)">{{ $t('chat.welcomeTitle') }}</h2>
           <p class="text-sm leading-relaxed mb-6" style="color:var(--text-secondary)">{{ $t('chat.welcomeSubtitle') }}</p>
@@ -1299,8 +1296,9 @@ watch(
             <span class="text-[11px]" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
             <span class="flex-1"></span>
             <!-- 复制诊断信息：应用名 + 版本 + serve.log 尾部打包（用户反馈通道，含隐私提示） -->
-            <button @click="copyDiagnostics" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugCopyDiag')">
-              <span class="text-[11px]">{{ $t('chat.debugCopyDiag') }}</span>
+            <!-- icon-btn-sm 固定 14×14px，不适用于文本按钮（汉字塞入窄容器 → 逐字竖排，2026-08-11 修复） -->
+            <button @click="copyDiagnostics" class="cursor-pointer px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugCopyDiag')">
+              {{ $t('chat.debugCopyDiag') }}
             </button>
             <!-- 复制当前标签页内容 -->
             <button @click="copyDebugLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.copy')">

@@ -79,7 +79,7 @@ function mountPanel() {
         MemoryPanel: stub("MemoryPanel"),
         StatusPanel: stub("StatusPanel"),
         PlansPanel: stub("PlansPanel"),
-        SkillsPanel: stub("SkillsPanel"),
+        CapabilitiesPanel: stub("CapabilitiesPanel"),
       },
     },
   });
@@ -240,7 +240,7 @@ describe("FilePanel", () => {
     expect(segments[3]).toEqual({ label: "components", fullPath: "C:\\project\\src\\components" });
   });
 
-  // ── 外层增强面板 Tabs（文件/记忆/状态/计划/技能）──
+  // ── 外层增强面板 Tabs（文件/记忆/状态/计划/生态）──
 
   /** 展开面板并点击指定外层 tab（区分内层 文件/Git 子 tab） */
   async function clickPanelTab(wrapper: any, label: string) {
@@ -251,7 +251,7 @@ describe("FilePanel", () => {
     return btn;
   }
 
-  it("renders 5 outer panel tabs (files/memory/status/plans/skills)", async () => {
+  it("renders 5 outer panel tabs (files/memory/status/plans/ecosystem)", async () => {
     const { wrapper, vm } = mountPanel();
     await wrapper.vm.$nextTick();
     vm.collapsed = false;
@@ -263,7 +263,7 @@ describe("FilePanel", () => {
     expect(labels[1]).toContain("记忆");
     expect(labels[2]).toContain("状态");
     expect(labels[3]).toContain("计划");
-    expect(labels[4]).toContain("技能");
+    expect(labels[4]).toContain("生态");
   });
 
   it("shows file tree by default and hides it after switching to memory tab", async () => {
@@ -283,7 +283,7 @@ describe("FilePanel", () => {
     expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(false);
   });
 
-  it("switches to status/plans/skills tabs and back to files", async () => {
+  it("switches to status/plans/ecosystem tabs and back to files", async () => {
     const { wrapper, vm } = mountPanel();
     await wrapper.vm.$nextTick();
     vm.collapsed = false;
@@ -296,13 +296,13 @@ describe("FilePanel", () => {
     expect(wrapper.findComponent({ name: "PlansPanel" }).exists()).toBe(true);
     expect(wrapper.findComponent({ name: "StatusPanel" }).exists()).toBe(false);
 
-    await clickPanelTab(wrapper, "技能");
-    expect(wrapper.findComponent({ name: "SkillsPanel" }).exists()).toBe(true);
+    await clickPanelTab(wrapper, "生态");
+    expect(wrapper.findComponent({ name: "CapabilitiesPanel" }).exists()).toBe(true);
 
     // 切回文件 tab：文件树恢复渲染
     await clickPanelTab(wrapper, "文件");
     expect(wrapper.findComponent({ name: "FileTree" }).exists()).toBe(true);
-    expect(wrapper.findComponent({ name: "SkillsPanel" }).exists()).toBe(false);
+    expect(wrapper.findComponent({ name: "CapabilitiesPanel" }).exists()).toBe(false);
   });
 
   it("file tab keeps inner files/git sub-tabs working", async () => {

@@ -558,10 +558,23 @@ async function openFilePanelTo(_path: string) {
       <!-- app-bar-left：brand + ws-pill -->
       <div class="header-logo-group">
         <div class="brand">
-          <div class="brand-mark">
-            <img src="/logo.svg" alt="分形" class="brand-mark-img" />
+          <!-- 品牌翻面卡：固定 40×40，正面名字 / 背面 logo，hover 旋转门翻面（2026-08-11） -->
+          <div class="brand-flip">
+            <div class="brand-face brand-face--name">{{ $t('app.title') }}</div>
+            <div class="brand-face brand-face--mark">
+              <img src="/logo.svg" alt="分形" class="brand-mark-img" />
+            </div>
           </div>
-          <span class="brand-name">{{ $t('app.title') }}</span>
+        </div>
+
+        <!-- 引擎状态指示器：serve 运行状态一目了然（engine:status 驱动 sessionStore.serving，与启动门禁同源） -->
+        <div
+          class="engine-pill"
+          :class="{ 'engine-pill--off': !sessionStore.serving }"
+          :title="sessionStore.serving ? $t('header.engineRunning') : $t('header.engineStopped')"
+        >
+          <span class="engine-dot"></span>
+          <span class="engine-text">{{ sessionStore.serving ? $t('header.engineRunning') : $t('header.engineStopped') }}</span>
         </div>
 
         <!-- 工作区胶囊：点击展开管理下拉（最近工作区 + 选择目录） -->
@@ -845,33 +858,57 @@ async function openFilePanelTo(_path: string) {
   min-width: 0;
 }
 
-/* brand：28px 圆角方块徽标 + 品牌名（原型 .brand / .brand-mark / .brand-name） */
+/* brand：品牌翻面卡（固定 40×40，正面名字 / 背面 logo）——hover 旋转门翻面（2026-08-11） */
 .brand {
   display: flex;
   align-items: center;
-  gap: 10px;
   flex-shrink: 0;
+  cursor: default;
 }
-.brand-mark {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  background: var(--accent-soft);
+/* 翻面卡容器：固定 40×40 保证 hover 前后宽度恒定（名字与 logo 等宽，右侧不跳动）；
+   preserve-3d：子元素旋转时保持 3D 上下文（否则 backface-visibility 在平面展平下叠放不稳，翻面闪烁） */
+.brand-flip {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  perspective: 400px;
+  transform-style: preserve-3d;
+}
+/* 卡片两面：绝对定位叠放 + backface 隐藏，hover 时各自转 180° 形成翻面 */
+.brand-face {
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  /* position: relative 兜底——img 尺寸异常时防止撑破 28px 方块 */
-  overflow: hidden;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition: transform 0.45s cubic-bezier(0.4, 0.2, 0.2, 1);
 }
-.brand-mark-img {
-  width: 16px;
-  height: 16px;
-}
-.brand-name {
+/* 正面：品牌名——字体 15px 时居中占满 40px 宽，与 logo 对齐 */
+.brand-face--name {
   font-size: 15px;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-hi);
+}
+/* 背面：logo 徽标——初始已翻转 180°（藏于背面），hover 时翻回正面 */
+.brand-face--mark {
+  transform: rotateY(180deg);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.brand:hover .brand-face--name {
+  transform: rotateY(180deg);
+}
+.brand:hover .brand-face--mark {
+  transform: rotateY(0deg);
+}
+.brand-mark-img {
+  /* 全幅撑满 40px 方块：logo.svg 自带圆角方块图形，透明背景直接铺满 */
+  width: 40px;
+  height: 40px;
 }
 
 /* ws-pill-wrap：本体（选目录）+ 小箭头（最近工作区菜单）组合 */
@@ -908,6 +945,34 @@ async function openFilePanelTo(_path: string) {
 }
 .ws-pill:hover {
   color: var(--text-bright);
+}
+
+/* 引擎状态指示器：胶囊徽标（与 ws-pill 同风格）——绿点=运行中，红点=未连接。
+   光晕让状态一眼可辨（弱光环境也醒目）；engine:status 事件实时驱动，无需轮询 */
+.engine-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-dim);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.engine-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.55);
+}
+/* 未连接态：红点 + 红光晕，文字保持次级色（不抢视觉） */
+.engine-pill--off .engine-dot {
+  background: #ef4444;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.45);
 }
 /* 小箭头按钮：打开最近工作区菜单 */
 .ws-pill-arrow {

@@ -1,6 +1,7 @@
 ﻿// AppShell 工作区菜单聚合测试：打开菜单时从 serve 全量会话提取 directory（契约字段 cwd），与本地 recentWorkspaces 合并显示
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
+import { nextTick } from "vue";
 import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { createRouter, createMemoryHistory } from "vue-router";
@@ -75,6 +76,8 @@ const i18n = createI18n({
         refresh: "刷新引擎",
         settings: "设置",
         toggleSidebar: "切换侧边栏",
+        engineRunning: "引擎运行中",
+        engineStopped: "引擎未连接",
       },
       session: { new: "新建会话" },
       manage: { title: "管理" },
@@ -399,5 +402,52 @@ describe("AppShell Onboarding 判定（DeepSeek key 为准）", () => {
     await flushPromises();
     await vi.advanceTimersByTimeAsync(600);
     expect(wrapper.find("onboarding-stub").exists()).toBe(false);
+  });
+});
+
+describe("AppShell 引擎状态指示器（engine:status 驱动 sessionStore.serving）", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    localStorage.clear();
+    sessionStorage.clear();
+    localStorage.setItem("sb-onboarding-dismissed", "1");
+    pinia = createPinia();
+    setActivePinia(pinia);
+    listSessionsMock.mockReset();
+    getEngineStatusMock.mockReset();
+    getEngineStatusMock.mockResolvedValue({ running: true });
+    openWorkspaceWindowMock.mockReset();
+    openWorkspaceWindowMock.mockResolvedValue(undefined);
+    onInitWorkspaceMock.mockReset();
+    onInitWorkspaceMock.mockReturnValue(() => {});
+    refreshEngineMock.mockReset();
+    refreshEngineMock.mockResolvedValue(undefined);
+    listMessagesMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("serving=false（引擎未就绪/进程退出）→ 显示「引擎未连接」+ 离线态样式", async () => {
+    const wrapper = mountAppShell();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(600); // boot 400ms 停留 → initializing=false
+    const pill = wrapper.find(".engine-pill");
+    expect(pill.exists()).toBe(true);
+    expect(pill.classes()).toContain("engine-pill--off");
+    expect(pill.text()).toContain("引擎未连接");
+  });
+
+  it("setServing(true)（engine:status 上报运行中）→ 显示「引擎运行中」+ 移除离线态样式", async () => {
+    const wrapper = mountAppShell();
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(600);
+    const session = useSessionStore();
+    session.setServing(true);
+    await nextTick();
+    const pill = wrapper.find(".engine-pill");
+    expect(pill.classes()).not.toContain("engine-pill--off");
+    expect(pill.text()).toContain("引擎运行中");
   });
 });

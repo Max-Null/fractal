@@ -28,6 +28,12 @@ export function useFilePreview() {
   async function getThumbnail(path: string, filename: string): Promise<string | null> {
     if (thumbnails.value[path]) return thumbnails.value[path];
     if (!isImageFile(filename)) return null;
+    // data URL 附件（共享 storage 里官方桌面版/旧会话的 file part url 直接内嵌图片）——
+    // 本身就是完整图片，直接作为缩略图，不能当文件路径读（2026-08-12 实测报错）
+    if (path.startsWith("data:")) {
+      thumbnails.value[path] = path;
+      return path;
+    }
 
     try {
       const b64 = await readFileBase64(path);

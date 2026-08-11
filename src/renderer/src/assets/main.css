@@ -329,6 +329,12 @@ body {
   display: inline-flex; align-items: center; justify-content: center;
   width: 4rem; height: 4rem; border-radius: 1rem;
 }
+/* 欢迎页品牌 logo（2026-08-11 统一）：logo.svg 自带深底圆角方块，容器 glow 背景上留 2px 呼吸边距
+   ——与消息面板头像同源图形，不再用终端光标图标 */
+.welcome-logo-img {
+  width: 3rem; height: 3rem;
+  border-radius: 0.75rem;
+}
 .welcome-title {
   font-size: 18px; font-weight: 700;
   margin-bottom: 0.5rem;

@@ -724,6 +724,45 @@ export async function getStatusState(): Promise<{ exists: boolean; state: unknow
   return invoke<{ exists: boolean; state: unknown }>("status:get", {});
 }
 
+// ── 生态面板数据（原「技能」tab）：serve 原生清单聚合（capabilities:list）──
+
+export interface CapabilityAgent {
+  name: string;
+  description: string;
+  mode: string;
+  native: boolean;
+}
+
+export interface CapabilitySkill {
+  name: string;
+  description: string;
+  location: string;
+}
+
+export interface CapabilityPlugin {
+  name: string;
+  source: string;
+}
+
+export interface CapabilityMcp {
+  name: string;
+  status: string;
+  type: "local" | "remote" | "";
+  target: string;
+}
+
+export interface CapabilityBundle {
+  agents: CapabilityAgent[];
+  skills: CapabilitySkill[];
+  plugins: CapabilityPlugin[];
+  mcp: CapabilityMcp[];
+}
+
+/** 生态清单（agent/技能/插件/MCP）：serve 运行时数据，端点失败时主进程返回空数组 */
+export async function listCapabilities(): Promise<CapabilityBundle> {
+  return invoke<CapabilityBundle>("capabilities:list", {});
+}
+
 /** 订阅面板数据源变更广播（主进程 fs.watch → engine:panel-update），返回取消订阅函数 */
 export function onPanelUpdate(cb: (payload: { kind: "memory" | "plans" | "status" }) => void): () => void {
   return window.electronBridge.on("engine:panel-update", (data) => cb(data as { kind: "memory" | "plans" | "status" }));

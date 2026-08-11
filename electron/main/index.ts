@@ -5,6 +5,9 @@ import { promises as fsp, appendFileSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+// dev 模式 ?asset 不落盘（out/main 无 icon 文件——实测任务栏显示 Electron 默认图标），
+// 窗口图标回退源文件绝对路径；打包后 ?asset 返回 asar.unpacked 内路径，继续生效
+const windowIcon = app.isPackaged ? icon : join(app.getAppPath(), 'resources', 'icon.png')
 import { registerIpcHandlers, startEngineEvents, isDebugMode } from './ipc'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
@@ -88,7 +91,7 @@ function createWindow(workspace?: string): BrowserWindow {
     show: false,
     title: windowTitle,
     autoHideMenuBar: true,
-    ...(process.platform !== 'darwin' ? { icon } : {}),
+    ...(process.platform !== 'darwin' ? { icon: windowIcon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false

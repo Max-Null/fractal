@@ -322,6 +322,12 @@ watch(() => props.file, async (f) => {
 
   if (kind === "image") {
     activeTab.value = "preview";
+    // data URL 附件（共享 storage 旧会话 file part url 内嵌图片）：直接显示，不能当文件路径读
+    if (f.path.startsWith("data:")) {
+      imageSrc.value = f.path;
+      loading.value = false;
+      return;
+    }
     try {
       const b64 = await readFileBase64(f.path);
       imageSrc.value = `data:${mimeType(f.name)};base64,${b64}`;

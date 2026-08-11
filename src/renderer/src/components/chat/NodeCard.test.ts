@@ -14,7 +14,6 @@ const i18n = createI18n({
       chat: {
         thinkingDone: "Thinking",
         timelineSummary: "Summary",
-        conclusionLabel: "Conclusion",
         todoUpdate: "Update todos",
         todoDone: "Todos done",
         todoRecord: "Todos",
@@ -114,24 +113,26 @@ describe("NodeCard", () => {
     expect(w.find(".node-card-summary-head").text()).toContain("Summary");
   });
 
-  // ═══ 思考结论节点（2026-08-11：###思考结论 开头 → 琥珀高亮 + 结论头行）═══
+  // ═══ 首 text 节点（思考结果块，2026-08-11 用户拍板：结构标记 isLeadText，不靠标题文字）═══
 
-  it("思考结论节点：###思考结论 开头 → node-card--conclusion + 头行 Conclusion", () => {
+  it("isLeadText 标记 → node-card--lead-text class，正文完整渲染（无头行）", () => {
     const w = mountCard(node({
       kind: "text",
-      text: "###思考结论\n完成修复，测试通过。",
+      text: "###思考结果 需要检查记忆机制的加载状态",
+      isLeadText: true,
     }));
-    expect(w.classes()).toContain("node-card--conclusion");
-    expect(w.find(".node-card-head--conclusion").exists()).toBe(true);
-    expect(w.find(".node-card-head--conclusion").text()).toContain("Conclusion");
+    expect(w.classes()).toContain("node-card--lead-text");
+    // 与普通 text 同构：无 head（不卡片化）
+    expect(w.find(".node-card-head").exists()).toBe(false);
     // 正文仍完整渲染（MarkdownRenderer 收到全量文本）
-    expect(w.find(".md-stub").text()).toBe("###思考结论\n完成修复，测试通过。");
+    expect(w.find(".md-stub").text()).toBe("###思考结果 需要检查记忆机制的加载状态");
   });
 
-  it("普通 text（###思考过程 开头）→ 无结论样式无头行", () => {
-    const w = mountCard(node({ kind: "text", text: "###思考过程\n先探索再动手" }));
+  it("普通 text（无 isLeadText 标记）→ 无 lead-text 样式", () => {
+    const w = mountCard(node({ kind: "text", text: "###思考结论\n完成修复，测试通过。" }));
+    expect(w.classes()).not.toContain("node-card--lead-text");
     expect(w.classes()).not.toContain("node-card--conclusion");
-    expect(w.find(".node-card-head--conclusion").exists()).toBe(false);
+    expect(w.find(".node-card-head").exists()).toBe(false);
   });
 
   // ═══ tool 变体 ═══

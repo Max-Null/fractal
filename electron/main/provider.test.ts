@@ -22,6 +22,7 @@ describe('listDeepseekModels（mock client）', () => {
       permission: {} as OcClient['permission'],
       file: {} as OcClient['file'],
       raw: {} as OcClient['raw'],
+      capabilities: {} as OcClient['capabilities'],
       config: {
         get: async () => ({}),
         update: async (c) => c,

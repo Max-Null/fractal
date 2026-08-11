@@ -103,6 +103,9 @@ export interface ServerManager {
   getClient(): OcClient
   /** 注册运行状态变化回调（start 成功 / 进程 exit / spawn error） */
   onStatusChange(cb: (info: ServerInfo) => void): void
+  /** 等待 serve 初始化完成（stderr 输出 message=init 行；每次 spawn 重建信号，超时抛错）——
+   *  SSE 订阅必须等它：/doc 健康检查可达时 serve 可能仍在加载，过早订阅挂在未就绪窗口（2026-08-11 实测零事件） */
+  waitEventConnected(timeoutMs?: number): Promise<void>
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -124,6 +127,22 @@ interface InternalState {
   stopping: boolean
   /** spawn 时间戳（崩溃 dump 上下文：exit 回调诊断实例寿命用） */
   startedAt?: number
+}
+
+/** serve 初始化完成信号（stderr 输出 message=init 行）：SSE 订阅必须等它——/doc 健康检查可达时 serve
+ *  可能仍在加载（事件总线未初始化），过早订阅挂在未就绪窗口（SDK fetch 无超时，2026-08-11 实测零事件）。
+ *  注意：不能用 event connected 行做信号——它是「有客户端订阅 /event」时才打的回声日志，serve 启动时不输出 */
+interface ServerInitSignal {
+  promise: Promise<void>
+  resolve: () => void
+}
+
+function newServerInitSignal(): ServerInitSignal {
+  let resolve: (() => void) | null = null
+  const promise = new Promise<void>((r) => {
+    resolve = r
+  })
+  return { promise, resolve: () => resolve?.() }
 }
 
 /** 健康检查：轮询 GET /doc（带 Basic 头），200 即就绪；2s 间隔、30s 超时 */
@@ -161,6 +180,11 @@ let sidecarBroken = false
 let startGeneration = 0
 /** 最近一次解析是否来自内置 sidecar（spawn error 时判断是否标记 broken） */
 let lastResolvedFromSidecar = false
+
+/** serve 自动重启退避：5 分钟窗口最多 3 次（崩溃循环保护——外部 kill/崩溃后自动恢复，但禁止重启风暴打满 CPU） */
+const AUTO_RESTART_WINDOW_MS = 5 * 60_000
+const AUTO_RESTART_MAX = 3
+const AUTO_RESTART_DELAY_MS = 1_500
 
 /**
  * 构造 serve 启动参数（B1：engine.logLevel 白名单外/缺失不加参，serve 用默认级别）。
@@ -337,6 +361,34 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
    */
   let startInFlight: Promise<StartServerResult> | null = null
 
+  /** 最近自动重启时间戳（窗口裁剪用） */
+  let autoRestartTimes: number[] = []
+  /** 待执行的自动重启 timer（stopServer 时取消——防主动停止后自杀重启） */
+  let autoRestartTimer: NodeJS.Timeout | null = null
+  /** serve 初始化完成信号（每次 spawn 重建；exit/stop 后不再 resolve，旧信号无人等待） */
+  let serverInit: ServerInitSignal = newServerInitSignal()
+
+  /** serve 异常退出（非主动停止且非零退出码）→ 延迟自动重启；5 分钟窗口 3 次上限防崩溃循环 */
+  function scheduleAutoRestart(): void {
+    const now = Date.now()
+    autoRestartTimes = autoRestartTimes.filter((t) => now - t < AUTO_RESTART_WINDOW_MS)
+    if (autoRestartTimes.length >= AUTO_RESTART_MAX) {
+      console.warn(`[server-manager] serve 异常退出自动重启超限（${AUTO_RESTART_WINDOW_MS / 60_000} 分钟 ${AUTO_RESTART_MAX} 次），停止自动恢复，请手动刷新引擎`)
+      return
+    }
+    // 进程已死：使进行中的旧启动链放弃（gen 检查点——与 stopServer 同机制，防旧重试循环再 spawn 出双 serve）
+    startGeneration++
+    autoRestartTimes.push(now)
+    console.warn(`[server-manager] serve 异常退出，${AUTO_RESTART_DELAY_MS / 1000}s 后自动重启（第 ${autoRestartTimes.length}/${AUTO_RESTART_MAX} 次，${AUTO_RESTART_WINDOW_MS / 60_000} 分钟窗口）`)
+    // 延迟 1.5s：给 exit 清理留时间（端口释放、serve 日志文件句柄），再走 ready() 重建（startPromise 已在 exit 回调置空）
+    autoRestartTimer = setTimeout(() => {
+      autoRestartTimer = null
+      void ready().catch(() => {
+        // 自动重启失败：startServer 内部已 emit 失败状态，前端保持离线，用户可手动刷新
+      })
+    }, AUTO_RESTART_DELAY_MS)
+  }
+
   function toInfo(): ServerInfo {
     return {
       running: state.child !== null && !state.failed,
@@ -357,6 +409,20 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
         // 回调异常不阻断其他订阅者（webContents.send 可能因窗口销毁抛错）
       }
     }
+  }
+
+  /** 等待 serve 初始化完成（message=init 行输出）；超时抛错。无实例（已停止）时立即返回——
+   *  调用方随后会因订阅目标失效自然失败；serve 崩溃后自动重启会重建信号 */
+  async function waitServerInit(timeoutMs = 10_000): Promise<void> {
+    await Promise.race([
+      serverInit.promise,
+      new Promise<never>((_, reject) => {
+        const t = setTimeout(() => {
+          reject(new Error(`serve 初始化超时（${timeoutMs}ms）：message=init 未输出`))
+        }, timeoutMs)
+        t.unref?.()
+      }),
+    ])
   }
 
 async function startServer(): Promise<StartServerResult> {
@@ -422,6 +488,8 @@ async function startServer(): Promise<StartServerResult> {
     state.child = null
     state.failed = false
     state.client = null
+    // 新 serve 实例的初始化信号：旧信号已 resolve/失效，重建等待新实例的 message=init 行
+    serverInit = newServerInitSignal()
 
     const bin = await resolveOpencodeBin()
 
@@ -491,6 +559,11 @@ async function startServer(): Promise<StartServerResult> {
           listeningReadyResolve?.(parsed)
           listeningReadyResolve = null
         }
+        // serve 初始化完成信号（message=init 行）：SSE 订阅必须等它——/doc 可达时 serve 可能仍在
+        // 加载（事件总线未初始化），过早订阅挂在未就绪窗口（SDK fetch 无超时 → 零事件，2026-08-11 实测）
+        if (txt.includes('message=init')) {
+          serverInit.resolve()
+        }
       } catch {
         /* 转码失败不阻断 */
       }
@@ -531,6 +604,12 @@ async function startServer(): Promise<StartServerResult> {
       state.child = null
       state.failed = true
       state.startPromise = null // 启动缓存失效，允许下次 ready 重建
+      // 进程已死：进行中的启动互斥失效（否则自动重启的 ready() 复用死启动 promise，等 30s 超时才重试）
+      startInFlight = null
+      // 异常退出（非主动停止且非零退出码）→ 自动重启（外部 kill/崩溃后免手动刷新；退避防崩溃循环）
+      if (!state.stopping && code !== 0) {
+        scheduleAutoRestart()
+      }
       // 诊断：退出时打印 stopping/dump 条件/尾部长度——崩溃 dump 失效排查（2026-08-08：两例 exit 1 无 dump 文件）
       console.log(`[server-manager] serve 退出 code=${code} signal=${signal ?? ''} stopping=${state.stopping} dump=${code !== 0 && !state.stopping} tail=${serveStderrTail?.length ?? 0}`)
       emitStatus()
@@ -595,6 +674,11 @@ async function startServer(): Promise<StartServerResult> {
   }
 
   async function stopServer(): Promise<void> {
+    // 取消待执行的自动重启（主动停止不应触发自愈重启）
+    if (autoRestartTimer) {
+      clearTimeout(autoRestartTimer)
+      autoRestartTimer = null
+    }
     // 取消进行中的启动重试循环（startServer 的 generation 检查点会放弃后续 spawn——防双 serve）
     startGeneration++
     // 主动停止标记：本次退出不算崩溃（exit 回调跳过 serve-crash dump）
@@ -677,7 +761,7 @@ async function startServer(): Promise<StartServerResult> {
     }
   }
 
-  return { startServer, ready, stopServer, syncStop, getServerInfo: toInfo, getClient, onStatusChange }
+  return { startServer, ready, stopServer, syncStop, getServerInfo: toInfo, getClient, onStatusChange, waitEventConnected: waitServerInit }
 }
 
 // ══════════════════════════════════════════════════════════════════

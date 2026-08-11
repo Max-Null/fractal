@@ -109,7 +109,6 @@
     "aboutCopyright": "© 2026 Fractal contributors · MIT",
     "turnComplete": "Done",
     "timelineSummary": "Summary",
-    "conclusionLabel": "Conclusion",
     "todoUpdate": "Update todos",
     "todoDone": "Todos done",
     "subTaskUnavailable": "Subtask details unavailable",
@@ -372,7 +371,25 @@
     "noRecentWorkspaces": "None",
     "browseFolder": "Browse folder...",
     "revealInExplorer": "Show in Explorer",
-    "removeWorkspace": "Remove from recent"
+    "removeWorkspace": "Remove from recent",
+    "engineRunning": "Engine running",
+    "engineStopped": "Engine offline"
+  },
+  "panel": {
+    "loading": "Loading…",
+    "noCapabilities": "Nothing here yet",
+    "agentGroup": "Agents",
+    "pluginGroup": "Plugins",
+    "skillGroup": "Skills",
+    "mcpGroup": "MCP Servers",
+    "mcpLocal": "Local",
+    "mcpRemote": "Remote",
+    "mcpConnected": "Connected",
+    "mcpDisabled": "Disabled",
+    "mcpFailed": "Failed",
+    "mcpNeedsAuth": "Needs Auth",
+    "mcpNeedsClientRegistration": "Not Registered",
+    "mcpUnknown": "Unknown"
   },
   "manage": {
     "title": "Manage",

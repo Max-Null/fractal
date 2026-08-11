@@ -81,9 +81,12 @@ export const useSessionStore = defineStore("session", () => {
         ? list.filter((s) => normalizeDir(s.directory || s.cwd) === normalizeDir(directory))
         : list;
       const all = filtered.map(toLocalSession);
+      // 按最近活跃（updated_at）倒序：serve 默认按创建时间倒序，刚聊完的旧会话不会置顶——
+      // 用户习惯「最近用的在最上面」（2026-08-12 用户确认）
+      const sorted = [...all].sort((a, b) => b.updatedAt - a.updatedAt);
       // 主/子会话拆分：侧边栏/rail 只用主会话（方案 A），子会话供历史子任务归属（parentId 匹配）
-      sessions.value = all.filter((s) => !s.parentId);
-      childSessions.value = all.filter((s) => s.parentId);
+      sessions.value = sorted.filter((s) => !s.parentId);
+      childSessions.value = sorted.filter((s) => s.parentId);
       // Don't auto-select: user should start fresh or pick one explicitly
     } catch (err) {
       console.error("Failed to load sessions:", err);

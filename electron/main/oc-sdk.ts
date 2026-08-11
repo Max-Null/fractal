@@ -218,12 +218,51 @@ export interface OcConfigClient {
   providers(): Promise<ProviderListResponse>
 }
 
+// ── 生态面板数据（原「技能」tab）：serve 原生清单端点（v1.18.5 api-spec 实测）──
+
+export interface CapabilityAgent {
+  name: string
+  description: string
+  mode: string
+  native: boolean
+}
+export interface CapabilitySkill {
+  name: string
+  description: string
+  location: string
+}
+export interface CapabilityPlugin {
+  name: string
+  source: string
+}
+export interface CapabilityMcp {
+  name: string
+  /** serve 运行时状态：connected / disabled / failed / needsAuth / needsClientRegistration */
+  status: string
+  type: 'local' | 'remote' | ''
+  /** remote → url；local → command 前两项拼接 */
+  target: string
+}
+export interface CapabilityBundle {
+  agents: CapabilityAgent[]
+  skills: CapabilitySkill[]
+  plugins: CapabilityPlugin[]
+  mcp: CapabilityMcp[]
+}
+
+/** 生态清单客户端：单次聚合拉取（各端点独立容错，失败返回空数组） */
+export interface OcCapabilitiesClient {
+  list(): Promise<CapabilityBundle>
+}
+
 /** OC serve 客户端聚合（供 server-manager 阶段 4 使用） */
 export interface OcClient {
   session: OcSessionClient
   permission: OcPermissionClient
   file: OcFileClient
   config: OcConfigClient
+  /** 生态清单（agent/skill/plugin/mcp——serve 原生端点聚合） */
+  capabilities: OcCapabilitiesClient
   /** 底层 SDK client（events.ts 订阅 SSE 用） */
   raw: OpencodeClient
 }
@@ -329,6 +368,62 @@ export function createOcClient(options: OcClientOptions): OcClient {
       get: async () => normalizeError<Config>(await client.config.get()),
       update: async (config) => normalizeError<Config>(await client.config.update({ body: config })),
       providers: async () => normalizeError<ProviderListResponse>(await client.provider.list()),
+    },
+    capabilities: {
+      // 生态清单：/agent + /skill + /mcp + /config 并行拉取，各端点独立容错（任一失败返回空数组，
+      // 不让面板因单个端点异常整体不可用——2026-08-11 用户要求 serve 数据源）
+      list: async (): Promise<CapabilityBundle> => {
+        const authHeader = basicAuthHeader(options.username, options.password)
+        const get = async <T>(path: string): Promise<T | undefined> => {
+          try {
+            const res = await fetch(`${options.baseURL}${path}`, { headers: { Authorization: authHeader } })
+            if (!res.ok) return undefined
+            return (await res.json()) as T
+          } catch {
+            return undefined
+          }
+        }
+        const [agentsRaw, skillsRaw, mcpRaw, configRaw] = await Promise.all([
+          get<Array<Record<string, unknown>>>('/agent'),
+          get<Array<Record<string, unknown>>>('/skill'),
+          get<Record<string, Record<string, unknown>>>('/mcp'),
+          get<Record<string, unknown>>('/config'),
+        ])
+        const configMcp = configRaw?.mcp as Record<string, Record<string, unknown>> | undefined
+        const configPlugins = configRaw?.plugin as Array<string | [string, unknown]> | undefined
+        return {
+          agents: (agentsRaw ?? []).map((a) => ({
+            name: typeof a.name === 'string' ? a.name : '',
+            description: typeof a.description === 'string' ? a.description : '',
+            mode: typeof a.mode === 'string' ? a.mode : '',
+            native: a.native === true,
+          })),
+          skills: (skillsRaw ?? []).map((s) => ({
+            name: typeof s.name === 'string' ? s.name : '',
+            description: typeof s.description === 'string' ? s.description : '',
+            location: typeof s.location === 'string' ? s.location : '',
+          })),
+          // 插件数组元素：string（文件路径）或 [name, opts]——名字取路径 basename 去扩展名；
+          // npm 包声明（无 file://，如 opencode-acp@latest）去 @版本后缀，面板显示干净包名
+          plugins: (configPlugins ?? []).map((entry): CapabilityPlugin => {
+            const source = typeof entry === 'string' ? entry : entry[0]
+            const cleaned = source.replace(/^file:\/\//, '').replace(/\\/g, '/')
+            const base = cleaned.split('/').pop() ?? cleaned
+            return { name: base.replace(/\.(ts|js|mjs|cjs)$/i, '').replace(/@(latest|stable|next|beta|dev|\d[\w.-]*)$/, ''), source }
+          }),
+          // MCP：状态来自 /mcp（运行时真相），type/target 补充自 /config.mcp（local=command / remote=url）
+          mcp: Object.entries(mcpRaw ?? {}).map(([name, st]) => {
+            const conf = (configMcp?.[name] ?? {}) as { type?: string; command?: unknown; url?: string }
+            return {
+              name,
+              status: typeof st.status === 'string' ? st.status : 'unknown',
+              type: conf.type === 'local' || conf.type === 'remote' ? conf.type : '',
+              // command 畸形（非数组）时放弃拼接——单条目畸形不能拖垮整组（外层有整组容错，但组内应自愈）
+              target: conf.type === 'remote' ? String(conf.url ?? '') : Array.isArray(conf.command) ? (conf.command as string[]).slice(0, 2).join(' ') : '',
+            }
+          }),
+        }
+      },
     },
     raw: client,
   }

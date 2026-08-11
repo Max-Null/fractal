@@ -119,6 +119,32 @@ describe("buildTurnNodes", () => {
     expect(nodes[2].isSummary).toBe(true);
   });
 
+  it("首 text 节点标记（2026-08-11）：轮内 ≥2 条 text → 第一条 isLeadText（思考结果块），最后一条 isSummary", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [
+        makeAssistant({
+          contentBlocks: blocks(textBlock("###思考结果 先看一下现状"), toolBlock("t1"), textBlock("执行完成，总结如下")),
+        }),
+      ],
+    });
+    expect(nodes.map((n) => n.kind)).toEqual(["text", "tool", "text"]);
+    expect(nodes[0].isLeadText).toBe(true);
+    expect(nodes[0].isSummary).toBeUndefined();
+    expect(nodes[2].isLeadText).toBeUndefined();
+    expect(nodes[2].isSummary).toBe(true);
+  });
+
+  it("唯一 text 轮（仅一条正文）→ 不标记 isLeadText（避免把唯一内容当思考结果强调）", () => {
+    const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [makeAssistant({ contentBlocks: blocks(textBlock("唯一回答")) })],
+    });
+    expect(nodes).toHaveLength(1);
+    expect(nodes[0].isLeadText).toBeUndefined();
+    expect(nodes[0].isSummary).toBe(true);
+  });
+
   it("tool_result 块跳过：tool_use + tool_result → 仅 tool 节点", () => {
     const nodes = buildTurnNodes({
       user: userMsg(),

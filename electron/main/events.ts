@@ -1,9 +1,9 @@
 // OC 会话事件处理：serve SSE 事件流 → StreamFrontendEvent 映射层
 // 契约：与 renderer 的 StreamEvent（src/renderer/src/lib/electron-bridge.ts）完全一致，前端零改造
-// 事件源：serve /event SSE（sdk.event.subscribe，1.18.13 v1），事件名见阶段 0 实测 fixtures/events-*.json
+// 事件源：serve v2 global 端点 /api/event（不过滤实例目录；v1 /event 按订阅时当前实例过滤会导致
+//         多工作区会话零事件卡死，2026-08-11 实测），事件名见阶段 0 实测 fixtures/events-*.json
 // 映射表：docs/设计/分形-设计方案.md 3.1.2（v1.15 更新为 serve 实测事件名）
 
-import { createOpencodeClient } from '@opencode-ai/sdk'
 import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
 import { basicAuthHeader } from './oc-sdk'
 
@@ -596,39 +596,77 @@ export interface SubscribeEventsOptions {
 
 /**
  * 建立 serve SSE 事件订阅并持续消费。
- * 重连：SDK createSseClient 内置指数退避（默认 3s 起步、×2 递增、30s 封顶），
- * 连接中断自动重连；onError 上报每次失败，便于上层展示连接状态。
+ * 事件源：v2 global 端点 /api/event（不过滤实例目录）——v1 /event 按「订阅时的当前实例」过滤事件，
+ * 分形多工作区（fractal/doc-edit 等）会话在 serve 重启后订阅会因目录不匹配零事件 → GUI 卡「思考中」（2026-08-11 实测）。
+ * 重连：连接失败/中断按指数退避自动重连（3s 起步 ×2 递增 30s 封顶），与 SDK createSseClient 行为一致；
+ * onError 上报每次失败，便于上层展示连接状态。
  * 返回 stop()：中断订阅（abort 底层 fetch + 退出消费循环）。
  */
 export async function subscribeEvents(opts: SubscribeEventsOptions): Promise<() => void> {
   const controller = new AbortController()
-  const client = createOpencodeClient({
-    baseUrl: opts.baseURL,
-    headers: { Authorization: basicAuthHeader(opts.username, opts.password) },
-  })
   const ctx = createMapContext()
 
-  // 消费循环：SDK stream 是 AsyncGenerator（yield 单条 serve 事件），
-  // for-await 驱动读取；SDK 内部按指数退避自动重连，直到 signal abort
   const run = (async () => {
-    try {
-      const { stream } = await client.event.subscribe({ signal: controller.signal })
-      for await (const ev of stream) {
-        // server.connected 是 serve 就绪信号（连接建立后首个事件），通过独立回调上报
-        if (ev.type === 'server.connected') {
-          opts.onConnected?.()
-          continue
+    let retryDelay = 3_000
+    let attempt = 0
+    while (!controller.signal.aborted) {
+      attempt++
+      try {
+        // v2 全局事件端点：GlobalPaths.event = /global/event（serve 1.18.15 源码实锤；
+        // /api/event 不存在，会命中 SPA fallback 返回 200 HTML → 解析零事件，2026-08-11 实测）
+        const url = `${opts.baseURL}/global/event`
+        const res = await fetch(url, {
+          headers: { Authorization: basicAuthHeader(opts.username, opts.password) },
+          signal: controller.signal,
+        })
+        if (!res.ok) throw new Error(`SSE failed: ${res.status} ${res.statusText}`)
+        if (!res.body) throw new Error('No body in SSE response')
+        const reader = res.body.pipeThrough(new TextDecoderStream()).getReader()
+        let buffer = ''
+        // 读取 SSE 分块：\n\n 分隔事件；每条 data: 是 v2 事件（{ payload: { id, type, properties } }）
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += value
+          const chunks = buffer.split('\n\n')
+          buffer = chunks.pop() ?? ''
+          for (const chunk of chunks) {
+            let data = ''
+            for (const line of chunk.split('\n')) {
+              if (line.startsWith('data:')) data += line.replace(/^data:\s*/, '')
+            }
+            if (!data) continue
+            let parsed: unknown
+            try {
+              parsed = JSON.parse(data)
+            } catch {
+              continue
+            }
+            // v2 事件包一层 payload；解包后结构与 v1 一致（id/type/properties），mapServeEvent 直接复用
+            const payload = (parsed as { payload?: { id?: string; type?: string; properties?: unknown } }).payload
+            if (!payload || typeof payload.type !== 'string') continue
+            const ev = payload as ServeEvent
+            // server.connected 是 serve 就绪信号（连接建立后首个事件），通过独立回调上报
+            if (ev.type === 'server.connected') {
+              opts.onConnected?.()
+              continue
+            }
+            // 每次事件前刷新活跃会话（renderer 切会话是异步通知，事件到达时取最新值）
+            ctx.activeSessionId = opts.getActiveSessionId?.() ?? ''
+            for (const mapped of mapServeEvent(ev, ctx)) {
+              opts.onEvent(mapped)
+            }
+          }
         }
-        // 每次事件前刷新活跃会话（renderer 切会话是异步通知，事件到达时取最新值）
-        ctx.activeSessionId = opts.getActiveSessionId?.() ?? ''
-        for (const mapped of mapServeEvent(ev, ctx)) {
-          opts.onEvent(mapped)
-        }
+        break // 正常读完（serve 主动关流）→ 退出（重连由上层 serve 状态驱动）
+      } catch (err) {
+        // abort 是主动停止（signal.aborted），不视为错误上报
+        if (controller.signal.aborted) return
+        opts.onError?.(err)
+        // 指数退避重连（3s 起步 ×2 递增，30s 封顶；与 SDK createSseClient 对齐）
+        const backoff = Math.min(retryDelay * 2 ** (attempt - 1), 30_000)
+        await new Promise((r) => setTimeout(r, backoff))
       }
-    } catch (err) {
-      // abort 是主动停止（signal.aborted），不视为错误上报
-      if (controller.signal.aborted) return
-      opts.onError?.(err)
     }
   })()
 

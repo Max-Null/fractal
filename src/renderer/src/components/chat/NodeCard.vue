@@ -151,13 +151,9 @@ const snippet = computed(() => {
   return s.length < (props.node.text ?? "").length ? s + "…" : s;
 });
 
-/** 思考结论节点识别：text 块以「###思考结论」开头（主 agent 的结论输出块）。
- * 与思考过程节点（thinking）同语义色系但独立卡片样式，区别于普通正文直出。
- * 正则容错 ### 与标题间的空格/全角空格差异 */
-const isConclusionNode = computed(() => {
-  if (props.node.kind !== "text") return false;
-  return /^###\s*思考结论/.test((props.node.text ?? "").trimStart());
-});
+/** 首 text 节点（思考结果块）判定：轮内第一条 text 且轮内有 ≥2 条 text（node-timeline 构建期标记 isLeadText，
+ * 不靠标题文字匹配——主 agent 措辞会漂移：###思考结论 / ###思考结果 实测都出现） */
+const isLeadTextNode = computed(() => props.node.kind === "text" && !!props.node.isLeadText);
 
 /** tool 展开区：input/result 格式化展示（原 MessageBubble formatJSON 迁移） */
 function formatJSON(obj: unknown): string {
@@ -178,8 +174,8 @@ function formatJSON(obj: unknown): string {
       'node-card--thinking': node.kind === 'thinking',
       'node-card--tool': node.kind === 'tool',
       'node-card--subtask': node.kind === 'subtask',
-      // 思考结论卡：text 块以 ###思考结论 开头（识别逻辑见 isConclusionNode）
-      'node-card--conclusion': isConclusionNode,
+      // 首 text 节点（思考结果块）：主题色正文，其余与普通 text 一致（结构标记见 isLeadTextNode）
+      'node-card--lead-text': isLeadTextNode,
     }"
   >
     <!-- ═══ thinking：标题行（收起态只渲染标题行——流式性能 D17）+ 点击展开全文 ═══ -->
@@ -207,14 +203,7 @@ function formatJSON(obj: unknown): string {
         <Flag class="node-card-icon" :size="13" />
         <span class="node-card-label">{{ t('chat.timelineSummary') }}</span>
       </div>
-      <!-- 思考结论头行（2026-08-11：###思考结论 块与其他正文区分——琥珀卡片 + Brain 图标，
-           与思考过程节点同色系表达「结论是思考的产物」） -->
-      <div v-if="isConclusionNode" class="node-card-head node-card-head--conclusion">
-        <span class="node-card-head-left">
-          <Brain class="node-card-icon" :size="13" />
-          <span class="node-card-label">{{ t('chat.conclusionLabel') }}</span>
-        </span>
-      </div>
+      <!-- 首 text 节点（思考结果块）：无头行，与普通 text 同构（差异仅正文主题色，见 .node-card--lead-text） -->
       <MarkdownRenderer :content="node.text ?? ''" />
     </div>
 
@@ -308,6 +297,11 @@ function formatJSON(obj: unknown): string {
   padding: 2px 10px;
   background: transparent;
 }
+/* 普通 text 正文默认色：primary（正文常规色）——不用 secondary（浅灰偏弱，2026-08-11 用户反馈）；
+   MarkdownRenderer 的 prose 自带 primary（--tw-prose-body），显式声明保证与 lead 节点对比清晰 */
+.node-card-text :deep(.markdown-body) {
+  color: var(--text-primary);
+}
 /* 总结正文：加深内容文字（默认 text-secondary 在绿底上偏灰；去底后仍保持强调——
    :deep 穿透 MarkdownRenderer 的 .markdown-body（prose 类自带 color 不随父继承）） */
 .node-card--summary .node-card-text {
@@ -317,26 +311,11 @@ function formatJSON(obj: unknown): string {
   color: var(--text-primary);
 }
 
-/* 思考结论卡（2026-08-11）：###思考结论 块——琥珀边框 + 浅琥珀 tint 背景，
-   与思考过程节点同色系（都是「想」的产物），但有别于思考过程（纯边框）与普通正文（无边框直出）。
-   text 节点默认无边框，此处显式卡片化 */
-.node-card--conclusion {
-  border: 1px solid rgba(217, 119, 6, 0.4);
-  border-radius: 6px;
-  background: rgba(217, 119, 6, 0.06);
-  padding: 2px 10px;
-}
-/* 结论正文：加深文字（默认 text-secondary 偏灰，卡片背景下可读性优先） */
-.node-card--conclusion .node-card-text {
-  color: var(--text-primary);
-}
-.node-card--conclusion :deep(.markdown-body) {
-  color: var(--text-primary);
-}
-/* 结论头行：与思考过程标题同色（琥珀），语义呼应 */
-.node-card-head--conclusion {
-  color: var(--amber);
-  cursor: default;
+/* 首 text 节点（思考结果块，2026-08-11 用户拍板）：用主题强调色 accent——暗色主题绿（#34d399）、
+   亮色主题蓝（#0ea5e9），随 data-theme 自动切换；与普通正文（primary 灰阶）形成彩色对比 */
+.node-card--lead-text .node-card-text,
+.node-card--lead-text :deep(.markdown-body) {
+  color: var(--accent);
 }
 
 /* 2026-08-10 统一边框（用户拍板：除文本节点外，thinking/tool/todo/subtask 统一卡片边框；

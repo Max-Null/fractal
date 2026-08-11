@@ -20,7 +20,7 @@ const ALLOWED_INVOKE = [
   'settings:saveUiSettings', 'settings:loadUiSettings',
   'settings:saveProviderConfig', 'settings:loadProviderConfigs',
   'settings:getConfig', 'settings:saveSettings', 'settings:getSchema',
-  'logs:saveSessionDebugLog', 'logs:readServeLog', 'logs:loadSessionLogs',
+  'logs:saveSessionDebugLog', 'logs:readServeLog', 'logs:loadSessionLogs', 'logs:readRendererLog',
   'app:getInfo',
   'dialog:openDialog', 'dialog:saveDialog',
   'chat:sendMessage', 'chat:stopSession',
@@ -35,6 +35,7 @@ const ALLOWED_INVOKE = [
   'memory:list', 'memory:confirm', 'memory:remove',
   'plans:list',
   'status:get',
+  'capabilities:list',
   'window:openWorkspace',
   'window:registerWorkspace'
 ] as const

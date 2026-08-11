@@ -256,3 +256,80 @@ describe('session.list v2', () => {
     await expect(client.session.list()).rejects.toThrow(/HTTP 500/)
   })
 })
+
+// ── capabilities.list（生态清单：/agent /skill /mcp /config 四端点聚合）──
+
+describe('capabilities.list', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  // mock 按 url 分发四端点响应（模拟 serve 真实结构）
+  function stubEndpoints(overrides: { failAgent?: boolean; failAll?: boolean } = {}) {
+    vi.stubGlobal('fetch', vi.fn(async (url: RequestInfo | URL) => {
+      const u = String(url)
+      if (overrides.failAll) return new Response('', { status: 500 })
+      if (u.endsWith('/agent') && !overrides.failAgent) {
+        return new Response(JSON.stringify([
+          { name: '双星', description: '主力助手', mode: 'primary', native: false },
+          { name: 'plan', description: '拆解计划', mode: 'subagent', native: true },
+        ]), { status: 200 })
+      }
+      if (u.endsWith('/skill')) {
+        return new Response(JSON.stringify([
+          { name: 'mxy-commit-review', description: '审查提交', location: 'file:///x/SKILL.md' },
+        ]), { status: 200 })
+      }
+      if (u.endsWith('/mcp')) {
+        return new Response(JSON.stringify({ github: { status: 'connected' }, exa: { status: 'disabled' } }), { status: 200 })
+      }
+      if (u.endsWith('/config')) {
+        return new Response(JSON.stringify({
+          plugin: ['file:///C:/p/fractal-guardian.js', ['agents-priority', {}], 'opencode-acp@latest'],
+          mcp: {
+            github: { type: 'remote', url: 'https://api.githubcopilot.com/mcp/' },
+            exa: { type: 'local', command: ['npx', 'exa', '--x'] },
+          },
+        }), { status: 200 })
+      }
+      return new Response('', { status: 404 })
+    }))
+  }
+
+  it('聚合四端点 → bundle（插件取 basename 去扩展名 / MCP 状态与类型合并）', async () => {
+    stubEndpoints()
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    const b = await client.capabilities.list()
+
+    expect(b.agents).toEqual([
+      { name: '双星', description: '主力助手', mode: 'primary', native: false },
+      { name: 'plan', description: '拆解计划', mode: 'subagent', native: true },
+    ])
+    expect(b.skills[0]).toMatchObject({ name: 'mxy-commit-review', description: '审查提交' })
+    // 插件：file:// 前缀去除 + 取文件名 + 去 .ts/.js 扩展名；npm 包声明（opencode-acp@latest）去 @版本后缀
+    expect(b.plugins).toEqual([
+      { name: 'fractal-guardian', source: 'file:///C:/p/fractal-guardian.js' },
+      { name: 'agents-priority', source: 'agents-priority' },
+      { name: 'opencode-acp', source: 'opencode-acp@latest' },
+    ])
+    // MCP：状态来自 /mcp，type/target 补充自 /config
+    expect(b.mcp).toEqual([
+      { name: 'github', status: 'connected', type: 'remote', target: 'https://api.githubcopilot.com/mcp/' },
+      { name: 'exa', status: 'disabled', type: 'local', target: 'npx exa' },
+    ])
+  })
+
+  it('单端点失败 → 对应组空数组，其余正常（面板不整体崩）', async () => {
+    stubEndpoints({ failAgent: true })
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    const b = await client.capabilities.list()
+
+    expect(b.agents).toEqual([])
+    expect(b.skills).toHaveLength(1)
+    expect(b.plugins).toHaveLength(3)
+  })
+
+  it('全部失败 → 全空 bundle 不抛', async () => {
+    stubEndpoints({ failAll: true })
+    const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
+    await expect(client.capabilities.list()).resolves.toEqual({ agents: [], skills: [], plugins: [], mcp: [] })
+  })
+})

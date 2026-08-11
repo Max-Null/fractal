@@ -4,16 +4,18 @@
 // 两者都按「读现有 → 写自身字段」merge，顺序无关但均须在 startServer 前完成（serve 启动时加载配置，阶段 0 实测）
 import { promises as fsp } from 'node:fs'
 import { existsSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { getConfigPath, getJsoncPath, SMALL_MODEL, VISION_MODEL, ANTHROPIC_MODEL, resolveSmallModel } from './oc-config'
 import { parseAndValidate } from './settings'
 
-/** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段 */
+/** 预置清单：version 驱动幂等初始化，defaultAgent/instructions 决定 merge 进 opencode.json 的字段，mcp 为预置 MCP 清单 */
 export interface PresetManifest {
   version: string
   defaultAgent: string
   instructions: string[]
+  mcp?: Record<string, unknown>
 }
 
 /** 模型槽位：agent → 槽位映射（high=主模型 / low=轻量 / vision=多模态 / anthropic=Anthropic 兼容 / inherit=继承主模型） */
@@ -71,7 +73,9 @@ export async function readPresetManifest(presetRoot: string): Promise<PresetMani
   return {
     version: manifest.version,
     defaultAgent: manifest.defaultAgent,
-    instructions: Array.isArray(manifest.instructions) ? manifest.instructions : []
+    instructions: Array.isArray(manifest.instructions) ? manifest.instructions : [],
+    // mcp 段可选（旧预置包无此字段——解析到对象才保留，否则空对象）
+    mcp: manifest.mcp && typeof manifest.mcp === 'object' && !Array.isArray(manifest.mcp) ? (manifest.mcp as Record<string, unknown>) : undefined,
   }
 }
 
@@ -212,12 +216,15 @@ export async function getPresetVersion(presetRoot = getDefaultPresetRoot()): Pro
 }
 
 /**
- * merge 预置字段进 opencode.json：default_agent / plugin 声明 / instructions 指令文件路径。
- * 不覆盖用户已有配置——三个字段都只补缺：已有值保留，数组项去重追加。
+ * merge 预置字段进 opencode.json：default_agent / plugin 声明 / mcp 清单 / instructions 指令文件路径。
+ * 不覆盖用户已有配置——default_agent/mcp 只补缺，plugin/instructions 数组项去重追加；
+ * 另清理分形前身 oc-gui 的配置目录残留死路径（见 plugin 段注释）。
+ * globalConfigPath 可选注入（测试用）：默认探测用户全局配置（~/.config/opencode/opencode.json[.jsonc]）。
  */
 export async function ensurePresetConfig(
   userDataDir: string,
-  presetRoot = getDefaultPresetRoot()
+  presetRoot = getDefaultPresetRoot(),
+  globalConfigPath?: string
 ): Promise<void> {
   const manifest = await readPresetManifest(presetRoot)
   const target = getPresetTarget(userDataDir)
@@ -225,7 +232,9 @@ export async function ensurePresetConfig(
   let cfg: Record<string, unknown> = {}
   try {
     const raw = await fsp.readFile(filePath, 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
+    // 剥 BOM：外部编辑器/PowerShell 可能写入 BOM（Set-Content -Encoding UTF8），JSON.parse 遇 BOM 直接抛错
+    // ——一旦抛错配置被当损坏重置，用户自定义字段（如 opencode-acp 插件声明）会静默丢失
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       cfg = parsed as Record<string, unknown>
     }
@@ -240,14 +249,30 @@ export async function ensurePresetConfig(
   }
 
   // plugin 声明：file:// 绝对路径（对齐用户全局 opencode.json 格式，OC resolvePluginSpec 会规范化加载）；
-  // 插件文件不存在（用户手动删除预置插件）则不声明，避免 serve 加载失效路径
+  // 插件文件不存在（用户手动删除预置插件）则不声明，避免 serve 加载失效路径。
+  // 同时清理历史迁移残留：分形前身 oc-gui 的配置目录条目（目录已删，声明是死路径）——
+  // merge 语义是「补缺」，死路径既不补缺也不该保留，否则 serve 面板出现幽灵插件
   const pluginDecls = await buildPluginDecls(target)
   if (pluginDecls.length > 0) {
-    const plugins = Array.isArray(cfg.plugin) ? (cfg.plugin as unknown[]) : []
+    const plugins = Array.isArray(cfg.plugin)
+      ? (cfg.plugin as unknown[]).filter(
+          // oc-gui 死路径清理 + guardian 临时停用（日志风暴阻塞 serve 事件循环，待 oc-plus 修复后恢复）
+          (p) => !(typeof p === 'string' && (p.includes('/oc-gui/') || p.includes('fractal-guardian')))
+        )
+      : []
     for (const decl of pluginDecls) {
       if (!plugins.includes(decl)) plugins.push(decl)
     }
     cfg.plugin = plugins
+  }
+
+  // mcp 段：仅当目标配置无 mcp 时写入（merge 不覆盖用户选择）——
+  // 预置内置清单（preset.json.mcp，无凭据公开端点）为底，用户全局 MCP 迁移补缺（同名覆盖、本机配置是真相）。
+  // 面向小白：无全局配置时预置 3 个公开 MCP 保证生态面板非空且开箱可用
+  if (!cfg.mcp || Object.keys(cfg.mcp as Record<string, unknown>).length === 0) {
+    const builtin = manifest.mcp ?? {}
+    const global = await readGlobalMcp(globalConfigPath)
+    cfg.mcp = { ...builtin, ...global }
   }
 
   // instructions：OC 只把数组元素当文件路径/glob/URL 加载（2026-08-07 源码查证，直接文本会被当 glob 解析后失败）——
@@ -372,10 +397,11 @@ export async function applyModelAliases(
   }
 }
 
-/** 预置插件声明：仅声明实际存在的插件文件（防用户删除后 serve 加载失效路径报错） */
+/** 预置插件声明：仅声明实际存在的插件文件（防用户删除后 serve 加载失效路径报错）。
+ *  注意：fractal-guardian 已临时停用（2026-08-11 日志风暴阻塞 serve 事件循环导致 GUI 卡死，oc-plus 修复后恢复）。 */
 async function buildPluginDecls(target: string): Promise<string[]> {
   const pluginsDir = join(target, 'plugins')
-  const files = ['fractal-guardian.js', 'agents-priority.ts']
+  const files = ['agents-priority.ts']
   const decls: string[] = []
   for (const f of files) {
     const abs = join(pluginsDir, f)
@@ -388,6 +414,36 @@ async function buildPluginDecls(target: string): Promise<string[]> {
     decls.push(pathToFileURL(abs).href)
   }
   return decls
+}
+
+/**
+ * 读用户全局 opencode 配置的 mcp 段（「当前 OC 安装的 MCP」迁移来源）。
+ * 候选路径依次探测（openCode 加载顺序：.json 优先于 .jsonc？——实际 .jsonc 优先，但两个都读保证兼容）：
+ *   ~/.config/opencode/opencode.json / ~/.config/opencode/opencode.jsonc
+ * 缺失/解析失败 → 空对象（小白用户无全局配置，静默跳过不报错）。
+ * globalConfigPath 由测试注入假全局配置，绕过真实用户目录。
+ */
+async function readGlobalMcp(globalConfigPath?: string): Promise<Record<string, unknown>> {
+  const candidates = globalConfigPath
+    ? [globalConfigPath]
+    : [
+        join(homedir(), '.config', 'opencode', 'opencode.json'),
+        join(homedir(), '.config', 'opencode', 'opencode.jsonc'),
+      ]
+  for (const p of candidates) {
+    try {
+      const raw = await fsp.readFile(p, 'utf-8')
+      // 剥 BOM：与 ensurePresetConfig 一致（外部编辑器/PowerShell 可能写入 BOM，JSON.parse 遇 BOM 抛错
+      // → MCP 迁移静默丢失，2026-08-12 审查发现）
+      const cfg = JSON.parse(raw.replace(/^\uFEFF/, '')) as { mcp?: unknown }
+      if (cfg?.mcp && typeof cfg.mcp === 'object' && !Array.isArray(cfg.mcp)) {
+        return cfg.mcp as Record<string, unknown>
+      }
+    } catch {
+      // 单文件缺失/损坏 → 尝试下一个候选
+    }
+  }
+  return {}
 }
 
 /** 写预置指令文件：仅首次创建；已存在不覆盖（用户可能自定义过文案），内容一致时不刷盘 */

@@ -11,7 +11,7 @@ import GitPanel from "./GitPanel.vue";
 import MemoryPanel from "@/components/panel/MemoryPanel.vue";
 import StatusPanel from "@/components/panel/StatusPanel.vue";
 import PlansPanel from "@/components/panel/PlansPanel.vue";
-import SkillsPanel from "@/components/panel/SkillsPanel.vue";
+import CapabilitiesPanel from "@/components/panel/CapabilitiesPanel.vue";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 import { useSettingsStore } from "@/stores/settings";
 
@@ -48,7 +48,7 @@ const panelTabs: { id: PanelTab; icon: string; label: string }[] = [
   { id: "memory", icon: "🧠", label: "记忆" },
   { id: "status", icon: "📊", label: "状态" },
   { id: "plans", icon: "📋", label: "计划" },
-  { id: "skills", icon: "🧩", label: "技能" },
+  { id: "skills", icon: "🧩", label: "生态" },
 ];
 const refreshKey = ref(0);  // 文件操作后触发 FileTree 刷新展开目录
 const splitRatio = ref(35); // 文件树占比 %
@@ -348,7 +348,7 @@ function goUp() {
         <!-- 计划 tab：plans/ 计划列表骨架 -->
         <PlansPanel v-else-if="panelTab === 'plans'" />
         <!-- 技能 tab：预置技能分组骨架 -->
-        <SkillsPanel v-else-if="panelTab === 'skills'" />
+        <CapabilitiesPanel v-else-if="panelTab === 'skills'" />
       </div>
     </aside>
   </div>

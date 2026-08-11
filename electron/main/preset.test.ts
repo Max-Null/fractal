@@ -40,7 +40,17 @@ async function makeFixturePreset(version = '1.0.0'): Promise<string> {
   await fsp.writeFile(
     join(presetRoot, 'preset.json'),
     JSON.stringify(
-      { version, defaultAgent: '双星', instructions: ['预置指令一', '预置指令二'] },
+      {
+        version,
+        defaultAgent: '双星',
+        instructions: ['预置指令一', '预置指令二'],
+        // 预置内置 MCP：对齐真实交付物（无凭据公开端点）
+        mcp: {
+          websearch: { type: 'remote', enabled: true, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa' },
+          gh_grep: { type: 'remote', enabled: true, url: 'https://mcp.grep.app' },
+          context7: { type: 'remote', enabled: true, url: 'https://mcp.context7.com/mcp' },
+        },
+      },
       null,
       2
     ),
@@ -191,9 +201,8 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     expect(cfg.default_agent).toBe('双星')
     // plugin 声明格式对齐用户全局 opencode.json：file:// 绝对路径
     const plugins = cfg.plugin as string[]
-    expect(plugins).toContain(
-      `file:///${join(getPresetTarget(userData), 'plugins', 'fractal-guardian.js').replace(/\\/g, '/')}`
-    )
+    // guardian 临时停用（2026-08-11 日志风暴阻塞 serve 事件循环，oc-plus 修复后恢复）——声明不应出现
+    expect(plugins.some((p) => p.includes('fractal-guardian'))).toBe(false)
     expect(plugins).toContain(
       `file:///${join(getPresetTarget(userData), 'plugins', 'agents-priority.ts').replace(/\\/g, '/')}`
     )
@@ -229,7 +238,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     expect(cfg.default_agent).toBe('build') // 用户选择优先，不覆盖
     const plugins = cfg.plugin as string[]
     expect(plugins).toContain(existingPlugin) // 用户插件保留
-    expect(plugins.length).toBe(3) // superpowers + 2 个预置插件
+    expect(plugins.length).toBe(2) // superpowers + 1 个预置插件（guardian 临时停用）
     const instructions = cfg.instructions as string[]
     expect(instructions).toContain(existingInstruction) // 用户指令保留
     expect(instructions.length).toBe(2) // 用户指令 + 预置指令文件
@@ -245,7 +254,7 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
       unknown
     >
     expect(cfg.default_agent).toBe('双星')
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
     expect(
       (cfg.instructions as string[]).filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length
     ).toBe(1)
@@ -260,10 +269,100 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
       string,
       unknown
     >
-    const plugins = cfg.plugin as string[]
-    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(true)
+    const plugins = (cfg.plugin as string[] | undefined) ?? []
+    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(false)
     expect(plugins.some((p) => p.includes('agents-priority'))).toBe(false)
   })
+
+  it('清理分形前身 oc-gui 的配置目录残留插件声明（幽灵插件）', async () => {
+    await initPreset(userData, presetRoot)
+    // 模拟历史迁移残留：plugin 段含 oc-gui 目录死路径（目录已删）+ 用户自定义插件
+    const ghost =
+      'file:///C:/Users/x/AppData/Roaming/oc-gui/config/opencode/plugins/fractal-guardian.js'
+    const custom = 'superpowers'
+    await fsp.writeFile(getConfigPath(userData), JSON.stringify({ plugin: [ghost, custom] }), 'utf-8')
+
+    await ensurePresetConfig(userData, presetRoot)
+
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const plugins = cfg.plugin as string[]
+    expect(plugins.some((p) => p.includes('/oc-gui/'))).toBe(false) // 幽灵条目清理
+    expect(plugins).toContain(custom) // 用户自定义保留
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用不追加
+  })
+
+  it('mcp 段：无配置时写入 预置内置 + 用户全局迁移（同名全局优先）', async () => {
+    await initPreset(userData, presetRoot)
+    // 假全局配置：context7 自定义 url（同名覆盖预置）+ github（私有凭据 MCP，本机迁移）
+    const globalCfg = join(userData, 'global-opencode.json')
+    await fsp.writeFile(
+      globalCfg,
+      JSON.stringify({
+        mcp: {
+          context7: { type: 'remote', enabled: true, url: 'https://custom.context7/mcp' },
+          github: { type: 'remote', url: 'https://api.githubcopilot.com/mcp/', enabled: true },
+        },
+      }),
+      'utf-8'
+    )
+
+    await ensurePresetConfig(userData, presetRoot, globalCfg)
+
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const mcp = cfg.mcp as Record<string, { url?: string }>
+    expect(mcp.websearch.url).toContain('exa.ai') // 预置内置保留
+    expect(mcp.gh_grep).toBeTruthy()
+    expect(mcp.github).toBeTruthy() // 全局私有 MCP 迁移
+    expect(mcp.context7.url).toBe('https://custom.context7/mcp') // 同名全局优先
+  })
+
+  it('mcp 段：无全局配置 → 仅预置内置；已有 mcp → 不覆盖', async () => {
+    await initPreset(userData, presetRoot)
+    // 无全局配置（注入不存在的路径，避免读到真实用户目录）
+    await ensurePresetConfig(userData, presetRoot, join(userData, 'no-global.json'))
+
+    let cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const builtin = cfg.mcp as Record<string, unknown>
+    expect(Object.keys(builtin).length).toBeGreaterThanOrEqual(3) // 预置内置 websearch/gh_grep/context7
+
+    // 用户已有 mcp → merge 不覆盖
+    await fsp.writeFile(
+      getConfigPath(userData),
+      JSON.stringify({ mcp: { mine: { type: 'remote', url: 'https://mine' } } }),
+      'utf-8'
+    )
+    await ensurePresetConfig(userData, presetRoot, join(userData, 'no-global.json'))
+    cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<string, unknown>
+    expect((cfg.mcp as Record<string, unknown>).mine).toBeTruthy()
+    expect((cfg.mcp as Record<string, unknown>).context7).toBeUndefined() // 已有 mcp 不再写预置
+  })
+
+  it('BOM 防御：带 BOM 的配置（外部编辑器写入）不被当损坏重置，用户字段保留', async () => {
+    await initPreset(userData, presetRoot)
+    // 模拟 PowerShell Set-Content -Encoding UTF8 写入：BOM 开头 + 自定义插件声明
+    const custom = 'opencode-acp@latest'
+    await fsp.writeFile(getConfigPath(userData), `\uFEFF${JSON.stringify({ plugin: [custom] })}`, 'utf-8')
+
+    await ensurePresetConfig(userData, presetRoot)
+
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const plugins = cfg.plugin as string[]
+    expect(plugins).toContain(custom) // BOM 未导致配置重置，自定义插件保留
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用不追加
+  })
+
 
   it('指令文件已存在（用户自定义过）不覆盖', async () => {
     await initPreset(userData, presetRoot)
@@ -322,7 +421,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     >
     expect(cfg.default_agent).toBe(manifest.defaultAgent)
     const plugins = cfg.plugin as string[]
-    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
+    expect(plugins.filter((p) => p.includes('fractal-guardian.js')).length).toBe(0) // guardian 临时停用
     expect(plugins.filter((p) => p.includes('agents-priority.ts')).length).toBe(1)
     const instructions = cfg.instructions as string[]
     expect(instructions.filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
@@ -347,7 +446,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
       string,
       unknown
     >
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
     expect((cfg.instructions as string[]).length).toBe(1)
   })
 
@@ -364,7 +463,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     >
     expect(cfg.default_agent).toBe('双星')
     expect(cfg.model).toBe('deepseek/deepseek-v4-pro')
-    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(1)
+    expect((cfg.plugin as string[]).filter((p) => p.includes('fractal-guardian.js')).length).toBe(0)
     expect((cfg.instructions as string[]).filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
   })
 })

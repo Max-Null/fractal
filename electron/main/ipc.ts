@@ -8,7 +8,7 @@ import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
 import { type ServerManager, getEngineVersion, type ServerInfo, appendServeLog } from './server-manager'
 import { getPresetVersion } from './preset'
-import { type OcClient, type SessionMessage, basicAuthHeader } from './oc-sdk'
+import { type OcClient, type SessionMessage, type CapabilityBundle, basicAuthHeader } from './oc-sdk'
 import { listMemories, confirmMemory, removeMemory, listPlans, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
 import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
@@ -486,6 +486,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
     const r = getSettingsConfig()
     return { ...r, exists: getSettingsFileExists() }
+  })
+
+  // ── 生态面板（原「技能」tab）：serve 原生清单聚合（oc-sdk capabilities.list）──
+  // 引擎未初始化/端点异常 → 返回空 bundle（面板显示空态，不让单个端点拖垮整体）
+  ipcMain.handle('capabilities:list', async (): Promise<CapabilityBundle> => {
+    try {
+      const client = await requireClient()
+      return await client.capabilities.list()
+    } catch {
+      return { agents: [], skills: [], plugins: [], mcp: [] }
+    }
   })
 
   ipcMain.handle('settings:saveSettings', async (_e, args: { jsoncText: string }) => {
@@ -1286,9 +1297,32 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
   let boundPass = ''
 
   /** 按当前 serve 凭据建立/重建 SSE 订阅（凭据变化才重建——onStatusChange 每次状态变化都触发） */
+  let readyRetry = 0
+  /** 就绪等待重试 timer：窗口 closed 时必须清除（否则关闭后 3s 仍触发重建订阅，事件发往已销毁 webContents） */
+  let readyRetryTimer: NodeJS.Timeout | null = null
   async function establishSubscription(info: ServerInfo): Promise<void> {
     if (!info.running || !info.baseURL || !info.username || !info.password) return
     if (boundURL === info.baseURL && boundUser === info.username && boundPass === info.password) return
+    // 等 serve 初始化完成（message=init 行）再订阅：/doc 可达时 serve 可能仍在加载（事件总线未初始化），
+    // 过早订阅挂在未就绪窗口——SDK fetch 无超时 → 零事件 → GUI 永远卡「思考中」（2026-08-11 实测）
+    // 注意：成功 resolve 时 await 返回 undefined——判断必须显式对比 false（!undefined 恒 true 会把正常路径当失败）
+    const initOk = await manager.waitEventConnected(10_000).catch(() => false)
+    if (initOk === false) {
+      // serve 活着但未输出 init 行：延迟重试（serve 崩溃重启后会走 onStatusChange 重建，此重试兜底未触发场景）
+      if (readyRetry < 2) {
+        readyRetry++
+        console.warn(`[engine] serve 未输出 message=init，3s 后重试订阅（第 ${readyRetry} 次）`)
+        readyRetryTimer = setTimeout(() => {
+          readyRetryTimer = null
+          void establishSubscription(info)
+        }, 3_000)
+      } else {
+        readyRetry = 0
+        console.warn('[engine] serve 就绪等待超限，跳过本次订阅（等待下一次引擎状态变化）')
+      }
+      return
+    }
+    readyRetry = 0
     // 停旧订阅（serve 重启后旧连接已死，abort 幂等；窗口 closed 清理只关最新订阅）
     if (stopCurrent) {
       stopCurrent()
@@ -1333,6 +1367,11 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
   // 窗口关闭即中断订阅（SDK 底层 abort fetch + 退出消费循环）+ 清理活跃会话分桶（防泄漏）
   win.on('closed', () => {
     activeSessionByWebContents.delete(wcId)
+    // 清除就绪等待重试 timer：窗口已销毁，延迟回调不应再触发订阅重建（发往已销毁 webContents）
+    if (readyRetryTimer) {
+      clearTimeout(readyRetryTimer)
+      readyRetryTimer = null
+    }
     stopCurrent?.()
     stopCurrent = null
   })

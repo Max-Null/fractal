@@ -1,4 +1,4 @@
-﻿// OC 配置读写：对齐 opencode 的配置文件结构（类 VSCode settings.json）
+// OC 配置读写：对齐 opencode 的配置文件结构（类 VSCode settings.json）
 // 阶段 4 实现：读取/写入分形独立配置目录（D17 定案）下的 opencode.json，
 // 支撑 agent 自检自改配置。merge 策略：受管字段（provider.deepseek / model / permission）覆盖写，
 // 用户其他字段（agent/plugins/ui 等）原样保留。
@@ -44,7 +44,7 @@ export async function resolveSmallModel(userDataDir: string): Promise<string> {
     return SMALL_MODEL
   }
   try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Record<string, unknown>
     const value = parsed?.smallModel
     // 字段缺失 → 默认小模型；显式字符串（含 '' 跟随主模型）原样返回——'' 由 ensureConfig 判定不写
     return typeof value === 'string' ? value : SMALL_MODEL
@@ -138,7 +138,7 @@ export function buildPermissionRule(permissionMode: 'default' | 'auto', userData
 async function readProviderConfigs(userDataDir: string): Promise<Record<string, { apiKey?: string }>> {
   try {
     const raw = await fsp.readFile(join(userDataDir, 'provider-configs.json'), 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, { apiKey?: string }>
     }
@@ -157,7 +157,7 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   let cfg: Record<string, unknown> = {}
   try {
     const raw = await fsp.readFile(filePath, 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       cfg = parsed as Record<string, unknown>
     }

@@ -606,6 +606,48 @@ describe('logs:readServeLog / app:getInfo handler', () => {
   })
 })
 
+// ── capabilities:list（生态清单：serve 四端点聚合，未注入 serverManager 降级空 bundle）──
+describe('capabilities:list handler', () => {
+  // 与 saveProviderConfig 相同：清空累积的 handler，保证 find 命中本用例注册的最新 handler
+  beforeEach(() => {
+    electronMock.handleCalls.length = 0
+  })
+
+  it('未注入 serverManager → 返回空 bundle 不抛', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'capabilities:list')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { agents: unknown[] }
+    expect(r).toEqual({ agents: [], skills: [], plugins: [], mcp: [] })
+  })
+
+  it('注入 serverManager → 透传 capabilities.list 结果', async () => {
+    const list = vi.fn(async () => ({
+      agents: [{ name: '双星', description: '主力助手', mode: 'primary', native: false }],
+      skills: [], plugins: [], mcp: [],
+    }))
+    registerIpcHandlers({
+      getClient: () => ({ capabilities: { list } }),
+      ready: async () => {},
+    } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'capabilities:list')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { agents: { name: string }[] }
+    expect(r.agents[0].name).toBe('双星')
+    expect(list).toHaveBeenCalledOnce()
+  })
+
+  it('capabilities.list 抛错 → 降级空 bundle（面板不崩）', async () => {
+    registerIpcHandlers({
+      getClient: () => ({ capabilities: { list: vi.fn(async () => { throw new Error('boom') }) } }),
+      ready: async () => {},
+    } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'capabilities:list')
+    expect(h).toBeDefined()
+    await expect(h!.handler({})).resolves.toEqual({ agents: [], skills: [], plugins: [], mcp: [] })
+  })
+})
+
 // ── settings:saveProviderConfig / settings:loadProviderConfigs（多 provider 扩展：deepseek + moonshotai-cn）──
 describe('saveProviderConfig（多 provider 持久化）', () => {
   let userDataDir: string

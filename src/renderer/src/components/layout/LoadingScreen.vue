@@ -5,6 +5,9 @@
  */
 import { computed, ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
 
+// 应用版本（构建注入，与设置页同源；启动画面 footer 显示——不写死，避免发版后过时）
+const appVersion = __APP_VERSION__
+
 // ── Canvas 3D Si 原子渲染（数学投影，2026-08-09）──
 // CSS 平面圆在 3D 里必然被压扁（用户实测不可见）；Canvas 画径向渐变球体 +
 // 旋转矩阵投影（近大远小）+ z 分层遮挡（后段电子先画在核下/前段后画在核上）——任意角度都是圆
@@ -209,7 +212,7 @@ watch(stageLines, async () => {
       <span v-if="timedOut" class="boot-timeout">{{ $t('chat.engineNotReady') }}</span>
     </div>
 
-    <div class="boot-footer">分形 v0.1.0 · OC 引擎 v1.18.15</div>
+    <div class="boot-footer">分形 v{{ appVersion }}</div>
   </div>
 </template>
 

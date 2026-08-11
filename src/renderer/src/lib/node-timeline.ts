@@ -16,6 +16,9 @@ export interface TimelineNode {
   tool?: ToolUse;
   /** 回合最后 text 节点标记为 ✅ 总结（D7） */
   isSummary?: boolean;
+  /** 回合首 text 节点（轮内 text 节点数 ≥2 时标记）：即主 agent 的「思考结果/结论」块——
+   *  结构位置判断替代标题文字匹配（措辞会漂移：###思考结论 / ###思考结果 实测都出现，2026-08-11 用户拍板） */
+  isLeadText?: boolean;
   /** subtask 节点（kind='subtask'）的子会话 id：task 块 input.metadata.sessionId 或 input/result 的 <task id="ses_..."> 提取。
    *  实时 subTasks / 历史子会话映射的查询键（3.6 统一节点数据模型） */
   taskId?: string;
@@ -133,5 +136,9 @@ export function buildTurnNodes(turn: { user: Message; assistants: Message[] }): 
   // D7：回合最后 text 块 → ✅ 总结节点（末尾非 text 则无总结标记）
   const last = nodes[nodes.length - 1];
   if (last?.kind === "text") last.isSummary = true;
+  // 首 text 节点标记（2026-08-11 用户拍板）：轮内 text ≥2 时第一条即「思考结果」块（主题色渲染）。
+  // 单 text 轮（唯一正文/总结）不标记——避免把唯一内容当思考结果强调
+  const textNodes = nodes.filter((n) => n.kind === "text");
+  if (textNodes.length > 1 && textNodes[0]) textNodes[0].isLeadText = true;
   return nodes;
 }
