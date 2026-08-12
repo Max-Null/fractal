@@ -1755,6 +1755,9 @@ export async function startEngineEvents(
     if (!sessionDirsInitialized) {
       sessionDirsInitialized = true
       try {
+        // 全量重建前先清空：serve 重启/外部清库后旧会话 ID 残留会误导路由（目录复用错窗口），
+        // 以本次全量列表为准重建；数据模式切换另有显式 clear（L1022）
+        sessionDirs.clear()
         const list = await manager.getClient().session.list()
         for (const s of list) {
           if (s.directory) sessionDirs.set(s.id, s.directory)

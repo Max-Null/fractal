@@ -198,6 +198,13 @@ function showExportMsg(type: "ok" | "err", text: string) {
     exportMsg.value = null;
   }, 5000);
 }
+// 卸载清理导出提示定时器：预览面板关闭后不再触碰已卸载组件的响应式状态
+onUnmounted(() => {
+  if (exportMsgTimer) {
+    clearTimeout(exportMsgTimer);
+    exportMsgTimer = null;
+  }
+});
 async function exportPdf() {
   if (!props.file || exporting.value) return;
   exporting.value = true;

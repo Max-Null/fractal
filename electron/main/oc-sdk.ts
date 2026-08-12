@@ -362,10 +362,24 @@ export function createOcClient(options: OcClientOptions): OcClient {
         // variant 不在 SDK types.gen 的 body 类型（spec 实测 prompt_async/prompt 顶层支持）——
         // body 是变量非字面量，多出属性不触发 excess property check，运行时原样透传
         if (opts?.variant) body.variant = opts.variant
-        return normalizeError<SessionMessage>(
-          // 同步等模型完整回复，用长超时（模型生成可达数分钟）
-          await withTimeout('等待模型回复', (signal) => client.session.prompt({ path: { id }, body, signal }), SDK_PROMPT_TIMEOUT_MS),
-        )
+        try {
+          return await normalizeError<SessionMessage>(
+            // 同步等模型完整回复，用长超时（模型生成可达数分钟）
+            await withTimeout('等待模型回复', (signal) => client.session.prompt({ path: { id }, body, signal }), SDK_PROMPT_TIMEOUT_MS),
+          )
+        } catch (err) {
+          // 同步 prompt 超时：withTimeout abort 只断开了本地 HTTP 连接，serve 端模型仍在生成——
+          // 若不清理，后续 SSE 事件（message.completed 等）会继续到达造成状态错乱。
+          // 主动 abort 当前会话让 serve 端取消本回合；abort 本身也可能失败（serve 已重启），静默忽略
+          if (err instanceof OcError && err.kind === 'network' && err.message.includes('超时')) {
+            try {
+              await client.session.abort({ path: { id } })
+            } catch {
+              // serve 可能已死，abort 失败可接受——网络层错误已向上抛出
+            }
+          }
+          throw err
+        }
       },
       promptAsync: async (id, text, opts) => {
         const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {

@@ -36,14 +36,16 @@ const limit = computed(() => {
 });
 
 // 当前上下文占用 ≈ 最后一次请求的完整输入（最后一条含 tokens 的 assistant 消息）
-// serve 下发的消息级 input 是 adjusted 口径（不含缓存命中），补 cacheRead/cacheWrite 才是完整上下文。
+// serve 下发的消息级 input 已是完整口径（step-finish tokens.input 含 cache 明细，见
+// events-round3-success.json:1135-1144），故只用 inputTokens；cacheRead/cacheWrite 是计费明细
+// （价格不同），不是「占用」额外量——若再加会与 input 重复计算造成高估。
 // 不再累加全部消息——每条消息的 input 是「该回合新增输入」，累加会把多轮请求的上下文重复相加
 // （2026-08-13 修复：原逻辑把 serve 的会话累计值二次累加，指示器显示超估百分比）
 const usedTokens = computed(() => {
   for (let i = chat.messages.length - 1; i >= 0; i--) {
     const msg = chat.messages[i];
-    if (msg.role === "assistant" && (msg.inputTokens || msg.cacheReadTokens || msg.cacheWriteTokens)) {
-      return (msg.inputTokens || 0) + (msg.cacheReadTokens || 0) + (msg.cacheWriteTokens || 0);
+    if (msg.role === "assistant" && msg.inputTokens) {
+      return msg.inputTokens;
     }
   }
   return 0;
