@@ -316,7 +316,12 @@
     "imageSlide": "(image slide)",
     "pptUnsupported": ".ppt legacy format not supported, please convert to .pptx",
     "xlsxPassword": "This workbook is password protected",
-    "truncated": "Showing first {n} rows only"
+    "truncated": "Showing first {n} rows only",
+    "pdfLoadFailed": "Failed to load PDF",
+    "prevPage": "Previous page",
+    "nextPage": "Next page",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out"
   },
   "toolbar": {
     "attach": "Attach",

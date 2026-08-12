@@ -316,7 +316,12 @@
     "imageSlide": "（图片幻灯片）",
     "pptUnsupported": ".ppt 旧格式不支持，请转为 .pptx",
     "xlsxPassword": "此工作簿受密码保护，无法预览",
-    "truncated": "仅显示前 {n} 行"
+    "truncated": "仅显示前 {n} 行",
+    "pdfLoadFailed": "PDF 加载失败",
+    "prevPage": "上一页",
+    "nextPage": "下一页",
+    "zoomIn": "放大",
+    "zoomOut": "缩小"
   },
   "toolbar": {
     "attach": "附件",
