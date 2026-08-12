@@ -691,6 +691,34 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   )
 
+  // ── HTML 转 PDF（渲染进程导出按钮 → 保存对话框 → 隐藏窗口 loadFile → printToPDF(A4) → 写盘）──
+
+  ipcMain.handle('pdf:htmlToPdf', async (_e, args: { path: string }) => {
+    // 父窗口保底（同 dialog:openDialog）：焦点不在 app 时回退主窗口；无窗口走无父对话框重载
+    const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
+    // 默认导出名：去掉 .html/.htm 后缀再补 .pdf（report.html → report.pdf），落在对话框当前目录
+    const defName = basename(args.path).replace(/\.html?$/i, '') + '.pdf'
+    const result = win
+      ? await dialog.showSaveDialog(win, { title: '导出 PDF', defaultPath: defName, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+      : await dialog.showSaveDialog({ title: '导出 PDF', defaultPath: defName, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+    // 用户取消保存对话框：静默返回（契约 { ok:false } 无 error，前端不提示）
+    if (result.canceled || !result.filePath) return { ok: false }
+    // 隐藏窗口不闪烁地渲染 HTML（show:false）；printToPDF 产出的 Buffer 直接写用户选定的路径
+    const printWin = new BrowserWindow({ show: false })
+    try {
+      await printWin.loadFile(args.path)
+      const pdf = await printWin.webContents.printToPDF({ printBackground: true, pageSize: 'A4' })
+      await fsp.writeFile(result.filePath, pdf)
+      return { ok: true, path: result.filePath }
+    } catch (err) {
+      // 任何异常（loadFile 失败 / printToPDF 抛错 / 写盘失败）→ 返回错误消息，前端提示
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    } finally {
+      // 无论成败都要销毁隐藏窗口，防止泄漏
+      printWin.destroy()
+    }
+  })
+
   // ── 引擎通道（阶段 4：serve SDK 直连）──
 
   // 未注入 serverManager 时所有引擎通道统一抛错（测试环境/引擎未初始化）

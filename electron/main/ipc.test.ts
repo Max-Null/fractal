@@ -17,10 +17,19 @@ const electronMock = vi.hoisted(() => ({
     getPath: vi.fn((_name: string) => ''),
   },
   handleCalls: [] as Array<{ channel: string; handler: (...a: unknown[]) => unknown }>,
+  // pdf:htmlToPdf 通道 mock 群：对话框返回值 + 隐藏窗口实例捕获 + printToPDF 共享 mock
+  // sharedPdfFn 用同一个引用注入每个 BrowserWindow 实例的 printToPDF——用例粒度 mockRejectedValueOnce 即可按用例控制失败
+  dialog: { showSaveDialog: vi.fn() },
+  sharedPdfFn: vi.fn(() => Promise.resolve(Buffer.from('pdf'))),
+  browserWindowInstances: [] as Array<{
+    loadFile: ReturnType<typeof vi.fn>
+    webContents: { on: ReturnType<typeof vi.fn>; printToPDF: ReturnType<typeof vi.fn> }
+    destroy: ReturnType<typeof vi.fn>
+  }>,
 }))
 vi.mock('electron', () => ({
   app: electronMock.app,
-  dialog: {},
+  dialog: electronMock.dialog,
   ipcMain: {
     handle: (channel: string, handler: (...a: unknown[]) => unknown) => {
       electronMock.handleCalls.push({ channel, handler })
@@ -28,7 +37,20 @@ vi.mock('electron', () => ({
     on: vi.fn(),
   },
   shell: {},
-  BrowserWindow: class {},
+  BrowserWindow: class {
+    // 测试环境无聚焦窗口/无已开窗口 → handler 走无父窗口的对话框重载分支
+    static getFocusedWindow = () => undefined
+    static getAllWindows = () => []
+    constructor() {
+      const inst = {
+        loadFile: vi.fn(() => Promise.resolve()),
+        webContents: { on: vi.fn(), printToPDF: electronMock.sharedPdfFn },
+        destroy: vi.fn(),
+      }
+      electronMock.browserWindowInstances.push(inst)
+      return inst
+    }
+  },
 }))
 
 // ipc.ts v1.1.0 起 app:getInfo 值导入引擎/预置版本查询——mock 注入固定值，避免真执行 opencode --version（~100ms）
@@ -906,5 +928,58 @@ describe('isSameWorkspace（多窗口事件路由目录归一）', () => {
   it('空串（窗口工作区未知）处理：仅与空串相等', () => {
     expect(isSameWorkspace('', 'H:/work/A')).toBe(false)
     expect(isSameWorkspace('', '')).toBe(true)
+  })
+})
+
+// ── pdf:htmlToPdf（HTML 转 PDF：保存对话框 → 隐藏窗口 loadFile → printToPDF(A4) → 写盘）──
+// 导出路径落在 tmpdir 临时目录——handler 内 writeFile 真实写盘，避免污染系统路径
+describe('pdf:htmlToPdf（HTML 转 PDF）', () => {
+  const getHandler = () => {
+    const call = electronMock.handleCalls.find((c) => c.channel === 'pdf:htmlToPdf')
+    if (!call) throw new Error('pdf:htmlToPdf handler 未注册')
+    return call.handler
+  }
+
+  let outDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    electronMock.dialog.showSaveDialog.mockReset()
+    electronMock.sharedPdfFn.mockClear()
+    electronMock.browserWindowInstances.length = 0
+    outDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-pdf-'))
+    registerIpcHandlers()
+  })
+
+  afterEach(async () => {
+    await fsp.rm(outDir, { recursive: true, force: true })
+  })
+
+  it('成功：loadFile + printToPDF 后返回 {ok:true, path}，finally 销毁隐藏窗口', async () => {
+    const outPdf = join(outDir, 'out.pdf')
+    electronMock.dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: outPdf })
+    const r = (await getHandler()(null, { path: 'C:/x/report.html' })) as { ok: boolean; path?: string }
+    expect(r).toEqual({ ok: true, path: outPdf })
+    const inst = electronMock.browserWindowInstances[0]
+    expect(inst.loadFile).toHaveBeenCalledWith('C:/x/report.html')
+    expect(inst.webContents.printToPDF).toHaveBeenCalledWith({ printBackground: true, pageSize: 'A4' })
+    expect(inst.destroy).toHaveBeenCalled()
+  })
+
+  it('用户取消保存对话框 → {ok:false}（无 error，且不创建隐藏窗口）', async () => {
+    electronMock.dialog.showSaveDialog.mockResolvedValue({ canceled: true })
+    const r = (await getHandler()(null, { path: 'C:/x/report.html' })) as { ok: boolean; error?: string }
+    expect(r).toEqual({ ok: false })
+    expect(electronMock.browserWindowInstances.length).toBe(0)
+  })
+
+  it('printToPDF 失败 → {ok:false, error} 非空（隐藏窗口仍销毁）', async () => {
+    const outPdf = join(outDir, 'out.pdf')
+    electronMock.dialog.showSaveDialog.mockResolvedValue({ canceled: false, filePath: outPdf })
+    electronMock.sharedPdfFn.mockRejectedValueOnce(new Error('boom'))
+    const r = (await getHandler()(null, { path: 'C:/x/report.html' })) as { ok: boolean; error?: string }
+    expect(r.ok).toBe(false)
+    expect(r.error).toBeTruthy()
+    expect(electronMock.browserWindowInstances[0].destroy).toHaveBeenCalled()
   })
 })
