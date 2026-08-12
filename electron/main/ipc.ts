@@ -13,6 +13,7 @@ import { listMemories, confirmMemory, removeMemory, readMemory, listPlans, readP
 import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents, positiveDuration, type ToolStateTime } from './events'
+import { calcCostCny } from './pricing'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig, resolveSmallModel } from './oc-config'
 import { applyModelAliases } from './preset'
@@ -472,6 +473,31 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     const cfg = await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})
     // moonshotai-cn 条目只有 apiKey（无 baseUrl/model），字段放宽为可选——前端 ProviderConfig 类型同步
     return cfg as Record<string, { apiKey: string; baseUrl?: string; model?: string }>
+  })
+
+  ipcMain.handle('deepseek:getBalance', async (): Promise<DeepSeekBalanceResult> => {
+    // 计费迭代（2026-08-12）：查询 DeepSeek 账户余额，设置面板 + 上下文面板两处显示。
+    // API Key 复用 provider-configs.json 的 deepseek 槽位（渲染进程不直接持有 key，主进程读取避免泄露）。
+    const cfg = (await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})) as Record<
+      string,
+      { apiKey?: string }
+    >
+    const apiKey = cfg?.deepseek?.apiKey?.trim() ?? ''
+    if (!apiKey) return { ok: false, message: '未配置 DeepSeek API Key（设置 → API Key）' }
+    try {
+      const res = await fetch('https://api.deepseek.com/user/balance', {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      })
+      if (!res.ok) {
+        // 401 → 认证失败（key 失效/错误）；其他状态码给出具体值便于排查
+        return { ok: false, message: res.status === 401 ? 'API Key 无效或已失效（HTTP 401）' : `余额查询失败（HTTP ${res.status}）` }
+      }
+      const data = (await res.json()) as { is_available?: boolean; balance_infos?: Array<{ currency?: string; total_balance?: string }> }
+      return { ok: true, isAvailable: data.is_available ?? false, balanceInfos: (data.balance_infos ?? []).map((b) => ({ currency: b.currency ?? 'CNY', totalBalance: b.total_balance ?? '0' })) }
+    } catch (err) {
+      // 网络层失败（无网/代理/超时）——区别于业务错误，前端可提示重试
+      return { ok: false, message: `余额查询失败：${err instanceof Error ? err.message : String(err)}` }
+    }
   })
 
   // ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──
@@ -1021,6 +1047,28 @@ export function formatOcTime(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, '')
 }
 
+/** DeepSeek 余额查询结果（deepseek:getBalance 返回；ok=false 时 message 承载失败原因） */
+export interface DeepSeekBalanceResult {
+  ok: boolean
+  message?: string
+  isAvailable?: boolean
+  balanceInfos?: Array<{ currency: string; totalBalance: string }>
+}
+
+/**
+ * 从 serve 会话原始对象提取模型 id 字符串。
+ * serve 会话/消息实测返回两种形态：{id, providerID, variant} 对象（session.created/updated 的
+ * info.model）或纯字符串（个别版本）——统一归一化为 id；取不到返回 ''（前端兜底显示 "--"）。
+ */
+export function resolveSessionModel(model: unknown): string {
+  if (typeof model === 'string') return model
+  if (model && typeof model === 'object') {
+    const id = (model as { id?: unknown }).id
+    if (typeof id === 'string') return id
+  }
+  return ''
+}
+
 /** OC Session → 前端 SessionData（对齐 electron-bridge.ts 类型定义） */
 export function toSessionData(s: Session): {
   id: string
@@ -1040,14 +1088,17 @@ export function toSessionData(s: Session): {
 } {
   // agent 字段不在 SDK Session 类型（types.gen 未生成），但 serve v1.18.15 会话列表实测返回 agent——
   // oc-sdk list 用 Record 强转保留原字段，此处用宽类型读取兜底 undefined
-  const raw = s as unknown as { agent?: unknown }
+  const raw = s as unknown as { agent?: unknown; model?: unknown }
+  const model = resolveSessionModel(raw.model)
   return {
     id: s.id,
     title: s.title,
     // OC 无 CLI 会话概念（serve 会话即 ses_xxx），保留字段置 null
     cli_session_id: null,
     cwd: s.directory,
-    model: '',
+    // 会话模型：serve 实测返回 {id, providerID, variant} 对象（session.created/updated info.model），
+    // 取 id 字符串供前端展示（2026-08-12 修复：此前硬编码 '' 导致上下文面板模型行永远显示 "--"）
+    model,
     // OC Session 无 status 字段（busy/idle 走事件流），前端以事件为准，此处给占位 idle
     status: 'idle',
     mode: '',
@@ -1211,7 +1262,7 @@ export function toMessageData(sm: SessionMessage): {
   token_usage: string
   created_at: string
 } {
-  const info = sm.info as { id: string; sessionID: string; role: string; time: { created: number; completed?: number }; tokens?: { input: number; output: number; cost?: number } }
+  const info = sm.info as { id: string; sessionID: string; role: string; time: { created: number; completed?: number }; tokens?: { input: number; output: number; cache?: { read?: number } }; modelID?: string; model?: unknown }
   const parts = sm.parts as Array<{ type: string; text?: string; synthetic?: boolean; filename?: string; url?: string; source?: { path?: string }; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
 
   let content: string
@@ -1258,9 +1309,20 @@ export function toMessageData(sm: SessionMessage): {
       })
     const contentBlocks = buildHistoryContentBlocks(parts)
     // 尽力而为的统计：durationMs 用消息 completed-created 差；tokens 取 SDK 顶层字段；
-    // cost 在 step-finish part 上（SDK AssistantMessage.tokens 无 cost 字段，阶段 0 实测）
+    // 人民币成本：本地价格表按 tokens（含缓存命中）+ modelID 计算——serve 的 step-finish cost
+    // 是美元口径且依赖引擎价格，币种/精度都不符合分形人民币计费（2026-08-12 修复）
     const durationMs = info.time.completed !== undefined ? info.time.completed - info.time.created : undefined
-    const stepFinish = parts.find((p) => p.type === 'step-finish') as { cost?: number } | undefined
+    const hasTokens = info.tokens?.input !== undefined || info.tokens?.output !== undefined
+    // 模型 id 双路提取：新版 serve 顶层 modelID（round3-success 实测）；旧版 1.18.5 是 info.model 对象
+    // （events-all.json 实测 {providerID, modelID}）——单取顶层会导致旧形态历史成本按 flash 兜底低估
+    const modelId = resolveSessionModel(info.model) || info.modelID || ''
+    const costCNY = hasTokens
+      ? calcCostCny(modelId, {
+          input: info.tokens?.input ?? 0,
+          output: info.tokens?.output ?? 0,
+          cacheRead: info.tokens?.cache?.read ?? 0,
+        })
+      : undefined
     content = JSON.stringify({
       text,
       thinking,
@@ -1269,7 +1331,7 @@ export function toMessageData(sm: SessionMessage): {
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(info.tokens?.input !== undefined ? { inputTokens: info.tokens.input } : {}),
       ...(info.tokens?.output !== undefined ? { outputTokens: info.tokens.output } : {}),
-      ...(stepFinish?.cost !== undefined ? { costUSD: stepFinish.cost } : {}),
+      ...(costCNY !== undefined ? { costCNY } : {}),
     })
   }
 

@@ -539,16 +539,42 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
   // 旧 permission.updated 用例（SDK 类型结构）已删除：实测 serve 1.18.5 事件为 permission.asked，
   // 结构以实测为准（下方 permission.asked 用例 + permission.updated 兼容用例覆盖）
 
-  it('session.idle 附带最近 session.updated 的 tokens', () => {
+  it('session.idle 附带最近 session.updated 的 tokens + 人民币成本', () => {
     const ctx = createMapContext()
+    // 实测结构：cost 不在 tokens 内（在 info 顶层），cache.read 在 tokens.cache.read——
+    // 人民币成本由本地价格表按 tokens + model 计算（2026-08-12 修复：原读 info.tokens.cost 恒 0）
     const updated = synthEvent('session.updated', {
       sessionID: 'ses_test',
-      info: { id: 'ses_test', tokens: { input: 100, output: 50, cost: 0.002, reasoning: 10, cache: { read: 0, write: 0 } } },
+      info: {
+        id: 'ses_test',
+        model: { id: 'deepseek-v4-pro', providerID: 'deepseek' },
+        tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 0, write: 0 } },
+      },
     })
     mapServeEvent(updated, ctx)
     const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
     const out = mapServeEvent(idle, ctx)
-    expect(out[0]).toMatchObject({ type: 'result', is_final: true, input_tokens: 100, output_tokens: 50, cost_usd: 0.002 })
+    // pro 价：100/1e6×3 + 50/1e6×6 = 0.0006 元（浮点精度 → 近似断言）
+    expect(out[0]).toMatchObject({ type: 'result', is_final: true, input_tokens: 100, output_tokens: 50 })
+    expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.0006, 8)
+  })
+
+  it('session.idle 成本含缓存命中优惠（cache.read 用缓存价）', () => {
+    const ctx = createMapContext()
+    // 10000 tokens 输入，其中 8000 缓存命中 → 未命中 2000×3/1e6 + 命中 8000×0.025/1e6
+    const updated = synthEvent('session.updated', {
+      sessionID: 'ses_test',
+      info: {
+        id: 'ses_test',
+        model: { id: 'deepseek-v4-pro', providerID: 'deepseek' },
+        tokens: { input: 10000, output: 0, reasoning: 0, cache: { read: 8000, write: 0 } },
+      },
+    })
+    mapServeEvent(updated, ctx)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    // 2000/1e6×3 + 8000/1e6×0.025 = 0.006 + 0.0002 = 0.0062 元
+    expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.0062, 8)
   })
 
   it('session.idle 输出 duration_ms（session.created 起始计时）', () => {
@@ -564,6 +590,30 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
     const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
     const out = mapServeEvent(idle, ctx)
     expect(out[0]).toMatchObject({ type: 'result', duration_ms: 400 })
+  })
+
+  it('session.updated 缺 model 时保留旧 modelId（异常事件不把整会话成本打成兜底价）', () => {
+    const ctx = createMapContext()
+    // 首次 updated 带 model → 记 pro
+    const first = synthEvent('session.updated', {
+      sessionID: 'ses_test',
+      info: {
+        id: 'ses_test',
+        model: { id: 'deepseek-v4-pro', providerID: 'deepseek' },
+        tokens: { input: 100, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    })
+    mapServeEvent(first, ctx)
+    // 第二次 updated 只带 tokens 缺 model（serve 异常变体）→ modelId 不应被清空
+    const second = synthEvent('session.updated', {
+      sessionID: 'ses_test',
+      info: { id: 'ses_test', tokens: { input: 200, output: 10, reasoning: 0, cache: { read: 0, write: 0 } } },
+    })
+    mapServeEvent(second, ctx)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    // 仍按 pro 价：200/1e6×3 + 10/1e6×6 = 0.00066（若被清空 → flash 兜底 0.00022）
+    expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.00066, 8)
   })
 
   it('session.idle 无起始记录时不输出 duration_ms', () => {

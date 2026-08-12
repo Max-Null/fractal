@@ -1,10 +1,11 @@
 <script setup lang="ts">
-// 上下文详情面板：当前会话的消息用量/成本/统计（替代 guardian 状态面板——.fractal-state.json 无写入端是幽灵数据源）
+// 上下文详情面板：当前会话的消息用量/成本/统计 + DeepSeek 账户余额（2026-08-12 计费迭代）
 // 数据源：chat store messages（响应式——消息流更新自动刷新）+ session store activeSession
-// 聚合口径：消息级 inputTokens/outputTokens/costUSD（toMessageData L1270-1272：info.tokens + step-finish cost，历史+实时都有值）
-import { computed } from "vue";
+// 聚合口径：消息级 inputTokens/outputTokens/costCNY（toMessageData：info.tokens + 本地价格表计算，历史+实时都有值）
+import { computed, onMounted, ref } from "vue";
 import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
+import { getBalance, type DeepSeekBalanceResult } from "@/lib/electron-bridge";
 
 const chat = useChatStore();
 const sessionStore = useSessionStore();
@@ -18,18 +19,51 @@ const activeSession = computed(() =>
 const inputTokens = computed(() => chat.messages.reduce((sum, m) => sum + (m.inputTokens ?? 0), 0));
 const outputTokens = computed(() => chat.messages.reduce((sum, m) => sum + (m.outputTokens ?? 0), 0));
 const totalTokens = computed(() => inputTokens.value + outputTokens.value);
-const costSum = computed(() => chat.messages.reduce((sum, m) => sum + (m.costUSD ?? 0), 0));
+// 人民币成本聚合：仅 costCNY（纯美元旧存档走 hasCostCNY=false 显示 --，不做 USD 混算——币种不可混加）
+const costSum = computed(() => chat.messages.reduce((sum, m) => sum + (m.costCNY ?? 0), 0));
+// 是否含人民币成本：新消息（实时流/历史加载）都有 costCNY；纯旧存档只有 costUSD 时显示 "--"（非 0）
+const hasCostCNY = computed(() => chat.messages.some((m) => m.costCNY !== undefined));
+/** 成本卡显示文本：无成本字段的纯旧存档显示 "--"（避免误报 ¥0.0000）；有人民币成本才算聚合 */
+const costText = computed(() => (hasCostCNY.value ? fmtCost(costSum.value) : "--"));
 const assistantCount = computed(() => chat.messages.filter((m) => m.role === "assistant").length);
 const toolCount = computed(() => chat.messages.reduce((sum, m) => sum + (m.toolUses?.length ?? 0), 0));
+
+// ── DeepSeek 账户余额（计费迭代：设置面板 + 本卡片两处显示）──
+const balance = ref<DeepSeekBalanceResult | null>(null);
+const balanceLoading = ref(false);
+
+/** 查询余额；无 API Key 或失败时静默降级（不阻断面板渲染） */
+async function refreshBalance() {
+  if (balanceLoading.value) return;
+  balanceLoading.value = true;
+  try {
+    balance.value = await getBalance();
+  } catch {
+    balance.value = { ok: false, message: "余额查询失败" };
+  } finally {
+    balanceLoading.value = false;
+  }
+}
+
+onMounted(refreshBalance);
+
+/** 余额展示文本：CNY 总余额（多个币种取 CNYW） */
+const balanceText = computed(() => {
+  if (!balance.value) return "--";
+  if (!balance.value.ok) return balance.value.message ?? "查询失败";
+  const cny = balance.value.balanceInfos?.find((b) => b.currency === "CNY")
+    ?? balance.value.balanceInfos?.[0];
+  return cny ? `¥${Number(cny.totalBalance).toFixed(2)}` : "--";
+});
 
 /** 千分位格式化（tokens/成本小数值不动） */
 function fmtNum(n: number): string {
   return n.toLocaleString("zh-CN");
 }
 
-/** 成本显示：$ + 4 位小数（DeepSeek 每百万 token 计价，会话级成本常 < 0.01） */
+/** 成本显示：¥ + 4 位小数（DeepSeek 每百万 token 人民币计价，会话级成本常 < 0.01） */
 function fmtCost(n: number): string {
-  return `$${n.toFixed(4)}`;
+  return `¥${n.toFixed(4)}`;
 }
 
 /** 时间短格式（MM-DD HH:mm；跨年补 YYYY-MM-DD） */
@@ -75,9 +109,17 @@ function cwdBase(cwd?: string): string {
 
       <!-- 成本 -->
       <div class="stat-card">
-        <div class="stat-head"><span class="stat-ico stat-ico--a">$</span>成本</div>
-        <div class="stat-big">{{ fmtCost(costSum) }}</div>
-        <div class="stat-desc">当前会话累计费用（costUSD 聚合）</div>
+        <div class="stat-head"><span class="stat-ico stat-ico--a">¥</span>成本</div>
+        <div class="stat-big">{{ costText }}</div>
+        <div class="stat-desc">当前会话累计费用（人民币，按 DeepSeek 官方价格表本地计算）</div>
+      </div>
+
+      <!-- DeepSeek 账户余额（计费迭代：余额查询 API 实时拉取） -->
+      <div class="stat-card">
+        <div class="stat-head"><span class="stat-ico stat-ico--a">◉</span>账户余额</div>
+        <div class="stat-big">{{ balanceText }}</div>
+        <div class="stat-desc">DeepSeek 账户实时余额（{{ balanceLoading ? "查询中…" : "点击刷新" }}）</div>
+        <button class="stat-refresh" @click="refreshBalance" :disabled="balanceLoading">刷新</button>
       </div>
 
       <!-- 消息统计 -->
@@ -170,5 +212,25 @@ function cwdBase(cwd?: string): string {
   font-weight: 500;
   color: var(--text-tertiary);
   margin-left: 4px;
+}
+/* 余额刷新按钮（stat-card 内小按钮，避免与 stat-desc 抢行） */
+.stat-refresh {
+  align-self: flex-start;
+  margin-top: 2px;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-dim);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.stat-refresh:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.stat-refresh:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 </style>

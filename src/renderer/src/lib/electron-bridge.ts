@@ -66,6 +66,8 @@ export interface StreamEvent {
   input_tokens?: number;
   output_tokens?: number;
   cost_usd?: number;
+  /** 回合人民币成本（元）——主进程本地价格表计算下发（events.ts session.idle），替代美元 cost_usd */
+  cost_cny?: number;
   is_final: boolean;
   error?: string;
   /** 工具执行结果（从 user 事件中提取） */
@@ -298,6 +300,19 @@ export async function saveProviderConfig(
 /** 加载所有已保存的 provider 配置；moonshotai-cn 条目仅含 apiKey（无 baseUrl/model），字段可选 */
 export async function loadProviderConfigs(): Promise<Record<string, { apiKey: string; baseUrl?: string; model?: string }>> {
   return invoke("settings:loadProviderConfigs");
+}
+
+/** DeepSeek 余额查询结果（deepseek:getBalance）——ok=false 时 message 承载失败原因 */
+export interface DeepSeekBalanceResult {
+  ok: boolean;
+  message?: string;
+  isAvailable?: boolean;
+  balanceInfos?: Array<{ currency: string; totalBalance: string }>;
+}
+
+/** 查询 DeepSeek 账户余额（主进程读 API Key，渲染进程不接触密钥） */
+export async function getBalance(): Promise<DeepSeekBalanceResult> {
+  return invoke("deepseek:getBalance");
 }
 
 // ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──

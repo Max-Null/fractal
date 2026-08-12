@@ -20,6 +20,7 @@ const ALLOWED_INVOKE = [
   'settings:saveUiSettings', 'settings:loadUiSettings',
   'settings:saveProviderConfig', 'settings:loadProviderConfigs',
   'settings:getConfig', 'settings:saveSettings', 'settings:getSchema',
+  'deepseek:getBalance', // 计费迭代：设置面板/上下文面板余额查询（主进程读 key，渲染层零接触）
   'logs:saveSessionDebugLog', 'logs:readServeLog', 'logs:loadSessionLogs', 'logs:readRendererLog',
   'app:getInfo',
   'dialog:openDialog', 'dialog:saveDialog',

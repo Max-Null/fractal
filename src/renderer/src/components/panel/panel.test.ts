@@ -23,6 +23,7 @@ const readMemoryMock = vi.fn();
 const listPlansMock = vi.fn();
 const readPlanMock = vi.fn();
 const listCapabilitiesMock = vi.fn();
+const getBalanceMock = vi.fn();
 vi.mock("@/lib/electron-bridge", () => ({
   listMemories: (...args: unknown[]) => listMemoriesMock(...args),
   confirmMemory: (...args: unknown[]) => confirmMemoryMock(...args),
@@ -31,6 +32,7 @@ vi.mock("@/lib/electron-bridge", () => ({
   listPlans: (...args: unknown[]) => listPlansMock(...args),
   readPlan: (...args: unknown[]) => readPlanMock(...args),
   listCapabilities: (...args: unknown[]) => listCapabilitiesMock(...args),
+  getBalance: (...args: unknown[]) => getBalanceMock(...args),
   onPanelUpdate: () => () => {},
   // ContextPanel 依赖 session store（activeSession 查询）——store 的 watch 回调会调 bridge 这些函数，mock 补全防炸
   setActiveSession: vi.fn(),
@@ -215,6 +217,12 @@ describe("ContextPanel", () => {
   // ContextPanel 依赖 pinia store（chat messages 聚合 + session activeSession）——每个用例独立实例
   beforeEach(() => {
     setActivePinia(createPinia());
+    // 余额卡 onMounted 查询——默认 mock 成功（避免真实 IPC 调用）
+    getBalanceMock.mockResolvedValue({
+      ok: true,
+      isAvailable: true,
+      balanceInfos: [{ currency: "CNY", totalBalance: "110.00" }],
+    });
   });
 
   it("无活跃会话 → 提示暂无活跃会话", () => {
@@ -250,7 +258,7 @@ describe("ContextPanel", () => {
     expect(text).toContain("08-12 10:00");
   });
 
-  it("聚合消息 tokens/成本/统计（2 user + 1 assistant 带工具）", () => {
+  it("聚合消息 tokens/成本/统计（2 user + 1 assistant 带工具）", async () => {
     const sessionStore = useSessionStore();
     sessionStore.sessions.push({ id: "s1", title: "T", createdAt: 0, updatedAt: 0, messageCount: 3, totalTokens: null, totalCost: null, mode: "cc" });
     sessionStore.activeSessionId = "s1";
@@ -271,25 +279,28 @@ describe("ContextPanel", () => {
         isStreaming: false,
         inputTokens: 100,
         outputTokens: 50,
-        costUSD: 0.01,
+        costCNY: 0.01,
       },
       { id: "u2", role: "user", content: "again", thinking: "", toolUses: [], timestamp: 0, isStreaming: false },
     );
 
     const wrapper = mount(ContextPanel);
+    await flushPromises();
     const cards = wrapper.findAll(".stat-card");
-    // 会话信息 / 上下文用量 / 成本 / 消息统计 四卡
-    expect(cards.length).toBe(4);
+    // 会话信息 / 上下文用量 / 成本 / 账户余额 / 消息统计 五卡（2026-08-12 计费迭代新增余额卡）
+    expect(cards.length).toBe(5);
     // 用量卡：输入 100 + 输出 50 = 总量 150
     expect(cards[1].text()).toContain("150");
     expect(cards[1].text()).toContain("100");
     expect(cards[1].text()).toContain("50");
-    // 成本卡：$0.0100（4 位小数）
-    expect(cards[2].text()).toContain("$0.0100");
+    // 成本卡：¥0.0100（4 位小数，人民币）
+    expect(cards[2].text()).toContain("¥0.0100");
+    // 余额卡：mock 返回 ¥110.00
+    expect(cards[3].text()).toContain("110.00");
     // 统计卡：3 消息 / 1 轮 / 2 工具
-    expect(cards[3].text()).toContain("3");
-    expect(cards[3].text()).toContain("1");
-    expect(cards[3].text()).toContain("2");
+    expect(cards[4].text()).toContain("3");
+    expect(cards[4].text()).toContain("1");
+    expect(cards[4].text()).toContain("2");
   });
 });
 

@@ -4,7 +4,7 @@ import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
-import { testConnection, sendMessage, openDialog, getAppInfo, type ConnectionTestResult } from "@/lib/electron-bridge";
+import { testConnection, sendMessage, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { useSessionStore } from "@/stores/session";
 
@@ -277,6 +277,43 @@ async function handleTest() {
   finally { isTesting.value = false; }
 }
 
+// ── DeepSeek 账户余额（计费迭代：API Key 区下方显示，随 key 变化自动刷新）──
+const balance = ref<DeepSeekBalanceResult | null>(null);
+const balanceLoading = ref(false);
+
+/** 查询余额；无 API Key 或失败时静默降级（不阻断设置面板渲染） */
+async function refreshBalance() {
+  if (balanceLoading.value) return;
+  balanceLoading.value = true;
+  try {
+    balance.value = await getBalance();
+  } catch {
+    balance.value = { ok: false, message: "余额查询失败" };
+  } finally {
+    balanceLoading.value = false;
+  }
+}
+
+/** 余额展示文本：CNY 总余额；失败/未配置时显示原因 */
+const balanceText = computed(() => {
+  if (!balance.value) return "";
+  if (!balance.value.ok) return balance.value.message ?? "查询失败";
+  const cny = balance.value.balanceInfos?.find((b) => b.currency === "CNY")
+    ?? balance.value.balanceInfos?.[0];
+  return cny ? `¥${Number(cny.totalBalance).toFixed(2)}` : "--";
+});
+
+// API Key 变化后自动刷新余额（保存即触发；防抖避免输入过程反复请求）
+let balanceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(() => settings.apiKey, () => {
+  if (balanceTimer) clearTimeout(balanceTimer);
+  balanceTimer = setTimeout(() => { refreshBalance(); }, 600);
+});
+// 路由离开时清理防抖定时器（否则卸载后仍可能触发 refreshBalance 改已卸载 ref）
+onUnmounted(() => { if (balanceTimer) clearTimeout(balanceTimer); });
+// 挂载即查询一次（设置页打开时直接显示余额，不依赖 key 变化事件）
+onMounted(() => { refreshBalance(); });
+
 // ── 多模态模型（制图师 kimi-k3）API Key ──
 // password 明文切换（独立 state，与 DeepSeek key 互不干扰——DeepSeek 输入框无切换，沿用 Onboarding 交互模式）
 const showKimiKey = ref(false);
@@ -340,6 +377,14 @@ async function handleDataModeToggle(v: "shared" | "isolated") {
             <label class="block text-xs font-medium mb-1.5" style="color:var(--text-secondary)">{{ $t('settings.apiKey') }}</label>
             <input v-model="settings.apiKey" type="password" placeholder="sk-…"
               class="settings-input w-full rounded-lg px-3.5 py-2 text-sm outline-none" />
+            <!-- 账户余额（计费迭代：实时查询 DeepSeek /user/balance；无 key 不显示） -->
+            <div v-if="balance" class="flex items-center gap-2 mt-1.5 text-[11px]" style="color:var(--text-secondary)">
+              <span>账户余额</span>
+              <span class="font-medium" :style="{ color: balance.ok ? 'var(--accent)' : 'var(--coral)' }">{{ balanceText }}</span>
+              <button @click="refreshBalance" :disabled="balanceLoading"
+                class="text-[10px] px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--bg-hover)]"
+                style="color:var(--text-muted)">{{ balanceLoading ? "…" : "刷新" }}</button>
+            </div>
           </div>
 
           <!-- 多模态模型（制图师）API Key：明文切换 + 保存按钮（保存即重启 serve 使 provider 生效） -->

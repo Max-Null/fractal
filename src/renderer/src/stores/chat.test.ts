@@ -132,7 +132,8 @@ describe("chat store", () => {
     expect(msg.durationMs).toBe(1234);
     expect(msg.inputTokens).toBe(50);
     expect(msg.outputTokens).toBe(30);
-    expect(msg.costUSD).toBe(0.005);
+    // 人民币成本（finishAssistantMessage 第 4 参为 costCNY，2026-08-12 计费迭代）
+    expect(msg.costCNY).toBe(0.005);
   });
 
   it("finish without stats works (backward compat)", () => {
@@ -210,7 +211,29 @@ describe("chat store", () => {
     expect(msg.toolUses).toHaveLength(1);
     expect(msg.toolUses[0].name).toBe("Bash");
     expect(msg.durationMs).toBe(500);
+    // 旧存档只有 costUSD（美元）→ 保留兜底（2026-08-12 起新存档写 costCNY）
     expect(msg.costUSD).toBe(0.001);
+  });
+
+  it("loadMessages parses costCNY (new format, RMB billing)", () => {
+    const chat = useChatStore();
+    chat.loadMessages([
+      {
+        id: "a-cny",
+        role: "assistant",
+        content: JSON.stringify({
+          text: "Answer",
+          thinking: "",
+          toolUses: [],
+          inputTokens: 9736,
+          outputTokens: 2,
+          costCNY: 0.023508,
+        }),
+        created_at: "2026-01-01T00:00:00",
+      },
+    ]);
+    expect(chat.messages[0].costCNY).toBe(0.023508);
+    expect(chat.messages[0].costUSD).toBeUndefined();
   });
 
   it("loadMessages falls back to plain text for old format", () => {

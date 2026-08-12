@@ -6,6 +6,7 @@
 
 import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
 import { basicAuthHeader } from './oc-sdk'
+import { calcCostCny } from './pricing'
 
 // ══════════════════════════════════════════════════════════════════
 // StreamFrontendEvent（与 renderer StreamEvent 同构；renderer 是 type: string 通配，
@@ -92,7 +93,8 @@ export type StreamFrontendEvent =
       duration_ms?: number
       input_tokens?: number
       output_tokens?: number
-      cost_usd?: number
+      /** 回合人民币成本（本地价格表计算，元）——serve 美元 cost 弃用（币种错 + tokens 内无 cost 字段） */
+      cost_cny?: number
     }
   | {
       type: 'error'
@@ -173,7 +175,8 @@ export interface MapContext {
   sentToolResults: Set<string>
   sentToolInputs: Map<string, string>
   toolStarts: Map<string, number>
-  sessionTokens: Map<string, { input: number; output: number; cost: number }>
+  /** 会话 token 统计（cost 由本地价格表计算——serve 返回的 cost 是美元口径且层级易错，见 pricing.ts） */
+  sessionTokens: Map<string, { input: number; output: number; cacheRead: number; modelId?: string }>
   sessionTitles: Map<string, string>
   /** 回合起始时间（session.created 记录），session.idle 时计算 result.duration_ms */
   sessionStartTime: Map<string, number>
@@ -271,12 +274,18 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       if (sessionID && !ctx.sessionStartTime.has(sessionID)) {
         ctx.sessionStartTime.set(sessionID, ctx.now())
       }
-      const info = props?.info as { tokens?: { input?: number; output?: number; cost?: number } } | undefined
+      const info = props?.info as
+        | { tokens?: { input?: number; output?: number; cache?: { read?: number }; cost?: number }; model?: { id?: string } }
+        | undefined
       if (sessionID && info?.tokens) {
+        // 覆盖 tokens；modelId 仅在本次事件携带时才更新（异常缺 model 时保留旧值，避免整会话成本按兜底价）
+        const prev = ctx.sessionTokens.get(sessionID)
         ctx.sessionTokens.set(sessionID, {
           input: info.tokens.input ?? 0,
           output: info.tokens.output ?? 0,
-          cost: info.tokens.cost ?? 0,
+          // serve 实测：cache 在 info.tokens.cache.read（非 info.tokens.cost——cost 字段不在 tokens 内）
+          cacheRead: info.tokens.cache?.read ?? 0,
+          modelId: info.model?.id ?? prev?.modelId,
         })
       }
       return []
@@ -284,13 +293,17 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
     case 'session.updated': {
       // 记录最新 tokens（session.idle 时附到 result）；标题自动更新（serve 首条消息后改标题）→ session_title
       const info = props?.info as
-        | { tokens?: { input?: number; output?: number; cost?: number }; title?: string }
+        | { tokens?: { input?: number; output?: number; cache?: { read?: number }; cost?: number }; model?: { id?: string }; title?: string }
         | undefined
       if (sessionID && info?.tokens) {
+        // 覆盖 tokens；modelId 仅在本次事件携带时才更新（异常缺 model 时保留旧值，避免整会话成本按兜底价）
+        const prev = ctx.sessionTokens.get(sessionID)
         ctx.sessionTokens.set(sessionID, {
           input: info.tokens.input ?? 0,
           output: info.tokens.output ?? 0,
-          cost: info.tokens.cost ?? 0,
+          // serve 实测：cache 在 info.tokens.cache.read（非 info.tokens.cost——cost 字段不在 tokens 内）
+          cacheRead: info.tokens.cache?.read ?? 0,
+          modelId: info.model?.id ?? prev?.modelId,
         })
       }
       // title 变化（首条消息后 serve 自动命名）才下发，避免每次 updated 刷屏
@@ -495,7 +508,9 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         duration_ms: startTime !== undefined ? ctx.now() - startTime : undefined,
         input_tokens: tokens?.input,
         output_tokens: tokens?.output,
-        cost_usd: tokens?.cost,
+        // 人民币成本：本地价格表按 tokens 计算（serve 美元 cost 弃用——币种错 + 字段层级易错，
+        // 且 tokens 内无 cost 字段，2026-08-12 实测 fixtures/events-round3-success.json）
+        cost_cny: tokens ? calcCostCny(tokens.modelId ?? '', tokens) : undefined,
       }
       return [evtOut]
     }

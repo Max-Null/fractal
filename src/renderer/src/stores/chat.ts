@@ -21,6 +21,8 @@ export interface Message {
   inputTokens?: number;
   outputTokens?: number;
   costUSD?: number;
+  /** 人民币成本（元）——主进程本地价格表计算（pricing.ts），替代美元 costUSD */
+  costCNY?: number;
   attachments?: AttachedFile[];
   /** 用户手动停止（非自然结束） */
   wasStopped?: boolean;
@@ -396,7 +398,9 @@ export const useChatStore = defineStore("chat", () => {
       }
       if (event.input_tokens != null) last.inputTokens = event.input_tokens;
       if (event.output_tokens != null) last.outputTokens = event.output_tokens;
-      if (event.cost_usd != null) last.costUSD = event.cost_usd;
+      // 人民币成本优先（主进程本地价格表计算）；旧美元兜底（历史事件兼容）
+      if (event.cost_cny != null) last.costCNY = event.cost_cny;
+      else if (event.cost_usd != null) last.costUSD = event.cost_usd;
     } else if (event.type === 'user' && event.tool_results) {
       // 后台会话：追加工具执行结果（无对应 assistant 消息时跳过，不创建幽灵消息）
       if (!last || last.role !== 'assistant') return;
@@ -420,6 +424,8 @@ export const useChatStore = defineStore("chat", () => {
         last.durationMs = event.duration_ms;
         last.inputTokens = event.input_tokens ?? last.inputTokens;
         last.outputTokens = event.output_tokens ?? last.outputTokens;
+        // 人民币成本优先（主进程本地价格表计算）；旧美元兜底（历史事件兼容）
+        last.costCNY = event.cost_cny ?? last.costCNY;
         last.costUSD = event.cost_usd ?? last.costUSD;
         // 后台会话可能没有 content_blocks，从旧字段合成
         if (!last.contentBlocks?.length) {
@@ -855,7 +861,7 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function finishAssistantMessage(durationMs?: number, inputTokens?: number, outputTokens?: number, costUSD?: number) {
+  function finishAssistantMessage(durationMs?: number, inputTokens?: number, outputTokens?: number, costCNY?: number) {
     if (currentAssistantMsg.value) {
       const msg = currentAssistantMsg.value;
       // 空消息（无内容、无思考、无工具调用）→ 删除，不留残留气泡
@@ -867,7 +873,8 @@ export const useChatStore = defineStore("chat", () => {
         msg.durationMs = durationMs;
         msg.inputTokens = inputTokens;
         msg.outputTokens = outputTokens;
-        msg.costUSD = costUSD;
+        // 人民币成本（主进程本地价格表计算下发 cost_cny）
+        msg.costCNY = costCNY;
       }
     }
     currentAssistantMsg.value = null;
@@ -979,7 +986,9 @@ export const useChatStore = defineStore("chat", () => {
         if (msg.durationMs) stats.push(`⏱ ${(msg.durationMs / 1000).toFixed(1)}s`);
         if (msg.inputTokens) stats.push(`↑${msg.inputTokens}`);
         if (msg.outputTokens) stats.push(`↓${msg.outputTokens}`);
-        if (msg.costUSD !== undefined) stats.push(`$${msg.costUSD.toFixed(4)}`);
+        // 人民币成本优先；旧美元兜底（历史会话兼容）
+        if (msg.costCNY !== undefined) stats.push(`¥${msg.costCNY.toFixed(4)}`);
+        else if (msg.costUSD !== undefined) stats.push(`$${msg.costUSD.toFixed(4)}`);
         if (stats.length) lines.push(`\n*${stats.join(' | ')}*`);
       }
       lines.push('');
@@ -1034,6 +1043,7 @@ export const useChatStore = defineStore("chat", () => {
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
     let costUSD: number | undefined;
+    let costCNY: number | undefined;
 
     // Try to parse JSON for assistant messages (new format)
     let attachments: AttachedFile[] | undefined;
@@ -1051,6 +1061,7 @@ export const useChatStore = defineStore("chat", () => {
           inputTokens = parsed.inputTokens;
           outputTokens = parsed.outputTokens;
           costUSD = parsed.costUSD;
+          costCNY = parsed.costCNY;
           // 新存档已有 contentBlocks，旧存档从现有字段重建时间线
           contentBlocks = parsed.contentBlocks || synthesizeBlocks(thinking, toolUses, textContent);
         } else if (rec.role === "user" && Array.isArray(parsed.attachments)) {
@@ -1079,6 +1090,7 @@ export const useChatStore = defineStore("chat", () => {
       inputTokens,
       outputTokens,
       costUSD,
+      costCNY,
       attachments,
     };
   }

@@ -297,7 +297,9 @@ export function useStreamProcessor() {
           if (chat.currentAssistantMsg) {
             if (data.input_tokens != null) chat.currentAssistantMsg.inputTokens = data.input_tokens;
             if (data.output_tokens != null) chat.currentAssistantMsg.outputTokens = data.output_tokens;
-            if (data.cost_usd != null) chat.currentAssistantMsg.costUSD = data.cost_usd;
+            // 人民币成本优先（主进程本地价格表计算）；旧美元兜底（历史会话事件）
+            if (data.cost_cny != null) chat.currentAssistantMsg.costCNY = data.cost_cny;
+            else if (data.cost_usd != null) chat.currentAssistantMsg.costUSD = data.cost_usd;
           }
           break;
 
@@ -369,6 +371,8 @@ export function useStreamProcessor() {
               // event 可能不含 token（如 DeepSeek result），fallback 到 message 对象上的值
               inputTokens: data.input_tokens ?? msg.inputTokens,
               outputTokens: data.output_tokens ?? msg.outputTokens,
+              // 人民币成本优先；旧存档只有美元时保留（历史会话兼容）
+              costCNY: data.cost_cny ?? msg.costCNY,
               costUSD: data.cost_usd ?? msg.costUSD,
             });
             saveMessage(msg.id, targetSessionId, "assistant", fullContent, "{}").catch(() => {});
@@ -403,7 +407,7 @@ export function useStreamProcessor() {
             data.duration_ms,
             data.input_tokens ?? msg?.inputTokens,
             data.output_tokens ?? msg?.outputTokens,
-            data.cost_usd ?? msg?.costUSD,
+            data.cost_cny ?? msg?.costCNY,
           );
           // 持久化 debug 日志 + 刷新侧栏统计（stderr 日志槽位已移除——OC 无 --verbose 输出，CC 遗留机制废除）
           const sid = data.session_id || session.activeSessionId;

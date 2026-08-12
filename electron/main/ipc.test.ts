@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers, resolveSessionModel } from './ipc'
 import type { SessionMessage } from './oc-sdk'
 
 // electron mock：app:getInfo / logs:readServeLog 用例需要（node 环境无 electron 运行时）。
@@ -220,9 +220,9 @@ describe('toMessageData（G2 完整还原）', () => {
         },
       },
       textPart('你好'),
-      // step-finish：仅统计来源，不参与前端块
+      // step-finish：仅统计来源，不参与前端块（cost 字段已弃用——本地价格表按 tokens 计算）
       { type: 'step-finish', reason: 'stop', cost: 0, tokens: { input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } } },
-    ], { cost: 0, tokens: { input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } } })
+    ], { cost: 0, modelID: 'deepseek-v4-pro', tokens: { input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } } })
 
     const data = toMessageData(sm)
     const parsed = JSON.parse(data.content) as {
@@ -233,7 +233,8 @@ describe('toMessageData（G2 完整还原）', () => {
       durationMs: number
       inputTokens: number
       outputTokens: number
-      costUSD: number
+      costCNY: number
+      costUSD?: number
     }
 
     expect(parsed.text).toBe('你好')
@@ -252,11 +253,13 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(parsed.contentBlocks[1].toolUse).toMatchObject({ startedAt: 1786029596000, executionDurationMs: 100 })
     expect(parsed.contentBlocks[2].toolResult).toMatchObject({ toolUseId: 'call_1', content: 'file1.txt\nfile2.txt', isError: false })
     expect(parsed.contentBlocks[5]).toMatchObject({ type: 'text', content: '你好' })
-    // 统计尽力而为：durationMs = completed - created；tokens/cost 从 SDK 顶层字段
+    // 统计尽力而为：durationMs = completed - created；tokens 从 SDK 顶层字段；
+    // 人民币成本本地计算（pro 价）：未命中 (9736-1920)/1e6×3 + 命中 1920/1e6×0.025 + 输出 2/1e6×6
     expect(parsed.durationMs).toBe(1786029599033 - 1786029594660)
     expect(parsed.inputTokens).toBe(9736)
     expect(parsed.outputTokens).toBe(2)
-    expect(parsed.costUSD).toBe(0)
+    expect(parsed.costCNY).toBeCloseTo((7816 / 1e6) * 3 + (1920 / 1e6) * 0.025 + (2 / 1e6) * 6, 8)
+    expect(parsed.costUSD).toBeUndefined()
     // token_usage 保持原 JSON 串（MessageData 契约字段）
     expect(data.token_usage).toBe(JSON.stringify({ input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } }))
   })
@@ -715,6 +718,85 @@ describe('saveProviderConfig（多 provider 持久化）', () => {
     const r = (await h!.handler({})) as Record<string, { apiKey: string; baseUrl?: string; model?: string }>
     expect(r.deepseek.apiKey).toBe('sk-ds')
     expect(r['moonshotai-cn']).toEqual({ apiKey: 'sk-kimi' })
+  })
+})
+
+describe('deepseek:getBalance（计费迭代：DeepSeek 余额查询）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-balance-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('未配置 API Key → 返回 ok:false 提示（不发起网络请求）', async () => {
+    // userData 目录无 provider-configs.json → 空 key
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'deepseek:getBalance')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { ok: boolean; message?: string }
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('API Key')
+  })
+
+  it('已配置 API Key → 调 DeepSeek /user/balance 并归一化返回', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    // 注入 fetch mock：DeepSeek 返回真实结构（余额字符串 "110.00"）
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ is_available: true, balance_infos: [{ currency: 'CNY', total_balance: '110.00', granted_balance: '10.00', topped_up_balance: '100.00' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'deepseek:getBalance')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({})) as { ok: boolean; isAvailable: boolean; balanceInfos: Array<{ currency: string; totalBalance: string }> }
+      expect(r.ok).toBe(true)
+      expect(r.isAvailable).toBe(true)
+      expect(r.balanceInfos).toEqual([{ currency: 'CNY', totalBalance: '110.00' }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('HTTP 401（key 失效）→ ok:false + 认证失败提示', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-bad', baseUrl: '', model: '' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'deepseek:getBalance')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({})) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(false)
+      expect(r.message).toContain('401')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+describe('resolveSessionModel（serve 会话模型提取）', () => {
+  it('对象形态 {id, providerID, variant} → 取 id', () => {
+    expect(resolveSessionModel({ id: 'deepseek-v4-pro', providerID: 'deepseek', variant: 'default' })).toBe('deepseek-v4-pro')
+  })
+
+  it('字符串形态 → 原样', () => {
+    expect(resolveSessionModel('deepseek-v4-flash')).toBe('deepseek-v4-flash')
+  })
+
+  it('缺失/异常 → 空字符串（前端兜底显示 "--"）', () => {
+    expect(resolveSessionModel(undefined)).toBe('')
+    expect(resolveSessionModel(null)).toBe('')
+    expect(resolveSessionModel(42)).toBe('')
   })
 })
 
