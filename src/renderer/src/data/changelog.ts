@@ -32,6 +32,82 @@ export const APP_VERSION: string = appPackage.version;
 // 按版本降序排列（最新在第一个）
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.1.0",
+    date: "2026-08-13",
+    sections: [
+      {
+        titleZh: "文件预览增强",
+        titleEn: "Enhanced File Preview",
+        itemsZh: [
+          "PDF 预览：内置 pdfjs 渲染，缩放/翻页/DPR 高清适配",
+          "HTML 检查模式开关：可切换「交互」模式让页面自身交互生效",
+          "HTML 导出 PDF：一键导出 A4 PDF，无闪烁",
+          "统一确认弹窗：原生 confirm 替换为 ConfirmDialog",
+        ],
+        itemsEn: [
+          "PDF preview powered by pdfjs: zoom, paging, and DPR-optimized rendering",
+          "HTML inspect mode toggle: switch to \"interact\" mode so page interactions work",
+          "Export HTML preview to A4 PDF in one click, no flicker",
+          "Unified confirm dialog replaces native confirm()",
+        ],
+      },
+      {
+        titleZh: "聊天与消息流",
+        titleEn: "Chat & Message Flow",
+        itemsZh: [
+          "文件修改卡片：回合末尾展示 write/edit 修改的文件，合并去重、识别新增",
+          "补充消息打断：处理中输入文字可打断当前回合立即发送",
+          "只发附件：不输入文字也可发送附件",
+          "office 附件弱提示：不支持读取的附件黄色警告 + 发送前二次确认",
+          "总结节点平滑展开：输出完成时消除下方内容跳动",
+        ],
+        itemsEn: [
+          "File change cards: show write/edit changes at turn end, merged and deduped",
+          "Interrupt with a follow-up: typing while processing sends immediately",
+          "Send attachments alone without text",
+          "Weak warning for office attachments the model can't read, with pre-send confirmation",
+          "Summary node smooth expansion: no layout jump when output completes",
+        ],
+      },
+      {
+        titleZh: "计费与上下文",
+        titleEn: "Billing & Context",
+        itemsZh: [
+          "人民币计费：成本显示改为 ¥，按本地价格表计算缓存/输入/输出成本",
+          "余额查询：设置面板与上下文面板显示 DeepSeek 账户余额",
+          "上下文占用修正：修复指示器超估，显示真实输入量",
+          "模型显示修复：上下文面板显示真实模型名",
+        ],
+        itemsEn: [
+          "CNY billing: costs shown in ¥, computed from a local price table",
+          "Balance query: show DeepSeek account balance in settings and context panel",
+          "Context usage fix: indicator no longer over-counts, shows real input",
+          "Model name fix: context panel shows the real model",
+        ],
+      },
+      {
+        titleZh: "稳定性与引擎",
+        titleEn: "Stability & Engine",
+        itemsZh: [
+          "OC v1.18.16 升级：sidecar/依赖/下载脚本同步",
+          "多窗口事件路由：每窗口独立订阅，按工作区目录路由事件",
+          "question 跨工作区修复：提交答案不再 404",
+          "serve 重启兜底：请求超时自动中断，不再永久卡 loading",
+          "测试连接校验 API Key：无效 Key 直接提示",
+          "权限放行：opencode 工具临时目录放行，subagent 不再卡死",
+        ],
+        itemsEn: [
+          "OC v1.18.16 upgrade: sidecar, dependencies, and download script synced",
+          "Multi-window event routing: per-window subscription routed by workspace directory",
+          "question cross-workspace fix: submitting answers no longer 404s",
+          "serve restart guard: requests time out instead of hanging forever",
+          "Test connection now validates the API Key against DeepSeek",
+          "Permission for opencode temp directory: subagents no longer stall",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.0.0",
     date: "2026-08-10",
     sections: [
