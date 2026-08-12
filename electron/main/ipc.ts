@@ -6,10 +6,30 @@ import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
-import { type ServerManager, getEngineVersion, type ServerInfo, appendServeLog } from './server-manager'
+import {
+  type ServerManager,
+  getEngineVersion,
+  type ServerInfo,
+  appendServeLog
+} from './server-manager'
 import { getPresetVersion } from './preset'
-import { type OcClient, type SessionMessage, type CapabilityBundle, basicAuthHeader } from './oc-sdk'
-import { listMemories, confirmMemory, removeMemory, readMemory, listPlans, readPlan, getStatusState, readProjectCwd, getPanelWatchers } from './panel'
+import {
+  type OcClient,
+  type SessionMessage,
+  type CapabilityBundle,
+  basicAuthHeader
+} from './oc-sdk'
+import {
+  listMemories,
+  confirmMemory,
+  removeMemory,
+  readMemory,
+  listPlans,
+  readPlan,
+  getStatusState,
+  readProjectCwd,
+  getPanelWatchers
+} from './panel'
 import type { Session } from '@opencode-ai/sdk'
 import type { FilePartInput } from '@opencode-ai/sdk'
 import { subscribeEvents, positiveDuration, type ToolStateTime } from './events'
@@ -17,7 +37,14 @@ import { calcCostCny } from './pricing'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig, resolveSmallModel } from './oc-config'
 import { applyModelAliases } from './preset'
-import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema as getSettingsSchema, isSettingsLoaded, getSettingsFileExists } from './settings'
+import {
+  getConfig as getSettingsConfig,
+  loadSettings,
+  saveSettings,
+  getSchema as getSettingsSchema,
+  isSettingsLoaded,
+  getSettingsFileExists
+} from './settings'
 
 // ── 模块级状态 ──
 
@@ -42,7 +69,11 @@ let sessionDirsInitialized = false
 
 /** 目录归一（分隔符/尾斜杠/大小写统一，与前端 session store normalizeDir 同规则——serve 存正斜杠，窗口可能传反斜杠） */
 export function isSameWorkspace(a: string, b: string): boolean {
-  const norm = (p: string) => (p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+  const norm = (p: string) =>
+    (p || '')
+      .replace(/[\\/]+$/, '')
+      .replace(/\\/g, '/')
+      .toLowerCase()
   return norm(a) === norm(b)
 }
 
@@ -132,15 +163,15 @@ export function mimeFromExt(name: string): string {
     webp: 'image/webp',
     docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-zip: 'application/zip',
-yml: 'text/yaml',
-yaml: 'text/yaml',
-xml: 'application/xml',
-sh: 'text/x-sh',
-sql: 'text/x-sql',
-toml: 'application/toml',
-env: 'text/plain',
+    pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    zip: 'application/zip',
+    yml: 'text/yaml',
+    yaml: 'text/yaml',
+    xml: 'application/xml',
+    sh: 'text/x-sh',
+    sql: 'text/x-sql',
+    toml: 'application/toml',
+    env: 'text/plain'
   }
   return table[ext] ?? 'application/octet-stream'
 }
@@ -276,7 +307,7 @@ export function parseGitStatus(stdout: string): {
  */
 export function buildSendParts(
   message: string,
-  attachments: Array<{ path: string; name: string }>,
+  attachments: Array<{ path: string; name: string }>
 ): Array<{ type: 'text'; text: string } | FilePartInput> {
   return [
     { type: 'text', text: message },
@@ -284,8 +315,8 @@ export function buildSendParts(
       type: 'file' as const,
       mime: mimeFromExt(a.name),
       url: pathToFileURL(a.path).href,
-      filename: a.name,
-    })),
+      filename: a.name
+    }))
   ]
 }
 
@@ -396,15 +427,20 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return parseGitStatus(stdout)
   })
 
-  ipcMain.handle('git:diff', async (_e, args: { repoPath: string; file: string; staged: boolean }) => {
-    assertValidFsPath(args.repoPath)
-    // file 是仓库内相对路径（如 src/foo.ts），只做非空与 .. 前缀拦截
-    if (typeof args.file !== 'string' || args.file.trim() === '' || args.file.startsWith('..')) {
-      throw new Error(`非法 git 文件参数: ${String(args.file)}`)
+  ipcMain.handle(
+    'git:diff',
+    async (_e, args: { repoPath: string; file: string; staged: boolean }) => {
+      assertValidFsPath(args.repoPath)
+      // file 是仓库内相对路径（如 src/foo.ts），只做非空与 .. 前缀拦截
+      if (typeof args.file !== 'string' || args.file.trim() === '' || args.file.startsWith('..')) {
+        throw new Error(`非法 git 文件参数: ${String(args.file)}`)
+      }
+      const diffArgs = args.staged
+        ? ['diff', '--cached', '--', args.file]
+        : ['diff', '--', args.file]
+      return execGit(args.repoPath, diffArgs)
     }
-    const diffArgs = args.staged ? ['diff', '--cached', '--', args.file] : ['diff', '--', args.file]
-    return execGit(args.repoPath, diffArgs)
-  })
+  )
 
   ipcMain.handle('git:stage', async (_e, args: { repoPath: string; files: string[] }) => {
     assertValidFsPath(args.repoPath)
@@ -416,11 +452,16 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     await execGit(args.repoPath, ['restore', '--staged', '--', ...args.files])
   })
 
-  ipcMain.handle('git:commit', async (_e, args: { repoPath: string; message: string; amend: boolean }) => {
-    assertValidFsPath(args.repoPath)
-    const commitArgs = args.amend ? ['commit', '--amend', '-m', args.message] : ['commit', '-m', args.message]
-    return execGit(args.repoPath, commitArgs)
-  })
+  ipcMain.handle(
+    'git:commit',
+    async (_e, args: { repoPath: string; message: string; amend: boolean }) => {
+      assertValidFsPath(args.repoPath)
+      const commitArgs = args.amend
+        ? ['commit', '--amend', '-m', args.message]
+        : ['commit', '-m', args.message]
+      return execGit(args.repoPath, commitArgs)
+    }
+  )
 
   ipcMain.handle('git:push', async (_e, args: { repoPath: string }) => {
     assertValidFsPath(args.repoPath)
@@ -444,15 +485,28 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle(
     'settings:saveProviderConfig',
-    async (_e, args: { providerId: string; apiKey: string; baseUrl: string; model: string; restart?: boolean }) => {
+    async (
+      _e,
+      args: {
+        providerId: string
+        apiKey: string
+        baseUrl: string
+        model: string
+        restart?: boolean
+      }
+    ) => {
       const file = join(app.getPath('userData'), 'provider-configs.json')
       const cfg = (await readJsonFile(file, {})) as Record<string, unknown>
       // 多 provider 扩展：moonshotai-cn 只存 apiKey（模型固定 kimi-k3，models 定义由 ensureConfig 写盘时生成）；
       // 其他 providerId（deepseek 现状）保持三段式（apiKey/baseUrl/model）向后兼容
       const providerId = args.providerId === 'moonshotai-cn' ? 'moonshotai-cn' : args.providerId
-      const next = providerId === 'moonshotai-cn'
-        ? { ...cfg, [providerId]: { apiKey: args.apiKey } }
-        : { ...cfg, [providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model } }
+      const next =
+        providerId === 'moonshotai-cn'
+          ? { ...cfg, [providerId]: { apiKey: args.apiKey } }
+          : {
+              ...cfg,
+              [providerId]: { apiKey: args.apiKey, baseUrl: args.baseUrl, model: args.model }
+            }
       await writeJsonFile(file, next)
       // 模型槽位立即生效（2026-08-09 用户确认，人机交互优于重启后生效）：保存模型的同时替换预置 agents 的 model 字段。
       // 无条件调用——applyModelAliases 内部幂等（HIGH 缺省读 ensureConfig 刚写的 cfg.model，值一致不写盘）
@@ -463,9 +517,10 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       if (args.apiKey && args.apiKey.trim()) {
         // ensureConfig 的 opts.apiKey 是 deepseek 语义：保存 kimi key 时不能把 kimi key 写进 deepseek 槽位，
         // 需从写盘前的旧 cfg 读 deepseek key 透传（moonshotai-cn 自身 key 由 ensureConfig 内部读 provider-configs.json）
-        const dsKey = providerId === 'moonshotai-cn'
-          ? ((cfg as Record<string, { apiKey?: string }>)?.deepseek?.apiKey ?? '').trim()
-          : args.apiKey.trim()
+        const dsKey =
+          providerId === 'moonshotai-cn'
+            ? ((cfg as Record<string, { apiKey?: string }>)?.deepseek?.apiKey ?? '').trim()
+            : args.apiKey.trim()
         await ensureConfig(app.getPath('userData'), { apiKey: dsKey, permissionMode: 'default' })
         // 仅用户主动保存（SettingsPanel/Onboarding 传 restart=true）且 key 确实变化时才重启 serve：
         // 启动时 store watch 自动保存会命中刚起来的 serve——重启会杀掉健康中的 serve 导致
@@ -493,25 +548,44 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   ipcMain.handle('deepseek:getBalance', async (): Promise<DeepSeekBalanceResult> => {
     // 计费迭代（2026-08-12）：查询 DeepSeek 账户余额，设置面板 + 上下文面板两处显示。
     // API Key 复用 provider-configs.json 的 deepseek 槽位（渲染进程不直接持有 key，主进程读取避免泄露）。
-    const cfg = (await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})) as Record<
-      string,
-      { apiKey?: string }
-    >
+    const cfg = (await readJsonFile(
+      join(app.getPath('userData'), 'provider-configs.json'),
+      {}
+    )) as Record<string, { apiKey?: string }>
     const apiKey = cfg?.deepseek?.apiKey?.trim() ?? ''
     if (!apiKey) return { ok: false, message: '未配置 DeepSeek API Key（设置 → API Key）' }
     try {
       const res = await fetch('https://api.deepseek.com/user/balance', {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
       })
       if (!res.ok) {
         // 401 → 认证失败（key 失效/错误）；其他状态码给出具体值便于排查
-        return { ok: false, message: res.status === 401 ? 'API Key 无效或已失效（HTTP 401）' : `余额查询失败（HTTP ${res.status}）` }
+        return {
+          ok: false,
+          message:
+            res.status === 401
+              ? 'API Key 无效或已失效（HTTP 401）'
+              : `余额查询失败（HTTP ${res.status}）`
+        }
       }
-      const data = (await res.json()) as { is_available?: boolean; balance_infos?: Array<{ currency?: string; total_balance?: string }> }
-      return { ok: true, isAvailable: data.is_available ?? false, balanceInfos: (data.balance_infos ?? []).map((b) => ({ currency: b.currency ?? 'CNY', totalBalance: b.total_balance ?? '0' })) }
+      const data = (await res.json()) as {
+        is_available?: boolean
+        balance_infos?: Array<{ currency?: string; total_balance?: string }>
+      }
+      return {
+        ok: true,
+        isAvailable: data.is_available ?? false,
+        balanceInfos: (data.balance_infos ?? []).map((b) => ({
+          currency: b.currency ?? 'CNY',
+          totalBalance: b.total_balance ?? '0'
+        }))
+      }
     } catch (err) {
       // 网络层失败（无网/代理/超时）——区别于业务错误，前端可提示重试
-      return { ok: false, message: `余额查询失败：${err instanceof Error ? err.message : String(err)}` }
+      return {
+        ok: false,
+        message: `余额查询失败：${err instanceof Error ? err.message : String(err)}`
+      }
     }
   })
 
@@ -568,13 +642,21 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     if (!isDebugMode()) return
     if (!args || typeof args.level !== 'string' || typeof args.msg !== 'string') return
     const stamp = new Date().toLocaleTimeString('zh-CN', { hour12: false })
-    appendServeLog(join(app.getPath('userData'), 'logs', 'renderer.log'), `[${stamp}][${args.level}] ${args.msg}`)
+    appendServeLog(
+      join(app.getPath('userData'), 'logs', 'renderer.log'),
+      `[${stamp}][${args.level}] ${args.msg}`
+    )
   })
 
-  ipcMain.handle('logs:saveSessionDebugLog', (_e, args: { sessionId: string; linesJson: string }) => {
-    const file = join(app.getPath('userData'), 'session-logs', args.sessionId, 'debug.json')
-    return fsp.mkdir(dirname(file), { recursive: true }).then(() => fsp.writeFile(file, args.linesJson, 'utf-8'))
-  })
+  ipcMain.handle(
+    'logs:saveSessionDebugLog',
+    (_e, args: { sessionId: string; linesJson: string }) => {
+      const file = join(app.getPath('userData'), 'session-logs', args.sessionId, 'debug.json')
+      return fsp
+        .mkdir(dirname(file), { recursive: true })
+        .then(() => fsp.writeFile(file, args.linesJson, 'utf-8'))
+    }
+  )
 
   // 读取 serve 引擎日志尾部（诊断面板引擎日志页，D8）：lines 正整数 1-5000，缺省 500
   ipcMain.handle('logs:readServeLog', async (_e, args: { lines?: number }) => {
@@ -587,7 +669,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       return await readTailLines(join(app.getPath('userData'), 'logs', 'serve.log'), maxLines)
     } catch (err) {
       // 读取失败（文件被占用/权限）→ 返回空数组 + 主进程记录，前端显示空态可重试
-      console.error(`[ipc] 读取 serve.log 失败：${err instanceof Error ? err.message : String(err)}`)
+      console.error(
+        `[ipc] 读取 serve.log 失败：${err instanceof Error ? err.message : String(err)}`
+      )
       return []
     }
   })
@@ -609,14 +693,19 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     try {
       return await readTailLines(join(app.getPath('userData'), 'logs', 'renderer.log'), maxLines)
     } catch (err) {
-      console.error(`[ipc] 读取 renderer.log 失败：${err instanceof Error ? err.message : String(err)}`)
+      console.error(
+        `[ipc] 读取 renderer.log 失败：${err instanceof Error ? err.message : String(err)}`
+      )
       return []
     }
   })
 
   // 应用信息（诊断面板「复制诊断信息」打包头 + 设置页「关于」三行版本：分形/OC 引擎/预置包）
   ipcMain.handle('app:getInfo', async () => {
-    const [engineVersion, presetVersion] = await Promise.all([getEngineVersion(), getPresetVersion()])
+    const [engineVersion, presetVersion] = await Promise.all([
+      getEngineVersion(),
+      getPresetVersion()
+    ])
     return { name: app.getName(), version: app.getVersion(), engineVersion, presetVersion }
   })
 
@@ -626,7 +715,15 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     'dialog:openDialog',
     async (
       _e,
-      args: { options: { directory?: boolean; multiple?: boolean; title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> } }
+      args: {
+        options: {
+          directory?: boolean
+          multiple?: boolean
+          title?: string
+          defaultPath?: string
+          filters?: Array<{ name: string; extensions: string[] }>
+        }
+      }
     ) => {
       const opts = args.options ?? {}
       // 父窗口保底：焦点不在 app 时 getFocusedWindow 为 null，无父对话框不置前（用户感觉「没效果」）——用主窗口兜底
@@ -640,8 +737,13 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // 调用日志（诊断用，后续可移除）：记录对话框请求与结果
       try {
         const { appendFileSync } = require('node:fs') as typeof import('node:fs')
-        appendFileSync(join(app.getPath('userData'), 'dialog.log'), `${new Date().toISOString()} openDialog directory=${!!opts.directory}\n`)
-      } catch { /* 日志失败忽略 */ }
+        appendFileSync(
+          join(app.getPath('userData'), 'dialog.log'),
+          `${new Date().toISOString()} openDialog directory=${!!opts.directory}\n`
+        )
+      } catch {
+        /* 日志失败忽略 */
+      }
       const properties: Array<'openFile' | 'openDirectory' | 'multiSelections'> = []
       // 目录模式与文件模式互斥，directory 优先
       if (opts.directory) {
@@ -671,7 +773,16 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle(
     'dialog:saveDialog',
-    async (_e, args: { options: { title?: string; defaultPath?: string; filters?: Array<{ name: string; extensions: string[] }> } }) => {
+    async (
+      _e,
+      args: {
+        options: {
+          title?: string
+          defaultPath?: string
+          filters?: Array<{ name: string; extensions: string[] }>
+        }
+      }
+    ) => {
       const opts = args.options ?? {}
       const win = BrowserWindow.getFocusedWindow() ?? undefined
       // 同 openDialog：无聚焦窗口时走无父窗口重载
@@ -701,8 +812,16 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // 默认导出名：去掉 .html/.htm 后缀再补 .pdf（report.html → report.pdf），落在对话框当前目录
     const defName = basename(args.path).replace(/\.html?$/i, '') + '.pdf'
     const result = win
-      ? await dialog.showSaveDialog(win, { title: '导出 PDF', defaultPath: defName, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
-      : await dialog.showSaveDialog({ title: '导出 PDF', defaultPath: defName, filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+      ? await dialog.showSaveDialog(win, {
+          title: '导出 PDF',
+          defaultPath: defName,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }]
+        })
+      : await dialog.showSaveDialog({
+          title: '导出 PDF',
+          defaultPath: defName,
+          filters: [{ name: 'PDF', extensions: ['pdf'] }]
+        })
     // 用户取消保存对话框：静默返回（契约 { ok:false } 无 error，前端不提示）
     if (result.canceled || !result.filePath) return { ok: false }
     // 隐藏窗口不闪烁地渲染 HTML（show:false）；printToPDF 产出的 Buffer 直接写用户选定的路径
@@ -755,7 +874,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       let attachments: Array<{ path: string; name: string }> = []
       if (args.attachments !== undefined) {
         if (!Array.isArray(args.attachments)) {
-          throw new Error(`chat:sendMessage attachments 必须是数组: ${JSON.stringify(args.attachments)}`)
+          throw new Error(
+            `chat:sendMessage attachments 必须是数组: ${JSON.stringify(args.attachments)}`
+          )
         }
         for (const a of args.attachments) {
           if (!a || typeof a.name !== 'string' || !a.name.trim() || typeof a.path !== 'string') {
@@ -768,12 +889,13 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // promptAsync 立即返回（204），结果通过 SSE 事件流回前端；model 由前端传入（settings.model），
       // 缺省时用 provider.ts 默认 pro（serve 全局默认在 oc-config.ts 写 config.model）；
       // agent 由前端传入（settings.currentAgent：双星/build/plan，缺省走 serve 默认 Build）
-      const model = args.model && args.model.providerID && args.model.modelID ? args.model : undefined
+      const model =
+        args.model && args.model.providerID && args.model.modelID ? args.model : undefined
       const extra = {
         model: model ?? { providerID: 'ds', modelID: DEFAULT_MODEL.id },
         ...(typeof args?.agent === 'string' && args.agent ? { agent: args.agent } : {}),
         // variant 思考强度透传（spec 实测 prompt_async body 顶层字段；空串/缺省不传）
-        ...(typeof args?.variant === 'string' && args.variant ? { variant: args.variant } : {}),
+        ...(typeof args?.variant === 'string' && args.variant ? { variant: args.variant } : {})
       }
       const client = await requireClient()
       if (attachments.length === 0) {
@@ -792,52 +914,74 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现。
   // 2026-08-08 修复：①指定 build agent（临时会话默认双星会触发读文件/工具流，润色只需纯文本回复——用户报错根因）；
   // ②超时 20s→60s（deepseek-v4-pro 长推理，20s 内未回复即报「润色超时」——用户报错嫌疑）。
-  ipcMain.handle('ai:polishMessage', async (_e, args: { text: string; refs?: Array<{ label?: string; content?: string; path?: string }> }) => {
-    const text = typeof args?.text === 'string' ? args.text.trim() : ''
-    if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
-    const client = await requireClient()
-    let tempId = ''
-    try {
-      const s = await client.session.create({ title: '消息润色' })
-      // oc-sdk create 返回 Session 本体（normalizeError 已解包 data）
-      tempId = s.id || ''
-      if (!tempId) throw new Error('临时会话创建失败')
-      // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
-      // model: resolveSmallModel（轻量任务模型——标题/润色/未来摘要三处统一走设置页「轻量模型」选择）+ variant low
-      const [smProvider, smModel] = (await resolveSmallModel(app.getPath('userData'))).split('/')
-      await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
-        agent: 'build',
-        model: { providerID: smProvider, modelID: smModel },
-        variant: 'low',
-      })
-      // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
-      let polished = ''
-      for (let i = 0; i < 120 && !polished; i++) {
-        await new Promise((r) => setTimeout(r, 500))
-        const msgs = await client.session.messages(tempId)
-        polished = extractAssistantText(msgs)
-      }
-      if (!polished) throw new Error('润色超时：模型未在 60 秒内回复')
-      return { ok: true, text: polished }
-    } finally {
-      // 尽力清理临时会话（失败不阻断——serve 侧会残留一条「消息润色」会话，可接受）
-      if (tempId) {
-        try { await client.session.delete(tempId) } catch { /* 清理失败可接受 */ }
+  ipcMain.handle(
+    'ai:polishMessage',
+    async (
+      _e,
+      args: { text: string; refs?: Array<{ label?: string; content?: string; path?: string }> }
+    ) => {
+      const text = typeof args?.text === 'string' ? args.text.trim() : ''
+      if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
+      const client = await requireClient()
+      let tempId = ''
+      try {
+        const s = await client.session.create({ title: '消息润色' })
+        // oc-sdk create 返回 Session 本体（normalizeError 已解包 data）
+        tempId = s.id || ''
+        if (!tempId) throw new Error('临时会话创建失败')
+        // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
+        // model: resolveSmallModel（轻量任务模型——标题/润色/未来摘要三处统一走设置页「轻量模型」选择）+ variant low
+        const [smProvider, smModel] = (await resolveSmallModel(app.getPath('userData'))).split('/')
+        await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
+          agent: 'build',
+          model: { providerID: smProvider, modelID: smModel },
+          variant: 'low'
+        })
+        // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
+        let polished = ''
+        for (let i = 0; i < 120 && !polished; i++) {
+          await new Promise((r) => setTimeout(r, 500))
+          const msgs = await client.session.messages(tempId)
+          polished = extractAssistantText(msgs)
+        }
+        if (!polished) throw new Error('润色超时：模型未在 60 秒内回复')
+        return { ok: true, text: polished }
+      } finally {
+        // 尽力清理临时会话（失败不阻断——serve 侧会残留一条「消息润色」会话，可接受）
+        if (tempId) {
+          try {
+            await client.session.delete(tempId)
+          } catch {
+            /* 清理失败可接受 */
+          }
+        }
       }
     }
-  })
+  )
 
   ipcMain.handle('engine:testConnection', async (_e, args: { apiKey: string }) => {
-    // 设置面板「测试连接」：写 key 到 serve 隔离配置 + 验证 serve 可达
+    // 设置面板「测试连接」：写 key 到 serve 隔离配置 + 验证 serve 可达 + 真实校验 key 有效性。
+    // 2026-08-13 修复：原实现只验 serve 可达（config.providers），key 有效性由下次请求隐式验证——
+    // 用户「测试通过」但实际发消息 401（其他机器曾把 fractal 字样误作 key，测试却假通过）。
     if (typeof args?.apiKey !== 'string' || !args.apiKey.trim()) {
       return { ok: false, message: 'API Key 不能为空' }
     }
+    const apiKey = args.apiKey.trim()
     try {
       // ① 写隔离配置（serve 读取 provider.deepseek.options.apiKey 使用，阶段 0 实测：无需 env 注入）
-      await ensureConfig(app.getPath('userData'), { apiKey: args.apiKey.trim(), permissionMode: 'default' })
-      // ② 验证 serve 可达（provider.list 成功即 serve 就绪；key 的有效性由下次请求隐式验证）
+      await ensureConfig(app.getPath('userData'), { apiKey, permissionMode: 'default' })
+      // ② 真实校验 key：调 DeepSeek /models（轻量 GET，无计费）。401 即 key 无效——直接报错，
+      //    不再「假通过」让用户下次发消息才暴露（2026-08-13 其他机器 401 根因）
+      const resp = await fetch('https://api.deepseek.com/models', {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+      })
+      if (!resp.ok) {
+        if (resp.status === 401) return { ok: false, message: 'API Key 无效或已失效（HTTP 401）' }
+        return { ok: false, message: `DeepSeek API 校验失败（HTTP ${resp.status}）` }
+      }
+      // ③ 验证 serve 可达（provider.list 成功即 serve 就绪）
       await (await requireClient()).config.providers()
-      return { ok: true, message: '配置已写入，serve 就绪' }
+      return { ok: true, message: 'API Key 有效，serve 就绪' }
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) }
     }
@@ -850,7 +994,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     if (typeof args?.modelId !== 'string' || !args.modelId.trim()) return []
     const modelId = args.modelId.trim()
     const resp = await (await requireClient()).config.providers()
-    const all = (resp as { all?: unknown }).all as Array<{ id: string; models?: Record<string, { id: string; variants?: Record<string, unknown> }> }> | undefined
+    const all = (resp as { all?: unknown }).all as
+      | Array<{
+          id: string
+          models?: Record<string, { id: string; variants?: Record<string, unknown> }>
+        }>
+      | undefined
     for (const p of all ?? []) {
       for (const [mid, m] of Object.entries(p.models ?? {})) {
         if (mid === modelId || m.id === modelId) {
@@ -879,6 +1028,35 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   })
 
+  ipcMain.handle('engine:prewarm', async (_e, args: { cwd?: unknown }) => {
+    // 启动拦截页预热：带 directory 调 v2 session list，触发 serve 为目标工作区创建 instance
+    // （bootstrap + MCP 冷启动前置到启动阶段，instance 按目录缓存——首条消息不再等实例化）。
+    // 返回 {ok, error?} 而非抛错：预热失败不阻断启动（首条消息仍会正常实例化，仅损失本次预热）
+    if (typeof args?.cwd !== 'string' || args.cwd.length === 0)
+      return { ok: false, error: 'cwd 缺失' }
+    try {
+      const client = await requireClient()
+      await client.session.prewarm(args.cwd)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('engine:prewarm', async (_e, args: { cwd?: unknown }) => {
+    // 启动拦截页预热：带 directory 调 v2 session list，触发 serve 为目标工作区创建 instance
+    // （bootstrap + MCP 冷启动前置到启动阶段，instance 按目录缓存——首条消息不再等实例化）。
+    // 返回 {ok, error?} 而非抛错：预热失败不阻断启动（首条消息仍会正常实例化，仅损失本次预热）
+    if (typeof args?.cwd !== 'string' || args.cwd.length === 0) return { ok: false, error: 'cwd 缺失' }
+    try {
+      const client = await requireClient()
+      await client.session.prewarm(args.cwd)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
   ipcMain.handle('chat:stopSession', async (_e, args: { sessionId: string }) => {
     // 引擎未初始化（requireClient）失败必须抛给前端，不进入 abort 容错
     const client = await requireClient()
@@ -892,9 +1070,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle('session:create', async (_e, args: { title?: string; cwd?: string }) => {
     // cwd 透传 serve query.directory：新会话绑定当前工作区，切换工作区后列表刷新才可见（会话跟随工作区）
-    const s = await (await requireClient()).session.create({
+    const s = await (
+      await requireClient()
+    ).session.create({
       title: typeof args?.title === 'string' ? args.title : undefined,
-      cwd: typeof args?.cwd === 'string' && args.cwd ? args.cwd : undefined,
+      cwd: typeof args?.cwd === 'string' && args.cwd ? args.cwd : undefined
     })
     return toSessionData(s)
   })
@@ -924,7 +1104,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle('session:fork', async (_e, args: { id: string; messageID?: string }) => {
     // 服务端分叉：新会话继承原会话上下文，标题自动追加「 (fork #N)」（阶段 0 实测 S8）
-    const s = await (await requireClient()).session.fork(args.id, typeof args?.messageID === 'string' ? args.messageID : undefined)
+    const s = await (
+      await requireClient()
+    ).session.fork(args.id, typeof args?.messageID === 'string' ? args.messageID : undefined)
     return toSessionData(s)
   })
 
@@ -939,37 +1121,56 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return { ok: true }
   })
 
-  ipcMain.handle('message:list', async (_e, args: { sessionId: string; limit?: number; before?: string }) => {
-    // 参数校验：sessionId 必填；limit 可选正整数（1-1000）；before 可选字符串（消息 ID 分页游标）
-    if (typeof args?.sessionId !== 'string' || !args.sessionId) {
-      throw new Error(`message:list sessionId 参数非法: ${JSON.stringify(args)}`)
+  ipcMain.handle(
+    'message:list',
+    async (_e, args: { sessionId: string; limit?: number; before?: string }) => {
+      // 参数校验：sessionId 必填；limit 可选正整数（1-1000）；before 可选字符串（消息 ID 分页游标）
+      if (typeof args?.sessionId !== 'string' || !args.sessionId) {
+        throw new Error(`message:list sessionId 参数非法: ${JSON.stringify(args)}`)
+      }
+      if (
+        args.limit !== undefined &&
+        (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 1000)
+      ) {
+        throw new Error(`message:list limit 必须是 1-1000 的正整数: ${String(args.limit)}`)
+      }
+      if (args.before !== undefined && typeof args.before !== 'string') {
+        throw new Error(`message:list before 必须是字符串: ${String(args.before)}`)
+      }
+      // 透传 limit/before：首屏 limit=50 取最近 N 条；滚动到顶 before=首条消息 id 取更早
+      const msgs = await (
+        await requireClient()
+      ).session.messages(args.sessionId, {
+        limit: args.limit,
+        before: args.before
+      })
+      return msgs.map(toMessageData)
     }
-    if (args.limit !== undefined && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 1000)) {
-      throw new Error(`message:list limit 必须是 1-1000 的正整数: ${String(args.limit)}`)
-    }
-    if (args.before !== undefined && typeof args.before !== 'string') {
-      throw new Error(`message:list before 必须是字符串: ${String(args.before)}`)
-    }
-    // 透传 limit/before：首屏 limit=50 取最近 N 条；滚动到顶 before=首条消息 id 取更早
-    const msgs = await (await requireClient()).session.messages(args.sessionId, {
-      limit: args.limit,
-      before: args.before,
-    })
-    return msgs.map(toMessageData)
-  })
+  )
 
-  ipcMain.handle('permission:respond', async (_e, args: { sessionId: string; permissionId: string; response: 'once' | 'always' | 'reject' }) => {
-    // 响应枚举白名单校验（SDK 1.18.13：once/always/reject，杜绝前端注入非法值）
-    if (!['once', 'always', 'reject'].includes(args.response)) {
-      throw new Error(`permission:respond response 非法: ${String(args.response)}`)
+  ipcMain.handle(
+    'permission:respond',
+    async (
+      _e,
+      args: { sessionId: string; permissionId: string; response: 'once' | 'always' | 'reject' }
+    ) => {
+      // 响应枚举白名单校验（SDK 1.18.13：once/always/reject，杜绝前端注入非法值）
+      if (!['once', 'always', 'reject'].includes(args.response)) {
+        throw new Error(`permission:respond response 非法: ${String(args.response)}`)
+      }
+      await (
+        await requireClient()
+      ).permission.respond(args.sessionId, args.permissionId, args.response)
+      return { responded: true }
     }
-    await (await requireClient()).permission.respond(args.sessionId, args.permissionId, args.response)
-    return { responded: true }
-  })
+  )
 
   // 校验 question 回答数组：必须是非空 string[][]（每项是该问题选中的 label 数组）
   function assertAnswersShape(answers: unknown): asserts answers is string[][] {
-    if (!Array.isArray(answers) || !answers.every((a) => Array.isArray(a) && a.every((x) => typeof x === 'string'))) {
+    if (
+      !Array.isArray(answers) ||
+      !answers.every((a) => Array.isArray(a) && a.every((x) => typeof x === 'string'))
+    ) {
       throw new Error(`question:reply answers 非法: 需要 string[][]（每项为选中 label 数组）`)
     }
   }
@@ -984,32 +1185,50 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return { baseURL: info.baseURL, authHeader: basicAuthHeader(info.username, info.password) }
   }
 
-  ipcMain.handle('question:reply', async (_e, args: { sessionId: string; requestId: string; answers: string[][] }) => {
-    // SDK 1.18.13 无 question 方法（阶段 0 实测），用裸 fetch 调 serve 原生端点
-    if (typeof args?.sessionId !== 'string' || !args.sessionId || typeof args?.requestId !== 'string' || !args.requestId) {
-      throw new Error(`question:reply 参数非法: ${JSON.stringify(args)}`)
+  ipcMain.handle(
+    'question:reply',
+    async (_e, args: { sessionId: string; requestId: string; answers: string[][] }) => {
+      // SDK 1.18.13 无 question 方法（阶段 0 实测），用裸 fetch 调 serve 原生端点
+      if (
+        typeof args?.sessionId !== 'string' ||
+        !args.sessionId ||
+        typeof args?.requestId !== 'string' ||
+        !args.requestId
+      ) {
+        throw new Error(`question:reply 参数非法: ${JSON.stringify(args)}`)
+      }
+      assertAnswersShape(args.answers)
+      // 先 await ready（共享启动 promise），避免 serve 未就绪时 getServerInfo 拿不到连接信息
+      await requireClient()
+      const { baseURL, authHeader } = getServerAuth()
+      // serve 多实例按工作区目录路由（WorkspaceRoutingMiddleware）：不传 directory 会落到
+      // process.cwd() 默认实例，跨工作区提问时 pending 在别的实例 → 404 QuestionNotFoundError
+      // （2026-08-12 实测：切换工作区后 question:reply 报 HTTP 404）。readProjectCwd 读当前工作区。
+      const cwd = await readProjectCwd(app.getPath('userData'))
+      const res = await fetch(
+        `${baseURL}/question/${encodeURIComponent(args.requestId)}/reply${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: authHeader },
+          body: JSON.stringify({ answers: args.answers })
+        }
+      )
+      if (!res.ok) {
+        throw new Error(
+          `question:reply 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`
+        )
+      }
+      return { ok: true }
     }
-    assertAnswersShape(args.answers)
-    // 先 await ready（共享启动 promise），避免 serve 未就绪时 getServerInfo 拿不到连接信息
-    await requireClient()
-    const { baseURL, authHeader } = getServerAuth()
-    // serve 多实例按工作区目录路由（WorkspaceRoutingMiddleware）：不传 directory 会落到
-    // process.cwd() 默认实例，跨工作区提问时 pending 在别的实例 → 404 QuestionNotFoundError
-    // （2026-08-12 实测：切换工作区后 question:reply 报 HTTP 404）。readProjectCwd 读当前工作区。
-    const cwd = await readProjectCwd(app.getPath('userData'))
-    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reply${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: authHeader },
-      body: JSON.stringify({ answers: args.answers }),
-    })
-    if (!res.ok) {
-      throw new Error(`question:reply 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
-    }
-    return { ok: true }
-  })
+  )
 
   ipcMain.handle('question:reject', async (_e, args: { sessionId: string; requestId: string }) => {
-    if (typeof args?.sessionId !== 'string' || !args.sessionId || typeof args?.requestId !== 'string' || !args.requestId) {
+    if (
+      typeof args?.sessionId !== 'string' ||
+      !args.sessionId ||
+      typeof args?.requestId !== 'string' ||
+      !args.requestId
+    ) {
       throw new Error(`question:reject 参数非法: ${JSON.stringify(args)}`)
     }
     await requireClient()
@@ -1017,12 +1236,17 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // 与 question:reply 同因：不带 directory 会路由到 process.cwd() 默认实例，
     // 跨工作区拒绝提问会 404（2026-08-12 实测同源问题）
     const cwd = await readProjectCwd(app.getPath('userData'))
-    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reject${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`, {
-      method: 'POST',
-      headers: { Authorization: authHeader },
-    })
+    const res = await fetch(
+      `${baseURL}/question/${encodeURIComponent(args.requestId)}/reject${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`,
+      {
+        method: 'POST',
+        headers: { Authorization: authHeader }
+      }
+    )
     if (!res.ok) {
-      throw new Error(`question:reject 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
+      throw new Error(
+        `question:reject 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`
+      )
     }
     return { ok: true }
   })
@@ -1037,10 +1261,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     const { baseURL, authHeader } = getServerAuth()
     const res = await fetch(`${baseURL}/api/session/${encodeURIComponent(args.id)}/compact`, {
       method: 'POST',
-      headers: { Authorization: authHeader },
+      headers: { Authorization: authHeader }
     })
     if (!res.ok) {
-      throw new Error(`session:compact 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`)
+      throw new Error(
+        `session:compact 失败（HTTP ${res.status}）：${await res.text().catch(() => '')}`
+      )
     }
     return { ok: true }
   })
@@ -1079,7 +1305,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
 
   ipcMain.handle('plans:read', async (_e, args: { file: string }) => {
     // 路径安全：file 必须位于计划目录内（panel.ts resolvePlanDir 校验，防越界读）
-    return readPlan(app.getPath('userData'), await readProjectCwd(app.getPath('userData')), args?.file)
+    return readPlan(
+      app.getPath('userData'),
+      await readProjectCwd(app.getPath('userData')),
+      args?.file
+    )
   })
 
   ipcMain.handle('status:get', async () => {
@@ -1166,12 +1396,15 @@ export function toSessionData(s: Session): {
     total_cost: null,
     // 子会话归属：serve parentID（主会话为 undefined）——历史子任务归属数据源
     parentId: s.parentID ?? undefined,
-    agent: typeof raw.agent === 'string' ? raw.agent : undefined,
+    agent: typeof raw.agent === 'string' ? raw.agent : undefined
   }
 }
 
 /** serve FilePart → 前端 AttachedFile（{name, path}）；path 优先本地 source.path，兜底 url */
-function filePartToAttachment(p: { filename?: string; url: string; source?: { path?: string } }): { name: string; path: string } {
+function filePartToAttachment(p: { filename?: string; url: string; source?: { path?: string } }): {
+  name: string
+  path: string
+} {
   const path = p.source?.path ?? p.url
   const name = p.filename ?? basename(path) ?? p.url
   return { name, path }
@@ -1186,20 +1419,42 @@ function buildHistoryContentBlocks(
     tool?: string
     /** part 顶层 time：reasoning/text 的耗时区间（SDK ReasoningPart.time） */
     time?: { start?: number; end?: number }
-    state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string; time?: { start?: number; end?: number } }
+    state?: {
+      status?: string
+      input?: Record<string, unknown>
+      output?: string
+      error?: string
+      time?: { start?: number; end?: number }
+    }
   }>
 ): Array<{
   type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
   content?: string
   durationMs?: number
-  toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; startedAt?: number; executionDurationMs?: number }
+  toolUse?: {
+    id: string
+    name: string
+    input: Record<string, unknown>
+    result?: string
+    isError?: boolean
+    startedAt?: number
+    executionDurationMs?: number
+  }
   toolResult?: { toolUseId: string; content: string; isError?: boolean }
 }> {
   const blocks: Array<{
     type: 'thinking' | 'tool_use' | 'tool_result' | 'text'
     content?: string
     durationMs?: number
-    toolUse?: { id: string; name: string; input: Record<string, unknown>; result?: string; isError?: boolean; startedAt?: number; executionDurationMs?: number }
+    toolUse?: {
+      id: string
+      name: string
+      input: Record<string, unknown>
+      result?: string
+      isError?: boolean
+      startedAt?: number
+      executionDurationMs?: number
+    }
     toolResult?: { toolUseId: string; content: string; isError?: boolean }
   }> = []
   for (const p of parts) {
@@ -1209,7 +1464,11 @@ function buildHistoryContentBlocks(
       if (text) {
         // 思考耗时 = ReasoningPart.time.end - start（end 可选——缺失则不显示耗时）
         const durationMs = positiveDuration(p.time?.start, p.time?.end)
-        blocks.push({ type: 'thinking', content: text, ...(durationMs !== undefined ? { durationMs } : {}) })
+        blocks.push({
+          type: 'thinking',
+          content: text,
+          ...(durationMs !== undefined ? { durationMs } : {})
+        })
       }
     } else if (p.type === 'tool') {
       // 工具块：仅完成/错误态（pending/running 是流式中间态，历史消息取终态）
@@ -1218,13 +1477,19 @@ function buildHistoryContentBlocks(
       if (status !== 'completed' && status !== 'error') continue
       const isError = status === 'error'
       // 工具耗时 = ToolState.time.end - start（两端齐全才算）
-      const executionDurationMs = positiveDuration(p.state?.time?.start, (p.state as ToolStateTime | undefined)?.time?.end)
+      const executionDurationMs = positiveDuration(
+        p.state?.time?.start,
+        (p.state as ToolStateTime | undefined)?.time?.end
+      )
       // task 工具：state.metadata.sessionId 是子会话 ID（与 events.ts 流式路径同规则），
       // 历史还原同样需要合并进 input.metadata——否则历史 subtask 节点 taskId 提取失败（D6 占位）
       const input: Record<string, unknown> = p.state?.input ?? {}
       const meta = (p.state as { metadata?: { sessionId?: string } } | undefined)?.metadata
       if (p.tool === 'task' && meta?.sessionId) {
-        input.metadata = { ...(input.metadata as Record<string, unknown> | undefined), sessionId: meta.sessionId }
+        input.metadata = {
+          ...(input.metadata as Record<string, unknown> | undefined),
+          sessionId: meta.sessionId
+        }
       }
       const toolUse = {
         id: p.callID,
@@ -1233,11 +1498,14 @@ function buildHistoryContentBlocks(
         result: isError ? p.state?.error ?? '' : p.state?.output ?? '',
         isError,
         startedAt: p.state?.time?.start,
-        ...(executionDurationMs !== undefined ? { executionDurationMs } : {}),
+        ...(executionDurationMs !== undefined ? { executionDurationMs } : {})
       }
       blocks.push({ type: 'tool_use', toolUse })
       // 工具结果块紧跟对应工具卡片（MessageBubble 渲染 tool_use 内嵌结果，tool_result 块保证数据完整性）
-      blocks.push({ type: 'tool_result', toolResult: { toolUseId: p.callID, content: toolUse.result, isError } })
+      blocks.push({
+        type: 'tool_result',
+        toolResult: { toolUseId: p.callID, content: toolUse.result, isError }
+      })
     } else if (p.type === 'text' && !(p as { synthetic?: boolean }).synthetic) {
       // 文本 part → text 块（synthetic 是 serve 回显的临时占位，历史消息应排除）
       const text = p.text ?? ''
@@ -1264,7 +1532,7 @@ const POLISH_REF_MAX_BYTES = 50_000
  */
 export async function buildPolishPrompt(
   text: string,
-  refs?: Array<{ label?: string; content?: string; path?: string }>,
+  refs?: Array<{ label?: string; content?: string; path?: string }>
 ): Promise<string> {
   if (!refs || refs.length === 0) return POLISH_PROMPT + text
   const blocks: string[] = []
@@ -1318,8 +1586,26 @@ export function toMessageData(sm: SessionMessage): {
   token_usage: string
   created_at: string
 } {
-  const info = sm.info as { id: string; sessionID: string; role: string; time: { created: number; completed?: number }; tokens?: { input: number; output: number; cache?: { read?: number } }; modelID?: string; model?: unknown }
-  const parts = sm.parts as Array<{ type: string; text?: string; synthetic?: boolean; filename?: string; url?: string; source?: { path?: string }; callID?: string; tool?: string; state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string } }>
+  const info = sm.info as {
+    id: string
+    sessionID: string
+    role: string
+    time: { created: number; completed?: number }
+    tokens?: { input: number; output: number; cache?: { read?: number } }
+    modelID?: string
+    model?: unknown
+  }
+  const parts = sm.parts as Array<{
+    type: string
+    text?: string
+    synthetic?: boolean
+    filename?: string
+    url?: string
+    source?: { path?: string }
+    callID?: string
+    tool?: string
+    state?: { status?: string; input?: Record<string, unknown>; output?: string; error?: string }
+  }>
 
   let content: string
   if (info.role === 'user') {
@@ -1333,7 +1619,9 @@ export function toMessageData(sm: SessionMessage): {
       .join('\n')
     const attachments = parts
       .filter((p) => p.type === 'file' && p.url)
-      .map((p) => filePartToAttachment(p as { filename?: string; url: string; source?: { path?: string } }))
+      .map((p) =>
+        filePartToAttachment(p as { filename?: string; url: string; source?: { path?: string } })
+      )
     content = attachments.length ? JSON.stringify({ text, attachments }) : text
   } else {
     // assistant 消息：完整还原 thinking/toolUses/contentBlocks/durationMs/tokens/cost
@@ -1350,7 +1638,13 @@ export function toMessageData(sm: SessionMessage): {
     // 工具调用：仅终态（completed/error），id=callID、name=tool、input=state.input、result=output/error
     // 耗时 = ToolState.time.end - start（两端齐全才算；历史恢复时客户端计时不可用，必须服务端透传）
     const toolUses = parts
-      .filter((p) => p.type === 'tool' && p.callID && p.tool && (p.state?.status === 'completed' || p.state?.status === 'error'))
+      .filter(
+        (p) =>
+          p.type === 'tool' &&
+          p.callID &&
+          p.tool &&
+          (p.state?.status === 'completed' || p.state?.status === 'error')
+      )
       .map((p) => {
         // ToolState 联合含 pending（无 time）→ 断言取时间字段
         const toolTime = (p.state as ToolStateTime | undefined)?.time
@@ -1362,14 +1656,15 @@ export function toMessageData(sm: SessionMessage): {
           result: p.state?.status === 'error' ? p.state?.error ?? '' : p.state?.output ?? '',
           isError: p.state?.status === 'error',
           startedAt: toolTime?.start,
-          ...(duration !== undefined ? { executionDurationMs: duration } : {}),
+          ...(duration !== undefined ? { executionDurationMs: duration } : {})
         }
       })
     const contentBlocks = buildHistoryContentBlocks(parts)
     // 尽力而为的统计：durationMs 用消息 completed-created 差；tokens 取 SDK 顶层字段；
     // 人民币成本：本地价格表按 tokens（含缓存命中）+ modelID 计算——serve 的 step-finish cost
     // 是美元口径且依赖引擎价格，币种/精度都不符合分形人民币计费（2026-08-12 修复）
-    const durationMs = info.time.completed !== undefined ? info.time.completed - info.time.created : undefined
+    const durationMs =
+      info.time.completed !== undefined ? info.time.completed - info.time.created : undefined
     const hasTokens = info.tokens?.input !== undefined || info.tokens?.output !== undefined
     // 模型 id 双路提取：新版 serve 顶层 modelID（round3-success 实测）；旧版 1.18.5 是 info.model 对象
     // （events-all.json 实测 {providerID, modelID}）——单取顶层会导致旧形态历史成本按 flash 兜底低估
@@ -1378,7 +1673,7 @@ export function toMessageData(sm: SessionMessage): {
       ? calcCostCny(modelId, {
           input: info.tokens?.input ?? 0,
           output: info.tokens?.output ?? 0,
-          cacheRead: info.tokens?.cache?.read ?? 0,
+          cacheRead: info.tokens?.cache?.read ?? 0
         })
       : undefined
     content = JSON.stringify({
@@ -1389,7 +1684,7 @@ export function toMessageData(sm: SessionMessage): {
       ...(durationMs !== undefined ? { durationMs } : {}),
       ...(info.tokens?.input !== undefined ? { inputTokens: info.tokens.input } : {}),
       ...(info.tokens?.output !== undefined ? { outputTokens: info.tokens.output } : {}),
-      ...(costCNY !== undefined ? { costCNY } : {}),
+      ...(costCNY !== undefined ? { costCNY } : {})
     })
   }
 
@@ -1401,7 +1696,7 @@ export function toMessageData(sm: SessionMessage): {
     role: info.role,
     content,
     token_usage: tokenUsage,
-    created_at: formatOcTime(info.time.created),
+    created_at: formatOcTime(info.time.created)
   }
 }
 
@@ -1420,7 +1715,7 @@ export async function startEngineEvents(
   win: BrowserWindow,
   manager: ServerManager,
   /** 目标窗口工作区读取器（动态读 winWorkspaces：主窗口注册前为 '' → 不过滤放行，注册后精确路由） */
-  getWorkspace?: () => string,
+  getWorkspace?: () => string
 ): Promise<void> {
   // 窗口销毁后 win.webContents 访问抛「Object has been destroyed」（2026-08-09 实测闪退）——
   // 提前缓存 webContents id，后续回调/日志/清理一律用缓存值（窗口活着时取的，永远有效）
@@ -1438,7 +1733,8 @@ export async function startEngineEvents(
   let readyRetryTimer: NodeJS.Timeout | null = null
   async function establishSubscription(info: ServerInfo): Promise<void> {
     if (!info.running || !info.baseURL || !info.username || !info.password) return
-    if (boundURL === info.baseURL && boundUser === info.username && boundPass === info.password) return
+    if (boundURL === info.baseURL && boundUser === info.username && boundPass === info.password)
+      return
     // 等 serve 初始化完成（message=init 行）再订阅：/doc 可达时 serve 可能仍在加载（事件总线未初始化），
     // 过早订阅挂在未就绪窗口——SDK fetch 无超时 → 零事件 → GUI 永远卡「思考中」（2026-08-11 实测）
     // 注意：成功 resolve 时 await 返回 undefined——判断必须显式对比 false（!undefined 恒 true 会把正常路径当失败）
@@ -1487,12 +1783,15 @@ export async function startEngineEvents(
       password: info.password,
       // 活跃会话动态读取（renderer session:setActive 上报 → 按本窗口 webContentsId 分桶，
       // 多窗口互不干扰——军师 #2）；窗口销毁后返回空串（订阅即将被 closed 回调中断，空窗安全）
-      getActiveSessionId: () => (win.isDestroyed() ? '' : activeSessionByWebContents.get(wcId) ?? ''),
+      getActiveSessionId: () =>
+        win.isDestroyed() ? '' : activeSessionByWebContents.get(wcId) ?? '',
       // 会话目录缓存增量维护：session.created 带 info.directory（fixtures/events-all.json 实锤）；
       // session.deleted 清理防内存泄漏。全局共享 Map，任何窗口订阅的增量对全部窗口生效
       onRawEvent: (ev) => {
-        const props = (ev.properties as Record<string, unknown> | undefined)
-        const sid = (props?.sessionID as string | undefined) ?? (props?.info as { id?: string } | undefined)?.id
+        const props = ev.properties as Record<string, unknown> | undefined
+        const sid =
+          (props?.sessionID as string | undefined) ??
+          (props?.info as { id?: string } | undefined)?.id
         if (!sid) return
         if (ev.type === 'session.created') {
           const dir = (props?.info as { directory?: string } | undefined)?.directory
@@ -1513,13 +1812,18 @@ export async function startEngineEvents(
       },
       onError: (err) => {
         console.error('[engine] SSE 订阅错误：', err)
-      },
+      }
     })
     stopCurrent = stop
     // 诊断：子会话识别依赖本窗口的活跃会话分桶——打印当前值，serve.log 可见
     //（2026-08-09 实测子会话卡片不显示 = 分桶空导致 isSubSession 短路，靠此日志定位）
     if (!win.isDestroyed()) {
-      console.log('[engine] 事件流订阅建立，窗口分桶:', wcId, '=', activeSessionByWebContents.get(wcId) ?? '(空)')
+      console.log(
+        '[engine] 事件流订阅建立，窗口分桶:',
+        wcId,
+        '=',
+        activeSessionByWebContents.get(wcId) ?? '(空)'
+      )
     }
   }
 
@@ -1546,4 +1850,3 @@ export async function startEngineEvents(
     stopCurrent = null
   })
 }
-

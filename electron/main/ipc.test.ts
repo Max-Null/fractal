@@ -827,6 +827,93 @@ describe('deepseek:getBalance（计费迭代：DeepSeek 余额查询）', () => 
   })
 })
 
+// ── engine:testConnection（2026-08-13：真实验证 key 有效性，不再「假通过」）──
+describe('engine:testConnection（真实校验 API Key）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-testconn-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('空 key → ok:false 提示（不发起请求）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testConnection')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { apiKey: '' })) as { ok: boolean; message?: string }
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('API Key')
+  })
+
+  it('key 有效 → 调 DeepSeek /models 200 + serve 可达 → ok:true', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ object: 'list', data: [{ id: 'deepseek-chat' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers({
+        getClient: () => ({ config: { providers: vi.fn(async () => ({})) } }),
+        ready: async () => {},
+      } as never)
+      const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testConnection')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { apiKey: 'sk-valid' })) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(true)
+      expect(r.message).toContain('有效')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('key 无效（401）→ ok:false + 认证失败提示（修复「假通过」核心用例）', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch
+    try {
+      registerIpcHandlers({
+        getClient: () => ({ config: { providers: vi.fn(async () => ({})) } }),
+        ready: async () => {},
+      } as never)
+      const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testConnection')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { apiKey: 'sk-bad' })) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(false)
+      expect(r.message).toContain('401')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('key 有效但 serve 不可达 → ok:false（服务端错误透传）', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ object: 'list', data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers({
+        getClient: () => ({ config: { providers: vi.fn(async () => { throw new Error('serve down') }) } }),
+        ready: async () => {},
+      } as never)
+      const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testConnection')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { apiKey: 'sk-valid' })) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(false)
+      expect(r.message).toContain('serve down')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
 describe('question:reply / question:reject（多实例路由：带 directory query）', () => {
   let userDataDir: string
   let fetchMock: ReturnType<typeof vi.fn>
