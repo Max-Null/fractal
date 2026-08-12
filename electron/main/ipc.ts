@@ -1043,20 +1043,6 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   })
 
-  ipcMain.handle('engine:prewarm', async (_e, args: { cwd?: unknown }) => {
-    // 启动拦截页预热：带 directory 调 v2 session list，触发 serve 为目标工作区创建 instance
-    // （bootstrap + MCP 冷启动前置到启动阶段，instance 按目录缓存——首条消息不再等实例化）。
-    // 返回 {ok, error?} 而非抛错：预热失败不阻断启动（首条消息仍会正常实例化，仅损失本次预热）
-    if (typeof args?.cwd !== 'string' || args.cwd.length === 0) return { ok: false, error: 'cwd 缺失' }
-    try {
-      const client = await requireClient()
-      await client.session.prewarm(args.cwd)
-      return { ok: true }
-    } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : String(err) }
-    }
-  })
-
   ipcMain.handle('chat:stopSession', async (_e, args: { sessionId: string }) => {
     // 引擎未初始化（requireClient）失败必须抛给前端，不进入 abort 容错
     const client = await requireClient()
