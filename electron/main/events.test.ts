@@ -3,9 +3,9 @@
 // 不建立真实 SSE 连接（SSE 连接留阶段 4 冒烟）
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
-import { mapServeEvent, createMapContext, type MapContext } from './events'
+import { mapServeEvent, createMapContext, subscribeEvents, type MapContext, type StreamFrontendEvent } from './events'
 
 const fixturePath = resolve(process.cwd(), 'electron/tests/fixtures')
 
@@ -539,15 +539,18 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
   // 旧 permission.updated 用例（SDK 类型结构）已删除：实测 serve 1.18.5 事件为 permission.asked，
   // 结构以实测为准（下方 permission.asked 用例 + permission.updated 兼容用例覆盖）
 
-  it('session.idle 附带最近 session.updated 的 tokens + 人民币成本', () => {
+  it('session.idle 附带最后一条 assistant 消息的消息级 tokens + 人民币成本', () => {
     const ctx = createMapContext()
-    // 实测结构：cost 不在 tokens 内（在 info 顶层），cache.read 在 tokens.cache.read——
-    // 人民币成本由本地价格表按 tokens + model 计算（2026-08-12 修复：原读 info.tokens.cost 恒 0）
-    const updated = synthEvent('session.updated', {
+    // 消息级 usage：serve 回合完成的 message.updated 携带（input=100 为该回合新增输入，非累计）
+    // （2026-08-13 修复：此前用 session.updated 的会话累计值，前端二次累加导致弹窗 110% 超估）
+    const updated = synthEvent('message.updated', {
       sessionID: 'ses_test',
       info: {
-        id: 'ses_test',
-        model: { id: 'deepseek-v4-pro', providerID: 'deepseek' },
+        id: 'msg_1',
+        role: 'assistant',
+        sessionID: 'ses_test',
+        modelID: 'deepseek-v4-pro',
+        providerID: 'deepseek',
         tokens: { input: 100, output: 50, reasoning: 10, cache: { read: 0, write: 0 } },
       },
     })
@@ -559,21 +562,79 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
     expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.0006, 8)
   })
 
-  it('session.idle 成本含缓存命中优惠（cache.read 用缓存价）', () => {
+  it('message.updated 消息级 tokens 优先于 session.updated 累计值（累计二次累加防回归）', () => {
     const ctx = createMapContext()
-    // 10000 tokens 输入，其中 8000 缓存命中 → 未命中 2000×3/1e6 + 命中 8000×0.025/1e6
+    // session.updated 携带多轮累计值——不能覆盖消息级值（否则 result 下发累计，前端二次累加超估）
     const updated = synthEvent('session.updated', {
       sessionID: 'ses_test',
       info: {
         id: 'ses_test',
         model: { id: 'deepseek-v4-pro', providerID: 'deepseek' },
-        tokens: { input: 10000, output: 0, reasoning: 0, cache: { read: 8000, write: 0 } },
+        tokens: { input: 999999, output: 999999, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    })
+    mapServeEvent(updated, ctx)
+    // 消息级：本回合真实 usage input=1000
+    const msgUpdated = synthEvent('message.updated', {
+      sessionID: 'ses_test',
+      info: {
+        id: 'msg_1',
+        role: 'assistant',
+        sessionID: 'ses_test',
+        modelID: 'deepseek-v4-pro',
+        providerID: 'deepseek',
+        tokens: { input: 1000, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      },
+    })
+    mapServeEvent(msgUpdated, ctx)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({ type: 'result', input_tokens: 1000, output_tokens: 0 })
+    // 成本按消息级（1000/1e6×3 = 0.003），而非累计 999999
+    expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.003, 8)
+  })
+
+  it('result 透传消息级 cache tokens（弹窗算「当前上下文占用」= input+cacheRead+cacheWrite）', () => {
+    const ctx = createMapContext()
+    const msgUpdated = synthEvent('message.updated', {
+      sessionID: 'ses_test',
+      info: {
+        id: 'msg_1',
+        role: 'assistant',
+        sessionID: 'ses_test',
+        tokens: { input: 2000, output: 10, reasoning: 0, cache: { read: 8000, write: 500 } },
+      },
+    })
+    mapServeEvent(msgUpdated, ctx)
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({
+      type: 'result',
+      input_tokens: 2000,
+      output_tokens: 10,
+      cache_read_tokens: 8000,
+      cache_write_tokens: 500,
+    })
+  })
+
+  it('session.idle 成本含缓存命中优惠（cache.read 用缓存价）', () => {
+    const ctx = createMapContext()
+    // 消息级：input=2000（adjusted 口径，已减缓存命中）+ cache.read=8000 单独按缓存价
+    // 未命中 2000×3/1e6 + 命中 8000×0.025/1e6 = 0.006 + 0.0002 = 0.0062 元
+    const updated = synthEvent('message.updated', {
+      sessionID: 'ses_test',
+      info: {
+        id: 'msg_1',
+        role: 'assistant',
+        sessionID: 'ses_test',
+        modelID: 'deepseek-v4-pro',
+        providerID: 'deepseek',
+        tokens: { input: 2000, output: 0, reasoning: 0, cache: { read: 8000, write: 0 } },
       },
     })
     mapServeEvent(updated, ctx)
     const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
     const out = mapServeEvent(idle, ctx)
-    // 2000/1e6×3 + 8000/1e6×0.025 = 0.006 + 0.0002 = 0.0062 元
     expect((out[0] as { cost_cny?: number }).cost_cny).toBeCloseTo(0.0062, 8)
   })
 
@@ -894,5 +955,66 @@ describe('mapServeEvent 合成事件：子会话识别（activeSessionId ≠ ses
     expect(mapServeEvent(created, ctx)).toHaveLength(0)
     const idle = synthEvent('session.idle', { sessionID: 'ses_any' })
     expect(mapServeEvent(idle, ctx)[0].type).toBe('result')
+  })
+})
+
+
+// ── subscribeEvents 原始事件透传（onRawEvent）──
+// 说明：其余用例只测纯映射函数；本组用 mock fetch 注入 SSE 流，验证订阅层透传原始 ServeEvent
+describe('subscribeEvents onRawEvent（原始事件透传，会话目录缓存维护用）', () => {
+  /** 构造 serve v2 SSE 响应体（data: {payload:...} 行 + \n\n 分隔），stub 全局 fetch */
+  function mockEventStream(evts: ServeEvent[]) {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const ev of evts) {
+          const data = JSON.stringify({ payload: ev })
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`))
+        }
+        controller.close()
+      },
+    })
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, statusText: 'OK', body: stream }) as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  it('每条原始事件先经 onRawEvent 透传（含 session.created 的 directory），再走 onEvent 映射', async () => {
+    const rawEvents: ServeEvent[] = [
+      { id: 'evt_conn', type: 'server.connected', properties: {} } as unknown as ServeEvent,
+      {
+        id: 'evt_created',
+        type: 'session.created',
+        properties: { sessionID: 'ses_a', info: { id: 'ses_a', directory: 'H:/work/A' } },
+      } as unknown as ServeEvent,
+      {
+        id: 'evt_part',
+        type: 'message.part.updated',
+        properties: { sessionID: 'ses_a', part: { id: 'prt1', type: 'text', text: 'hi' } },
+      } as unknown as ServeEvent,
+    ]
+    mockEventStream(rawEvents)
+    const rawSeen: ServeEvent[] = []
+    const mappedSeen: StreamFrontendEvent[] = []
+    const stop = await subscribeEvents({
+      baseURL: 'http://127.0.0.1:9999',
+      username: 'u',
+      password: 'p',
+      onRawEvent: (ev) => rawSeen.push(ev),
+      onEvent: (evt) => mappedSeen.push(evt),
+    })
+    try {
+      // 流式消费是异步的：mock stream 立即 close，等待事件处理完成
+      await new Promise((r) => setTimeout(r, 100))
+      // server.connected 走 onConnected 专用通道，不经过 onRawEvent
+      expect(rawSeen.map((e) => e.type)).toEqual(['session.created', 'message.part.updated'])
+      // 原始事件保留 directory（会话目录缓存维护的数据源）
+      expect((rawSeen[0].properties as Record<string, unknown>).info).toMatchObject({ directory: 'H:/work/A' })
+      // onEvent 收到映射后的事件（message.part.updated text → assistant）
+      expect(mappedSeen.some((e) => e.type === 'assistant')).toBe(true)
+    } finally {
+      stop()
+      vi.unstubAllGlobals()
+    }
   })
 })

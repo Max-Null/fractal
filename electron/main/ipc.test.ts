@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers, resolveSessionModel } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers, resolveSessionModel, isSameWorkspace } from './ipc'
 import type { SessionMessage } from './oc-sdk'
 
 // electron mock：app:getInfo / logs:readServeLog 用例需要（node 环境无 electron 运行时）。
@@ -191,6 +191,26 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(data.content).toBe('纯文本内容')
   })
 
+  it('user 消息：synthetic text part 被排除（serve 附件注入的 Read 调用占位不污染原文）', () => {
+    const sm = makeMessage('user', [
+      textPart('查看这个文件'),
+      textPart('Called the Read tool with the following input: {"filePath":"D:\\Project\\doc-edit\\附件.docx"}', { synthetic: true }),
+      {
+        type: 'file',
+        filename: '附件.集团信息化平台建设及运维服务（第一期）项目采购需求.docx',
+        url: 'file:///D:/Project/doc-edit/附件.docx',
+        source: { type: 'file', path: 'D:\\Project\\doc-edit\\附件.docx' },
+      },
+    ])
+    const data = toMessageData(sm)
+    const parsed = JSON.parse(data.content) as { text: string; attachments: Array<{ name: string; path: string }> }
+    // 用户原文完整保留，Read 调用占位不混入
+    expect(parsed.text).toBe('查看这个文件')
+    expect(parsed.attachments).toEqual([
+      { name: '附件.集团信息化平台建设及运维服务（第一期）项目采购需求.docx', path: 'D:\\Project\\doc-edit\\附件.docx' },
+    ])
+  })
+
   it('assistant 消息：reasoning→thinking、text→content、tool→toolUses、contentBlocks 时间线重建', () => {
     const sm = makeMessage('assistant', [
       textPart('The user is asking', { type: 'reasoning', time: { start: 1786029595000, end: 1786029596000 } }), // 真实报文中 reasoning part 无 text 空起步，此处用样例简化
@@ -254,11 +274,12 @@ describe('toMessageData（G2 完整还原）', () => {
     expect(parsed.contentBlocks[2].toolResult).toMatchObject({ toolUseId: 'call_1', content: 'file1.txt\nfile2.txt', isError: false })
     expect(parsed.contentBlocks[5]).toMatchObject({ type: 'text', content: '你好' })
     // 统计尽力而为：durationMs = completed - created；tokens 从 SDK 顶层字段；
-    // 人民币成本本地计算（pro 价）：未命中 (9736-1920)/1e6×3 + 命中 1920/1e6×0.025 + 输出 2/1e6×6
+    // 人民币成本本地计算（pro 价，2026-08-13 修正口径）：serve 下发 input 已不含缓存命中，
+    // 直接按未命中计价：未命中 9736/1e6×3 + 命中 1920/1e6×0.025 + 输出 2/1e6×6
     expect(parsed.durationMs).toBe(1786029599033 - 1786029594660)
     expect(parsed.inputTokens).toBe(9736)
     expect(parsed.outputTokens).toBe(2)
-    expect(parsed.costCNY).toBeCloseTo((7816 / 1e6) * 3 + (1920 / 1e6) * 0.025 + (2 / 1e6) * 6, 8)
+    expect(parsed.costCNY).toBeCloseTo((9736 / 1e6) * 3 + (1920 / 1e6) * 0.025 + (2 / 1e6) * 6, 8)
     expect(parsed.costUSD).toBeUndefined()
     // token_usage 保持原 JSON 串（MessageData 契约字段）
     expect(data.token_usage).toBe(JSON.stringify({ input: 9736, output: 2, reasoning: 19, cache: { read: 1920, write: 0 } }))
@@ -868,3 +889,22 @@ describe('resolveSessionModel（serve 会话模型提取）', () => {
   })
 })
 
+
+describe('isSameWorkspace（多窗口事件路由目录归一）', () => {
+  it('分隔符/尾斜杠/大小写差异归一后相等', () => {
+    expect(isSameWorkspace('H:/work/A', 'H:\\work\\A')).toBe(true)
+    expect(isSameWorkspace('H:/work/A/', 'H:/work/A')).toBe(true)
+    expect(isSameWorkspace('H:/Work/A', 'h:/work/a')).toBe(true)
+    expect(isSameWorkspace('H:/work/A//', 'H:/work/A')).toBe(true)
+  })
+
+  it('不同目录不相等', () => {
+    expect(isSameWorkspace('H:/work/A', 'H:/work/B')).toBe(false)
+    expect(isSameWorkspace('H:/work/A', 'D:/work/A')).toBe(false)
+  })
+
+  it('空串（窗口工作区未知）处理：仅与空串相等', () => {
+    expect(isSameWorkspace('', 'H:/work/A')).toBe(false)
+    expect(isSameWorkspace('', '')).toBe(true)
+  })
+})

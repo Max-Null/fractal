@@ -22,7 +22,10 @@ export const DEEPSEEK_PRICES: Record<string, ModelPrice> = {
 /** 未收录模型的兜底价（按 flash——最保守，避免新模型按未知价算成天价） */
 const FALLBACK_PRICE: ModelPrice = DEEPSEEK_PRICES['deepseek-v4-flash']
 
-/** 成本计算入参（tokens 口径与 serve 一致：input 含缓存命中部分，cacheRead 单独列出） */
+/**
+ * 成本计算入参（tokens 口径与 serve 一致：input 为 adjusted 口径——opencode 的
+ * Session.getUsage 已减去 cacheRead/cacheWrite，故 input 不含缓存命中部分，cacheRead 单独列出）。
+ */
 export interface TokenUsage {
   input: number
   output: number
@@ -32,13 +35,14 @@ export interface TokenUsage {
 /**
  * 计算一次请求的人民币成本（元）。
  * 公式：未命中输入 × 输入价 + 命中输入 × 缓存价 + 输出 × 输出价，全部按每百万 tokens 折算。
- * cacheRead 缺省按 0（serve 早期版本无 cache 字段时兜底——只算未命中部分，成本偏高是保守方向）。
+ * 注意：serve 下发的 tokens.input 是 adjusted（不含缓存），直接作为未命中输入，
+ * 不再减 cacheRead（2026-08-13 修正——此前按「input 含缓存」口径再减一次导致成本低估）。
+ * cacheRead 缺省按 0（serve 早期版本无 cache 字段时兜底）。
  */
 export function calcCostCny(modelId: string, usage: TokenUsage): number {
   const price = DEEPSEEK_PRICES[modelId] ?? FALLBACK_PRICE
   const cacheRead = Math.max(0, usage.cacheRead ?? 0)
-  // 钳制：cacheRead 不可能超过总输入（serve 异常数据防呆）
-  const uncachedInput = Math.max(0, usage.input - cacheRead)
+  const uncachedInput = Math.max(0, usage.input)
   return (
     (uncachedInput / 1e6) * price.inputCnyPerM +
     (cacheRead / 1e6) * price.cacheReadCnyPerM +

@@ -31,6 +31,21 @@ import { getConfig as getSettingsConfig, loadSettings, saveSettings, getSchema a
  */
 const activeSessionByWebContents = new Map<number, string>()
 
+/**
+ * 会话 → 工作区目录缓存（sessionID → directory）。
+ * serve /global/event 全局事件流不过滤实例目录，多窗口（多工作区）下每个窗口的订阅都会收到
+ * 所有工作区的事件——靠本缓存把事件按目录路由到对应窗口（ipc.ts startEngineEvents 过滤）。
+ * 填充：首次订阅前 session.list 全量 + 事件流 session.created/deleted 增量（模块级共享，只填一次）。
+ */
+const sessionDirs = new Map<string, string>()
+let sessionDirsInitialized = false
+
+/** 目录归一（分隔符/尾斜杠/大小写统一，与前端 session store normalizeDir 同规则——serve 存正斜杠，窗口可能传反斜杠） */
+export function isSameWorkspace(a: string, b: string): boolean {
+  const norm = (p: string) => (p || '').replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+  return norm(a) === norm(b)
+}
+
 // ── 工具函数 ──
 
 /**
@@ -822,6 +837,10 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // 抛给渲染层会中断回滚链（D8 P0 防引擎停摆）；未注入 serverManager 同样以 error 形式返回。
     if (!serverManager) return { ok: false, error: '引擎未初始化：server-manager 未注入' }
     try {
+      // 数据模式切换（shared↔isolated）换数据库后会话 ID 全变，旧目录缓存失效——
+      // 清空重建（2026-08-13 军师审查）；serve 崩溃重启同库场景会话 ID 不变，onRawEvent 增量自动补全
+      sessionDirs.clear()
+      sessionDirsInitialized = false
       await serverManager.stopServer().catch(() => {})
       await serverManager.startServer()
       return { ok: true }
@@ -1274,9 +1293,11 @@ export function toMessageData(sm: SessionMessage): {
 
   let content: string
   if (info.role === 'user') {
-    // 用户消息：text parts 拼接 + FilePart 附件（有附件才出 JSON blob，纯文本保持旧格式兼容）
+    // 用户消息：text parts 拼接 + FilePart 附件（有附件才出 JSON blob，纯文本保持旧格式兼容）。
+    // 过滤 synthetic——serve 对附件注入 "Called the Read tool with the following input: {...}" 占位文本，
+    // 回显会污染用户原文（2026-08-13 实测：历史反显多了 Read 调用前缀）
     const text = parts
-      .filter((p) => p.type === 'text')
+      .filter((p) => p.type === 'text' && !p.synthetic)
       .map((p) => p.text ?? '')
       .filter(Boolean)
       .join('\n')
@@ -1365,7 +1386,12 @@ export function toMessageData(sm: SessionMessage): {
  * serve 崩溃重启后自动重建订阅：spawnOnce 每次生成全新随机端口 + 随机凭据（--port 0），
  * 旧订阅绑旧凭据连不上 → 事件流断 → 前端收不到 result/error 永远卡「思考中」（2026-08-10 实测）
  */
-export async function startEngineEvents(win: BrowserWindow, manager: ServerManager): Promise<void> {
+export async function startEngineEvents(
+  win: BrowserWindow,
+  manager: ServerManager,
+  /** 目标窗口工作区读取器（动态读 winWorkspaces：主窗口注册前为 '' → 不过滤放行，注册后精确路由） */
+  getWorkspace?: () => string,
+): Promise<void> {
   // 窗口销毁后 win.webContents 访问抛「Object has been destroyed」（2026-08-09 实测闪退）——
   // 提前缓存 webContents id，后续回调/日志/清理一律用缓存值（窗口活着时取的，永远有效）
   const wcId = win.webContents.id
@@ -1411,6 +1437,20 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
     boundURL = info.baseURL
     boundUser = info.username
     boundPass = info.password
+    // 会话目录缓存填充（模块级共享，只填一次）：serve 全局事件流无目录过滤，
+    // 多窗口路由靠 sessionID→directory 缓存；全量拉取与前端同策略不带 directory（避免触发实例化）
+    if (!sessionDirsInitialized) {
+      sessionDirsInitialized = true
+      try {
+        const list = await manager.getClient().session.list()
+        for (const s of list) {
+          if (s.directory) sessionDirs.set(s.id, s.directory)
+        }
+      } catch {
+        // 填充失败不阻断订阅——onRawEvent 增量兜底；重置标志允许下次重试
+        sessionDirsInitialized = false
+      }
+    }
     const stop = await subscribeEvents({
       baseURL: info.baseURL,
       username: info.username,
@@ -1418,7 +1458,27 @@ export async function startEngineEvents(win: BrowserWindow, manager: ServerManag
       // 活跃会话动态读取（renderer session:setActive 上报 → 按本窗口 webContentsId 分桶，
       // 多窗口互不干扰——军师 #2）；窗口销毁后返回空串（订阅即将被 closed 回调中断，空窗安全）
       getActiveSessionId: () => (win.isDestroyed() ? '' : activeSessionByWebContents.get(wcId) ?? ''),
+      // 会话目录缓存增量维护：session.created 带 info.directory（fixtures/events-all.json 实锤）；
+      // session.deleted 清理防内存泄漏。全局共享 Map，任何窗口订阅的增量对全部窗口生效
+      onRawEvent: (ev) => {
+        const props = (ev.properties as Record<string, unknown> | undefined)
+        const sid = (props?.sessionID as string | undefined) ?? (props?.info as { id?: string } | undefined)?.id
+        if (!sid) return
+        if (ev.type === 'session.created') {
+          const dir = (props?.info as { directory?: string } | undefined)?.directory
+          if (dir) sessionDirs.set(sid, dir)
+        } else if (ev.type === 'session.deleted') {
+          sessionDirs.delete(sid)
+        }
+      },
       onEvent: (evt) => {
+        // 多窗口隔离：/global/event 全局事件流含所有工作区事件，按会话目录路由到本窗口。
+        // 窗口工作区未知（''，主窗口注册前）或会话目录未知（缓存未命中）→ 放行（防误丢）
+        const workspace = getWorkspace?.() ?? ''
+        if (workspace && evt.session_id) {
+          const dir = sessionDirs.get(evt.session_id)
+          if (dir && !isSameWorkspace(dir, workspace)) return
+        }
         if (!win.isDestroyed()) win.webContents.send('engine:event', evt)
       },
       onError: (err) => {

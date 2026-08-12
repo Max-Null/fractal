@@ -269,6 +269,12 @@ app.whenReady().then(async () => {
       }
       const w = createWindow(target)
       appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] created id=${w.id} visible=${w.isVisible()}\n`)
+      // 多窗口事件通道（2026-08-13 修复）：每个窗口独立 SSE 订阅 + 按工作区目录路由事件。
+      // 之前只在主窗口启动时建立订阅——第二窗口收不到 engine:event → 无消息输出。
+      // getWorkspace 动态读 winWorkspaces（createWindow 已登记 target），订阅内每次事件实时判断
+      void startEngineEvents(w, serverManager, () => winWorkspaces.get(w.id) ?? '').catch((err) => {
+        appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] startEngineEvents ERROR ${String(err)}\n`)
+      })
     } catch (err) {
       appendFileSync(join(app.getPath('userData'), 'dialog.log'), `[openWorkspace] ERROR ${String(err)}\n`)
     }
@@ -352,7 +358,7 @@ win.on('closed', () => {
     // 统一走 ready()（与 ipc 引擎通道共享同一启动 promise，避免健康检查完成前返回未就绪参数）
     await serverManager.ready()
     console.log('[engine] ready 完成')
-    await startEngineEvents(win, serverManager)
+    await startEngineEvents(win, serverManager, () => winWorkspaces.get(win.id) ?? '')
   } catch (err) {
     // 首次启动偶发秒退（历史遗留竞态）：渲染层 IPC 会触发 ready() 重试，但 startEngineEvents
     // （engine:status 广播 + SSE 订阅）只有这里执行——不补执行会导致渲染层补拉缺失，
@@ -360,7 +366,7 @@ win.on('closed', () => {
     console.warn('[engine] 引擎首次启动失败，重试中：', err)
     try {
       await serverManager.ready()
-      await startEngineEvents(win, serverManager)
+      await startEngineEvents(win, serverManager, () => winWorkspaces.get(win.id) ?? '')
       console.log('[engine] ready 完成（重试后）')
     } catch (err2) {
       console.warn('[engine] 引擎重试仍失败（界面将按需再试）：', err2)

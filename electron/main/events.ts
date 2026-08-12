@@ -175,8 +175,10 @@ export interface MapContext {
   sentToolResults: Set<string>
   sentToolInputs: Map<string, string>
   toolStarts: Map<string, number>
-  /** 会话 token 统计（cost 由本地价格表计算——serve 返回的 cost 是美元口径且层级易错，见 pricing.ts） */
-  sessionTokens: Map<string, { input: number; output: number; cacheRead: number; modelId?: string }>
+  /** 最后一条 assistant 消息的消息级 token 统计（message.updated 回合完成时覆盖；cost 由本地价格表计算——serve 返回的 cost 是美元口径且层级易错，见 pricing.ts） */
+  sessionTokens: Map<string, { input: number; output: number; cacheRead: number; cacheWrite: number; modelId?: string }>
+  /** 已从 message.updated 收到消息级 tokens 的 session——防止 session.updated 的累计值覆盖消息级值（累计值二次累加 bug 根因） */
+  messageTokenSessions: Set<string>
   sessionTitles: Map<string, string>
   /** 回合起始时间（session.created 记录），session.idle 时计算 result.duration_ms */
   sessionStartTime: Map<string, number>
@@ -198,6 +200,7 @@ export function createMapContext(now: () => number = Date.now): MapContext {
     sentToolInputs: new Map(),
     toolStarts: new Map(),
     sessionTokens: new Map(),
+    messageTokenSessions: new Set(),
     sessionTitles: new Map(),
     sessionStartTime: new Map(),
     now,
@@ -275,9 +278,11 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         ctx.sessionStartTime.set(sessionID, ctx.now())
       }
       const info = props?.info as
-        | { tokens?: { input?: number; output?: number; cache?: { read?: number }; cost?: number }; model?: { id?: string } }
+        | { tokens?: { input?: number; output?: number; cache?: { read?: number; write?: number }; cost?: number }; model?: { id?: string } }
         | undefined
-      if (sessionID && info?.tokens) {
+      // 兜底：仅当尚未收到消息级 tokens 时记录（message.updated 的 tokens 才是单回合准确值；
+      // session.* 的 tokens 是会话累计值——覆盖会引入二次累加超估，见 plan 2026-08-13-1430）
+      if (sessionID && info?.tokens && !ctx.messageTokenSessions.has(sessionID)) {
         // 覆盖 tokens；modelId 仅在本次事件携带时才更新（异常缺 model 时保留旧值，避免整会话成本按兜底价）
         const prev = ctx.sessionTokens.get(sessionID)
         ctx.sessionTokens.set(sessionID, {
@@ -285,6 +290,7 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
           output: info.tokens.output ?? 0,
           // serve 实测：cache 在 info.tokens.cache.read（非 info.tokens.cost——cost 字段不在 tokens 内）
           cacheRead: info.tokens.cache?.read ?? 0,
+          cacheWrite: info.tokens.cache?.write ?? 0,
           modelId: info.model?.id ?? prev?.modelId,
         })
       }
@@ -293,9 +299,10 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
     case 'session.updated': {
       // 记录最新 tokens（session.idle 时附到 result）；标题自动更新（serve 首条消息后改标题）→ session_title
       const info = props?.info as
-        | { tokens?: { input?: number; output?: number; cache?: { read?: number }; cost?: number }; model?: { id?: string }; title?: string }
+        | { tokens?: { input?: number; output?: number; cache?: { read?: number; write?: number }; cost?: number }; model?: { id?: string }; title?: string }
         | undefined
-      if (sessionID && info?.tokens) {
+      // 兜底：仅当尚未收到消息级 tokens 时记录（理由同上——session.updated 的 tokens 是累计值）
+      if (sessionID && info?.tokens && !ctx.messageTokenSessions.has(sessionID)) {
         // 覆盖 tokens；modelId 仅在本次事件携带时才更新（异常缺 model 时保留旧值，避免整会话成本按兜底价）
         const prev = ctx.sessionTokens.get(sessionID)
         ctx.sessionTokens.set(sessionID, {
@@ -303,6 +310,7 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
           output: info.tokens.output ?? 0,
           // serve 实测：cache 在 info.tokens.cache.read（非 info.tokens.cost——cost 字段不在 tokens 内）
           cacheRead: info.tokens.cache?.read ?? 0,
+          cacheWrite: info.tokens.cache?.write ?? 0,
           modelId: info.model?.id ?? prev?.modelId,
         })
       }
@@ -317,8 +325,29 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       return [] // busy/idle 轮询状态，前端以 session.idle 为准
     case 'message.updated': {
       // 记录 messageID→role（part 分派依赖），会话信息本身不产出
-      const info = props?.info as { id?: string; role?: string } | undefined
+      const info = props?.info as
+        | { id?: string; role?: string; tokens?: { input?: number; output?: number; cache?: { read?: number; write?: number } }; modelID?: string }
+        | undefined
       if (info?.id && info?.role) ctx.messageRoles.set(info.id, info.role)
+      // assistant 回合完成 → 消息级 tokens（serve 1.18.14 实测：回合结束的 message.updated 携带本次请求 usage，
+      // 非累计值——与 session.updated 的 SessionTable 累计值区分开）。仅当携带非零 usage 时覆盖，
+      // 避免回合中的空 tokens 更新（首条 message.updated 常为全 0）污染结果
+      if (
+        sessionID &&
+        info?.role === 'assistant' &&
+        info.tokens &&
+        (info.tokens.input || info.tokens.output || info.tokens.cache?.read || info.tokens.cache?.write)
+      ) {
+        ctx.messageTokenSessions.add(sessionID)
+        ctx.sessionTokens.set(sessionID, {
+          input: info.tokens.input ?? 0,
+          output: info.tokens.output ?? 0,
+          cacheRead: info.tokens.cache?.read ?? 0,
+          cacheWrite: info.tokens.cache?.write ?? 0,
+          // 缺 modelID 时保留旧值（与 session.updated 分支一致——异常事件不把成本打成兜底价）
+          modelId: info.modelID ?? ctx.sessionTokens.get(sessionID)?.modelId,
+        })
+      }
       return []
     }
     case 'message.part.updated': {
@@ -495,7 +524,9 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       if (isSubSession) {
         return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'idle' }]
       }
-      // 回合结束 → result(is_final)；tokens 附最近 session.updated 值（serve idle 事件本身无 usage）
+      // 回合结束 → result(is_final)；tokens 附最近一条 assistant 消息的消息级 usage
+      // （serve idle 事件本身无 usage；消息级来自 message.updated，非 session.updated 的会话累计值——
+      // 累计值二次累加是上下文弹窗 110% 超估的根因，见 plan 2026-08-13-1430）
       const tokens = sessionID ? ctx.sessionTokens.get(sessionID) : undefined
       const startTime = sessionID ? ctx.sessionStartTime.get(sessionID) : undefined
       const evtOut: StreamFrontendEvent = {
@@ -508,7 +539,11 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         duration_ms: startTime !== undefined ? ctx.now() - startTime : undefined,
         input_tokens: tokens?.input,
         output_tokens: tokens?.output,
-        // 人民币成本：本地价格表按 tokens 计算（serve 美元 cost 弃用——币种错 + 字段层级易错，
+        // 消息级缓存命中/写入（前端 ContextUsageModal/Indicator 计算「当前上下文占用」=
+        // input + cacheRead + cacheWrite，即最后一次请求的完整输入）
+        cache_read_tokens: tokens?.cacheRead,
+        cache_write_tokens: tokens?.cacheWrite,
+        // 人民币成本：本地价格表按消息级 tokens 计算（serve 美元 cost 弃用——币种错 + 字段层级易错，
         // 且 tokens 内无 cost 字段，2026-08-12 实测 fixtures/events-round3-success.json）
         cost_cny: tokens ? calcCostCny(tokens.modelId ?? '', tokens) : undefined,
       }
@@ -597,6 +632,8 @@ export interface SubscribeEventsOptions {
   password: string
   /** 每条映射后的 StreamFrontendEvent 回调 */
   onEvent: (evt: StreamFrontendEvent) => void
+  /** 原始 ServeEvent 透传（mapServeEvent 之前调用；供上层维护会话元数据缓存，如 sessionID→directory） */
+  onRawEvent?: (evt: ServeEvent) => void
   /** SSE 连接错误/重连触发（网络错误、服务端 5xx 等） */
   onError?: (err: unknown) => void
   /** serve 就绪（server.connected 事件）回调 */
@@ -666,6 +703,8 @@ export async function subscribeEvents(opts: SubscribeEventsOptions): Promise<() 
               opts.onConnected?.()
               continue
             }
+            // 原始事件透传（会话元数据缓存维护：sessionID→directory 等；不参与映射）
+            opts.onRawEvent?.(ev)
             // 每次事件前刷新活跃会话（renderer 切会话是异步通知，事件到达时取最新值）
             ctx.activeSessionId = opts.getActiveSessionId?.() ?? ''
             for (const mapped of mapServeEvent(ev, ctx)) {
