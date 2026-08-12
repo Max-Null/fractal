@@ -394,7 +394,7 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     await fsp.rm(userData, { recursive: true, force: true })
   })
 
-  it('首次初始化完整流程：7 agents / 15 skills / 2 plugins+lib 拷贝 + opencode.json 字段 merge', async () => {
+  it('首次初始化完整流程：7 agents / 17 skills / 2 plugins+lib 拷贝 + opencode.json 字段 merge', async () => {
     // presetRoot 用真实交付物（electron/resources/preset，getDefaultPresetRoot 解析）
     const presetRoot = getDefaultPresetRoot()
     const manifest = await readPresetManifest(presetRoot)
@@ -409,11 +409,13 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     expect(agents).toContain('双星.md')
     expect(agents).toContain('侦查兵.md')
     expect(agents).toContain('制图师.md')
-    // skills：15 个 mxy-*/omo-* 目录（mxy 9 + omo 6）
+    // skills：17 个 mxy-*/omo-* 目录 + superpowers 二开（mxy 9 + omo 6 + brainstorming/writing-plans）
     const skills = await fsp.readdir(join(target, 'skills'))
-    expect(skills.length).toBe(15)
+    expect(skills.length).toBe(17)
     expect(skills.filter((s) => s.startsWith('mxy-')).length).toBe(9)
     expect(skills.filter((s) => s.startsWith('omo-')).length).toBe(6)
+    expect(skills).toContain('brainstorming')
+    expect(skills).toContain('writing-plans')
     // plugins：2 个插件文件 + lib/ 子目录保留
     expect(await fsp.access(join(target, 'plugins', 'fractal-guardian.js'))).toBeUndefined()
     expect(await fsp.access(join(target, 'plugins', 'agents-priority.ts'))).toBeUndefined()

@@ -7,7 +7,7 @@ const { join } = require('node:path')
 const https = require('node:https')
 const crypto = require('node:crypto')
 
-const VERSION = process.argv[2] || 'v1.18.15'
+const VERSION = process.argv[2] || 'v1.18.16'
 const PLATFORM_ASSET = {
   win32: 'opencode-windows-x64.zip',
   darwin: process.arch === 'arm64' ? 'opencode-darwin-arm64.zip' : 'opencode-darwin-x64.zip',

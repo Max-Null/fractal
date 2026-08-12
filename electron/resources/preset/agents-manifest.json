@@ -1,7 +1,7 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "sourceCommit": "e94f005",
-  "generatedAt": "2026-08-12T15:25:33.086Z",
+  "generatedAt": "2026-08-12T16:11:04.153Z",
   "agents": [
     {
       "file": "侦查兵.md",
@@ -25,7 +25,7 @@
     },
     {
       "file": "双星.md",
-      "slot": "inherit"
+      "slot": "high"
     },
     {
       "file": "工匠.md",

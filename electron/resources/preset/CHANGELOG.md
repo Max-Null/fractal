@@ -24,3 +24,5 @@
 - 无 agent 槽位变更（仅内容更新）
 ## 2026-08-12 15:25 (v1.2.1) — oc-plus e94f005
 - 变更 双星.md：槽位 high → inherit
+## 2026-08-12 16:11 (v1.2.2) — oc-plus e94f005
+- 变更 双星.md：槽位 inherit → high
