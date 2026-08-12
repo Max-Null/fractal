@@ -135,6 +135,10 @@ export function normalizeError<T>(result: HeyApiResult<T>): T {
   if (error instanceof TypeError) {
     throw new OcError('network', `无法连接 OC serve：${error.message}`, { cause: error })
   }
+  // AbortError（DOMException）：withTimeout 超时中止的 fetch——serve 无响应，归类 network
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException && error.name === 'AbortError') {
+    throw new OcError('network', 'OC serve 请求超时（可能正在重启）', { cause: error })
+  }
   // HTTP 状态码优先分类
   if (status === 401) {
     throw new OcError('auth', extractErrorMessage(error, status), { status, cause: error })
@@ -148,6 +152,45 @@ export function normalizeError<T>(result: HeyApiResult<T>): T {
     throw new OcError('api', extractErrorMessage(error, status), { status, cause: error })
   }
   throw new OcError('unknown', extractErrorMessage(error, status), { status, cause: error })
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 请求超时
+// ══════════════════════════════════════════════════════════════════
+
+/** 普通 SDK 请求超时（毫秒）。serve 重启/被杀时底层 fetch 无超时（server-manager.ts 注释），
+ *  请求会永久挂起导致前端永远卡 loading——统一注入 AbortSignal 兜底 */
+const SDK_REQUEST_TIMEOUT_MS = 15_000
+
+/** 同步 prompt（等待模型完整回复）超时——模型生成可达数分钟，不能套普通超时 */
+const SDK_PROMPT_TIMEOUT_MS = 300_000
+
+/**
+ * 带超时的 SDK 调用：serve 无响应时 abort 底层 fetch，抛归一化 OcError（network 类）。
+ * 仅用于普通 HTTP 请求；SSE 长连接（events.ts 订阅）不经此包装。
+ * timeoutMs 可注入（测试用短超时），默认 SDK_REQUEST_TIMEOUT_MS。
+ * 导出供单测直接验证超时行为。
+ * 实现：Promise.race 主动 reject 兜底——不依赖 run 内部监听 abort 事件（若 run 的 promise
+ * 永不 settle，abort 信号本身无法让 await 返回，必须由 race 的 timeoutPromise 结束）。
+ * 双路径说明：超时后 controller.abort() 若让 run 先 reject（如 fetch 抛 AbortError），
+ * 该 rejection 由 race 内部已挂的 handler 静默接住（不会 unhandledRejection），
+ * 最终用户只看到 timeoutPromise 抛的 OcError——两路径不冲突。
+ */
+export async function withTimeout<T>(label: string, run: (signal: AbortSignal) => Promise<T>, timeoutMs = SDK_REQUEST_TIMEOUT_MS): Promise<T> {
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  // 超时即 abort 底层 fetch（若已建立连接则真正取消）+ 主动 reject（防 run 永不 settle 时整体挂起）
+  const timeoutPromise = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(new Error(`${label} 超时`))
+      reject(new OcError('network', `${label} 超时：OC serve 无响应（可能正在重启）`))
+    }, timeoutMs)
+  })
+  try {
+    return await Promise.race([Promise.resolve().then(() => run(controller.signal)), timeoutPromise])
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -281,7 +324,9 @@ export function createOcClient(options: OcClientOptions): OcClient {
     session: {
       create: async (opts) => normalizeError<Session>(
         // 目录走 query.directory（SDK 实测结构：body 只有 parentID/title）——绑定工作区后会话在 ?directory= 过滤下可见
-        await client.session.create({ query: opts?.cwd ? { directory: opts.cwd } : undefined, body: { title: opts?.title, parentID: opts?.parentID } }),
+        await withTimeout('创建会话', (signal) =>
+          client.session.create({ query: opts?.cwd ? { directory: opts.cwd } : undefined, body: { title: opts?.title, parentID: opts?.parentID }, signal }),
+        ),
       ),
       list: async (directory?: string) => {
         // v2 全量列表（2026-08-09 实测）：serve 1.18.15 的 v1 GET /session 的 limit/start 参数全部无效，
@@ -290,7 +335,9 @@ export function createOcClient(options: OcClientOptions): OcClient {
         // directory 参数保留签名兼容但忽略——目录过滤由前端内存完成（session store normalizeDir）
         void directory
         const authHeader = basicAuthHeader(options.username, options.password)
-        const res = await fetch(`${options.baseURL}/api/session?limit=${SESSION_LIST_LIMIT}`, { headers: { Authorization: authHeader } })
+        const res = await withTimeout('会话列表', (signal) =>
+          fetch(`${options.baseURL}/api/session?limit=${SESSION_LIST_LIMIT}`, { headers: { Authorization: authHeader }, signal }),
+        )
         if (!res.ok) throw new Error(`session list 失败: HTTP ${res.status}`)
         const body = (await res.json()) as { data?: Array<Record<string, unknown>> }
         // v2 会话目录在 location.directory（v1 在顶层 directory）——映射回 v1 形状供前端 normalizeDir 过滤
@@ -299,11 +346,11 @@ export function createOcClient(options: OcClientOptions): OcClient {
           directory: (s.location as { directory?: string } | undefined)?.directory ?? undefined,
         })) as unknown as Session[]
       },
-      get: async (id) => normalizeError<Session>(await client.session.get({ path: { id } })),
-      delete: async (id) => normalizeError<boolean>(await client.session.delete({ path: { id } })),
-      rename: async (id, title) => normalizeError<Session>(await client.session.update({ path: { id }, body: { title } })),
-      fork: async (id, messageID) => normalizeError<Session>(await client.session.fork({ path: { id }, body: messageID ? { messageID } : {} })),
-      abort: async (id) => normalizeError<boolean>(await client.session.abort({ path: { id } })),
+      get: async (id) => normalizeError<Session>(await withTimeout('获取会话', (signal) => client.session.get({ path: { id }, signal }))),
+      delete: async (id) => normalizeError<boolean>(await withTimeout('删除会话', (signal) => client.session.delete({ path: { id }, signal }))),
+      rename: async (id, title) => normalizeError<Session>(await withTimeout('重命名会话', (signal) => client.session.update({ path: { id }, body: { title }, signal }))),
+      fork: async (id, messageID) => normalizeError<Session>(await withTimeout('复制会话', (signal) => client.session.fork({ path: { id }, body: messageID ? { messageID } : {}, signal }))),
+      abort: async (id) => normalizeError<boolean>(await withTimeout('中止会话', (signal) => client.session.abort({ path: { id }, signal }))),
       // prompt 同步等待模型完成（返回完整消息），promptAsync 仅提交（结果走 SSE）
       prompt: async (id, text, opts) => {
         const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
@@ -315,7 +362,10 @@ export function createOcClient(options: OcClientOptions): OcClient {
         // variant 不在 SDK types.gen 的 body 类型（spec 实测 prompt_async/prompt 顶层支持）——
         // body 是变量非字面量，多出属性不触发 excess property check，运行时原样透传
         if (opts?.variant) body.variant = opts.variant
-        return normalizeError<SessionMessage>(await client.session.prompt({ path: { id }, body }))
+        return normalizeError<SessionMessage>(
+          // 同步等模型完整回复，用长超时（模型生成可达数分钟）
+          await withTimeout('等待模型回复', (signal) => client.session.prompt({ path: { id }, body, signal }), SDK_PROMPT_TIMEOUT_MS),
+        )
       },
       promptAsync: async (id, text, opts) => {
         const body: { parts: TextPartInput[]; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
@@ -327,7 +377,7 @@ export function createOcClient(options: OcClientOptions): OcClient {
         // variant 同 prompt：spec 实测字段，SDK 类型未生成——变量透传绕过类型检查（注释见 prompt）
         if (opts?.variant) body.variant = opts.variant
         // promptAsync 成功返回 204 void（data 为空对象），无需 data 校验
-        await client.session.promptAsync({ path: { id }, body })
+        await withTimeout('发送消息', (signal) => client.session.promptAsync({ path: { id }, body, signal }))
       },
       promptPartsAsync: async (id, parts, opts) => {
         const body: { parts: Array<TextPartInput | FilePartInput>; model?: PromptOptions['model']; system?: string; agent?: string; variant?: string } = {
@@ -338,7 +388,7 @@ export function createOcClient(options: OcClientOptions): OcClient {
         if (opts?.agent) body.agent = opts.agent
         // variant 同 prompt：spec 实测字段，SDK 类型未生成——变量透传绕过类型检查（注释见 prompt）
         if (opts?.variant) body.variant = opts.variant
-        await client.session.promptAsync({ path: { id }, body })
+        await withTimeout('发送消息', (signal) => client.session.promptAsync({ path: { id }, body, signal }))
       },
       messages: async (id, options) => {
         // before 不在 SDK types.gen 的 SessionMessagesData.query（仅 directory/limit），
@@ -349,7 +399,7 @@ export function createOcClient(options: OcClientOptions): OcClient {
               ...(options.before !== undefined ? { before: options.before } : {}),
             } as never)
           : undefined
-        return normalizeError<SessionMessage[]>(await client.session.messages({ path: { id }, query }))
+        return normalizeError<SessionMessage[]>(await withTimeout('拉取消息', (signal) => client.session.messages({ path: { id }, query, signal })))
       },
     },
     permission: {
@@ -357,17 +407,21 @@ export function createOcClient(options: OcClientOptions): OcClient {
       // （阶段 0 实测 5.5 曾用裸 fetch {response:"allow", remember:false}——SDK 类型无 remember，
       //  always 即"记住该工具/模式"，无需额外字段）
       respond: async (sessionID, permissionID, response) =>
-        normalizeError(await client.postSessionIdPermissionsPermissionId({ path: { id: sessionID, permissionID }, body: { response } })),
+        normalizeError(
+          await withTimeout('权限响应', (signal) =>
+            client.postSessionIdPermissionsPermissionId({ path: { id: sessionID, permissionID }, body: { response }, signal }),
+          ),
+        ),
     },
     file: {
-      list: async (path) => normalizeError<FileNode[]>(await client.file.list({ query: { path } })),
-      read: async (path) => normalizeError<FileContent>(await client.file.read({ query: { path } })),
-      status: async () => normalizeError<FileStatus[]>(await client.file.status()),
+      list: async (path) => normalizeError<FileNode[]>(await withTimeout('文件列表', (signal) => client.file.list({ query: { path }, signal }))),
+      read: async (path) => normalizeError<FileContent>(await withTimeout('读取文件', (signal) => client.file.read({ query: { path }, signal }))),
+      status: async () => normalizeError<FileStatus[]>(await withTimeout('文件状态', (signal) => client.file.status({ signal }))),
     },
     config: {
-      get: async () => normalizeError<Config>(await client.config.get()),
-      update: async (config) => normalizeError<Config>(await client.config.update({ body: config })),
-      providers: async () => normalizeError<ProviderListResponse>(await client.provider.list()),
+      get: async () => normalizeError<Config>(await withTimeout('读取配置', (signal) => client.config.get({ signal }))),
+      update: async (config) => normalizeError<Config>(await withTimeout('更新配置', (signal) => client.config.update({ body: config, signal }))),
+      providers: async () => normalizeError<ProviderListResponse>(await withTimeout('模型列表', (signal) => client.provider.list({ signal }))),
     },
     capabilities: {
       // 生态清单：/agent + /skill + /mcp + /config 并行拉取，各端点独立容错（任一失败返回空数组，
@@ -376,7 +430,7 @@ export function createOcClient(options: OcClientOptions): OcClient {
         const authHeader = basicAuthHeader(options.username, options.password)
         const get = async <T>(path: string): Promise<T | undefined> => {
           try {
-            const res = await fetch(`${options.baseURL}${path}`, { headers: { Authorization: authHeader } })
+            const res = await withTimeout(`拉取 ${path}`, (signal) => fetch(`${options.baseURL}${path}`, { headers: { Authorization: authHeader }, signal }))
             if (!res.ok) return undefined
             return (await res.json()) as T
           } catch {

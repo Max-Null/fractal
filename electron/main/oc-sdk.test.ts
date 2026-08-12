@@ -74,6 +74,20 @@ describe('normalizeError', () => {
     }
   })
 
+  it('AbortError（withTimeout 超时中止的 fetch）→ 抛 OcError kind=network', () => {
+    // DOMException 在 Node 18+ 全局存在（fetch abort 抛 AbortError）；测试 Node 版本满足
+    const result = { error: new DOMException('The operation was aborted', 'AbortError'), response: undefined } as HeyApiResult<unknown>
+    try {
+      normalizeError(result)
+      throw new Error('应当抛错')
+    } catch (e) {
+      expect(e).toBeInstanceOf(OcError)
+      const err = e as OcError
+      expect(err.kind).toBe('network')
+      expect(err.message).toContain('超时')
+    }
+  })
+
   it('HTTP 400 ApiError → 抛 OcError kind=api', () => {
     const result = resultWith(
       { status: 400 },
@@ -144,24 +158,60 @@ vi.mock('@opencode-ai/sdk', () => ({
 }))
 
 import { vi } from 'vitest'
-import { createOcClient } from './oc-sdk'
+import { createOcClient, withTimeout } from './oc-sdk'
+
+// ── withTimeout（serve 无响应时 abort fetch，防前端永久卡 loading）──
+
+describe('withTimeout', () => {
+  it('正常完成 → resolve 值', async () => {
+    await expect(withTimeout('测试', () => Promise.resolve(42), 200)).resolves.toBe(42)
+  })
+
+  it('超时未完成 → 抛 OcError kind=network（serve 无响应/重启场景）', async () => {
+    try {
+      await withTimeout('测试', () => new Promise<number>(() => {}), 30)
+      throw new Error('应当超时抛错')
+    } catch (e) {
+      expect(e).toBeInstanceOf(OcError)
+      const err = e as OcError
+      expect(err.kind).toBe('network')
+      expect(err.message).toContain('超时')
+      expect(err.message).toContain('serve 无响应')
+    }
+  })
+
+  it('超时 abort 后底层信号已触发（底层 fetch 被取消，非仅外层 reject）', async () => {
+    let receivedSignal: AbortSignal | undefined
+    await expect(
+      withTimeout('测试', (signal) => new Promise<number>((_resolve, reject) => {
+        receivedSignal = signal
+        signal.addEventListener('abort', () => reject(signal.reason))
+      }), 30),
+    ).rejects.toBeInstanceOf(OcError)
+    expect(receivedSignal?.aborted).toBe(true)
+  })
+})
 
 describe('session.create 工作区绑定', () => {
   it('传入 cwd 时透传 query.directory（会话跟随工作区）', async () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionCreate.mockClear()
     await client.session.create({ title: 'T', cwd: 'H:\\work\\proj' })
-    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith({
-      query: { directory: 'H:\\work\\proj' },
-      body: { title: 'T', parentID: undefined },
-    })
+    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: { directory: 'H:\\work\\proj' },
+        body: { title: 'T', parentID: undefined },
+      }),
+    )
   })
 
   it('不传 cwd 时不带 query（serve 默认目录）', async () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionCreate.mockClear()
     await client.session.create({ title: 'T' })
-    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith({ query: undefined, body: { title: 'T', parentID: undefined } })
+    expect(sdkMocks.sessionCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ query: undefined, body: { title: 'T', parentID: undefined } }),
+    )
   })
 })
 
@@ -172,30 +222,36 @@ describe('session.messages 分页', () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionMessages.mockClear()
     await client.session.messages('ses_1', { limit: 50, before: 'msg_100' })
-    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
-      path: { id: 'ses_1' },
-      query: { limit: 50, before: 'msg_100' },
-    })
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { id: 'ses_1' },
+        query: { limit: 50, before: 'msg_100' },
+      }),
+    )
   })
 
   it('仅传 limit（首屏最近 N 条）→ query 不含 before', async () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionMessages.mockClear()
     await client.session.messages('ses_1', { limit: 50 })
-    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
-      path: { id: 'ses_1' },
-      query: { limit: 50 },
-    })
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { id: 'ses_1' },
+        query: { limit: 50 },
+      }),
+    )
   })
 
   it('不传 options → query undefined（全量拉取，旧调用兼容）', async () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionMessages.mockClear()
     await client.session.messages('ses_1')
-    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith({
-      path: { id: 'ses_1' },
-      query: undefined,
-    })
+    expect(sdkMocks.sessionMessages).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { id: 'ses_1' },
+        query: undefined,
+      }),
+    )
   })
 })
 
@@ -206,14 +262,16 @@ describe('session.promptAsync variant', () => {
     const client = createOcClient({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p' })
     sdkMocks.sessionPromptAsync.mockClear()
     await client.session.promptAsync('ses_1', '你好', { model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' }, variant: 'high' })
-    expect(sdkMocks.sessionPromptAsync).toHaveBeenCalledWith({
-      path: { id: 'ses_1' },
-      body: {
-        parts: [{ type: 'text', text: '你好' }],
-        model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
-        variant: 'high',
-      },
-    })
+    expect(sdkMocks.sessionPromptAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: { id: 'ses_1' },
+        body: {
+          parts: [{ type: 'text', text: '你好' }],
+          model: { providerID: 'deepseek', modelID: 'deepseek-v4-flash' },
+          variant: 'high',
+        },
+      }),
+    )
   })
 
   it('不传 variant → body 不含 variant（缺省走 serve 默认）', async () => {
