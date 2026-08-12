@@ -16,6 +16,10 @@ export interface PresetManifest {
   defaultAgent: string
   instructions: string[]
   mcp?: Record<string, unknown>
+  /** npm 插件声明（如 opencode-acp@latest）——OC 启动时 Bun 自动安装，merge 进 plugin 数组（2026-08-13 预装 ACP 会话压缩） */
+  plugins?: string[]
+  /** 顶层配置字段（如 compaction: {auto:false} 禁用内置自动压缩避免与 ACP 冲突）——仅未设置时写入 */
+  compaction?: Record<string, unknown>
 }
 
 /** 模型槽位：agent → 槽位映射（high=主模型 / low=轻量 / vision=多模态 / anthropic=Anthropic 兼容 / inherit=继承主模型） */
@@ -76,6 +80,13 @@ export async function readPresetManifest(presetRoot: string): Promise<PresetMani
     instructions: Array.isArray(manifest.instructions) ? manifest.instructions : [],
     // mcp 段可选（旧预置包无此字段——解析到对象才保留，否则空对象）
     mcp: manifest.mcp && typeof manifest.mcp === 'object' && !Array.isArray(manifest.mcp) ? (manifest.mcp as Record<string, unknown>) : undefined,
+    // plugins 段可选：npm 插件声明数组（非字符串数组视为无效丢弃）
+    plugins: Array.isArray(manifest.plugins) ? manifest.plugins.filter((p): p is string => typeof p === 'string') : undefined,
+    // compaction 段可选：顶层配置对象
+    compaction:
+      manifest.compaction && typeof manifest.compaction === 'object' && !Array.isArray(manifest.compaction)
+        ? (manifest.compaction as Record<string, unknown>)
+        : undefined,
   }
 }
 
@@ -253,17 +264,25 @@ export async function ensurePresetConfig(
   // 同时清理历史迁移残留：分形前身 oc-gui 的配置目录条目（目录已删，声明是死路径）——
   // merge 语义是「补缺」，死路径既不补缺也不该保留，否则 serve 面板出现幽灵插件
   const pluginDecls = await buildPluginDecls(target)
-  if (pluginDecls.length > 0) {
+  // npm 插件声明（预置清单 plugins 段）：OC 启动时 Bun 自动安装（缓存 ~/.cache/opencode/node_modules/），
+  // 与本地 file:// 插件同一数组去重追加（2026-08-13 预装 opencode-acp@latest 会话压缩）
+  const npmPlugins = manifest.plugins ?? []
+  if (pluginDecls.length > 0 || npmPlugins.length > 0) {
     const plugins = Array.isArray(cfg.plugin)
       ? (cfg.plugin as unknown[]).filter(
           // oc-gui 死路径清理（分形前身配置目录残留，目录已删，声明是死路径）
           (p) => !(typeof p === 'string' && p.includes('/oc-gui/'))
         )
       : []
-    for (const decl of pluginDecls) {
+    for (const decl of [...pluginDecls, ...npmPlugins]) {
       if (!plugins.includes(decl)) plugins.push(decl)
     }
     cfg.plugin = plugins
+  }
+
+  // compaction 段：仅未设置时写入（merge 不覆盖用户选择）——opencode-acp 预置要求禁用内置自动压缩避免冲突
+  if (manifest.compaction && cfg.compaction == null) {
+    cfg.compaction = manifest.compaction
   }
 
   // mcp 段：仅当目标配置无 mcp 时写入（merge 不覆盖用户选择）——

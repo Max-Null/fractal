@@ -66,7 +66,9 @@ export function toolSummary(name: string, input?: unknown): string {
   switch (String(name).toLowerCase()) {
     case "read":
     case "edit":
-      // 文件路径首行
+    case "write":
+      // 文件路径首行（write 与 read/edit 同源：serve 的 write 工具带 file_path 字段；
+      // 2026-08-13 反馈：write 节点收起态也展示 filepath，避免只显示工具名）
       return firstLineOf(input).slice(0, 60);
     case "bash":
       // 命令首行

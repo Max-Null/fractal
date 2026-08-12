@@ -20,6 +20,12 @@ describe("toolSummary（D10 工具梗概）", () => {
     expect(toolSummary("edit", { filePath: "src/lib/utils.ts" })).toBe("src/lib/utils.ts");
   });
 
+  it("write：文件路径首行（2026-08-13 反馈：write 节点收起态也展示 filepath，与 read/edit 同源）", () => {
+    expect(toolSummary("Write", { file_path: "src/renderer/src/App.vue" })).toBe("src/renderer/src/App.vue");
+    expect(toolSummary("write", { file_path: "README.md", content: "# hello" })).toBe("README.md");
+    expect(toolSummary("write", { filePath: "docs/a.md" })).toBe("docs/a.md");
+  });
+
   it("bash：命令首行", () => {
     expect(toolSummary("Bash", { command: "npm run test" })).toBe("npm run test");
     expect(toolSummary("bash", { command: "git status\n# 长输出" })).toBe("git status");

@@ -24,8 +24,12 @@ import {
   PRESET_INSTRUCTION_FILE
 } from './preset'
 
-/** 构造临时预置包 fixture：含 agents/skills/plugins 真实文件 + node_modules/.git 陷阱目录 */
-async function makeFixturePreset(version = '1.0.0'): Promise<string> {
+/** 构造临时预置包 fixture：含 agents/skills/plugins 真实文件 + node_modules/.git 陷阱目录。
+ *  extra 可选注入预置清单的 plugins（npm 插件声明）与 compaction 段（2026-08-13 预装 ACP 会话压缩）。 */
+async function makeFixturePreset(
+  version = '1.0.0',
+  extra?: { plugins?: string[]; compaction?: Record<string, unknown> }
+): Promise<string> {
   const presetRoot = await fsp.mkdtemp(join(tmpdir(), 'preset-fixture-'))
   await fsp.mkdir(join(presetRoot, 'agents'), { recursive: true })
   await fsp.mkdir(join(presetRoot, 'skills', 's1'), { recursive: true })
@@ -44,25 +48,20 @@ async function makeFixturePreset(version = '1.0.0'): Promise<string> {
     'utf-8'
   )
   await fsp.writeFile(join(presetRoot, 'plugins', '.git', 'config'), 'TRAP', 'utf-8')
-  await fsp.writeFile(
-    join(presetRoot, 'preset.json'),
-    JSON.stringify(
-      {
-        version,
-        defaultAgent: '双星',
-        instructions: ['预置指令一', '预置指令二'],
-        // 预置内置 MCP：对齐真实交付物（无凭据公开端点）
-        mcp: {
-          websearch: { type: 'remote', enabled: true, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa' },
-          gh_grep: { type: 'remote', enabled: true, url: 'https://mcp.grep.app' },
-          context7: { type: 'remote', enabled: true, url: 'https://mcp.context7.com/mcp' },
-        },
-      },
-      null,
-      2
-    ),
-    'utf-8'
-  )
+  const presetJson: Record<string, unknown> = {
+    version,
+    defaultAgent: '双星',
+    instructions: ['预置指令一', '预置指令二'],
+    // 预置内置 MCP：对齐真实交付物（无凭据公开端点）
+    mcp: {
+      websearch: { type: 'remote', enabled: true, url: 'https://mcp.exa.ai/mcp?tools=web_search_exa' },
+      gh_grep: { type: 'remote', enabled: true, url: 'https://mcp.grep.app' },
+      context7: { type: 'remote', enabled: true, url: 'https://mcp.context7.com/mcp' },
+    },
+  }
+  if (extra?.plugins) presetJson.plugins = extra.plugins
+  if (extra?.compaction) presetJson.compaction = extra.compaction
+  await fsp.writeFile(join(presetRoot, 'preset.json'), JSON.stringify(presetJson, null, 2), 'utf-8')
   return presetRoot
 }
 
@@ -353,6 +352,56 @@ describe('ensurePresetConfig（预置字段 merge，不覆盖用户配置）', (
     expect((cfg.mcp as Record<string, unknown>).context7).toBeUndefined() // 已有 mcp 不再写预置
   })
 
+  it('npm 插件 + compaction：预置清单声明 merge 进 plugin 数组与 compaction 段', async () => {
+    // 预装 ACP 会话压缩：preset.json.plugins（npm 包名）+ preset.json.compaction（禁用内置自动压缩）
+    await fsp.rm(presetRoot, { recursive: true, force: true })
+    presetRoot = await makeFixturePreset('1.0.0', {
+      plugins: ['opencode-acp@latest'],
+      compaction: { auto: false },
+    })
+    await initPreset(userData, presetRoot)
+    await ensurePresetConfig(userData, presetRoot)
+
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const plugins = cfg.plugin as string[]
+    expect(plugins).toContain('opencode-acp@latest') // npm 插件声明（Bun 启动自动安装）
+    expect(plugins.some((p) => p.includes('fractal-guardian.js'))).toBe(true) // 本地插件仍保留
+    expect(cfg.compaction).toEqual({ auto: false })
+  })
+
+  it('幂等 + 不覆盖：npm 插件不重复追加；用户已有 compaction 优先', async () => {
+    await fsp.rm(presetRoot, { recursive: true, force: true })
+    presetRoot = await makeFixturePreset('1.0.0', {
+      plugins: ['opencode-acp@latest'],
+      compaction: { auto: false },
+    })
+    await initPreset(userData, presetRoot)
+    // 用户已有配置：同名 npm 插件 + 自定义 compaction
+    await fsp.writeFile(
+      getConfigPath(userData),
+      JSON.stringify({
+        plugin: ['opencode-acp@latest', 'superpowers'],
+        compaction: { auto: true },
+      }),
+      'utf-8'
+    )
+
+    await ensurePresetConfig(userData, presetRoot)
+    await ensurePresetConfig(userData, presetRoot) // 二次调用幂等
+
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(userData), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const plugins = cfg.plugin as string[]
+    expect(plugins.filter((p) => p === 'opencode-acp@latest').length).toBe(1) // 去重追加
+    expect(plugins).toContain('superpowers') // 用户插件保留
+    expect(cfg.compaction).toEqual({ auto: true }) // 用户 compaction 优先，不覆盖
+  })
+
   it('BOM 防御：带 BOM 的配置（外部编辑器写入）不被当损坏重置，用户字段保留', async () => {
     await initPreset(userData, presetRoot)
     // 模拟 PowerShell Set-Content -Encoding UTF8 写入：BOM 开头 + 自定义插件声明
@@ -434,6 +483,15 @@ describe('真实预置包端到端（交付物完整性：initPreset + ensurePre
     expect(plugins.filter((p) => p.includes('agents-priority.ts')).length).toBe(1)
     const instructions = cfg.instructions as string[]
     expect(instructions.filter((i) => i.includes(PRESET_INSTRUCTION_FILE)).length).toBe(1)
+    // 预装能力（2026-08-13）：playwright MCP + opencode-acp 会话压缩插件 + compaction 禁用内置压缩
+    const mcp = cfg.mcp as Record<string, unknown>
+    expect(mcp.playwright).toEqual({
+      type: 'local',
+      enabled: true,
+      command: ['npx', '@playwright/mcp@latest', '--headless'],
+    })
+    expect(plugins).toContain('opencode-acp@latest')
+    expect(cfg.compaction).toEqual({ auto: false })
     // 指令文件已生成且含预置文案
     const instructionFile = join(target, 'instructions', PRESET_INSTRUCTION_FILE)
     expect(await fsp.access(instructionFile)).toBeUndefined()

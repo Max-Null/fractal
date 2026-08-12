@@ -20,6 +20,15 @@
       "type": "remote",
       "enabled": true,
       "url": "https://mcp.context7.com/mcp"
+    },
+    "playwright": {
+      "type": "local",
+      "enabled": true,
+      "command": ["npx", "@playwright/mcp@latest", "--headless"]
     }
+  },
+  "plugins": ["opencode-acp@latest"],
+  "compaction": {
+    "auto": false
   }
 }
