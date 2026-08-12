@@ -14,6 +14,7 @@ import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 import { useSelectionTip } from "@/composables/useSelectionTip";
 import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2, MousePointerClick } from "lucide-vue-next";
 import PptxPreview from "./PptxPreview.vue";
+import PdfPreview from "./PdfPreview.vue";
 import * as XLSX from "xlsx";
 // CodeMirror 6（编辑 tab）
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
@@ -309,13 +310,14 @@ left:r.left,top:r.top,bottom:r.bottom
 
 // ── 文件类型检测 ──
 
-type FileKind = "text" | "html" | "markdown" | "docx" | "xlsx" | "pptx" | "image" | "unsupported";
+type FileKind = "text" | "html" | "markdown" | "docx" | "xlsx" | "pptx" | "pdf" | "image" | "unsupported";
 
 const DOCX_EXTS = new Set(["docx", "doc"]);
 const HTML_EXTS = new Set(["html", "htm"]);
 const MD_EXTS = new Set(["md", "mdx", "markdown"]);
 const XLSX_EXTS = new Set(["xlsx", "xls", "csv"]);
 const PPTX_EXTS = new Set(["pptx"]);
+const PDF_EXTS = new Set(["pdf"]);
 
 function detectKind(filename: string): FileKind {
   const ext = filename.split(".").pop()?.toLowerCase() || "";
@@ -325,10 +327,11 @@ function detectKind(filename: string): FileKind {
   if (MD_EXTS.has(ext)) return "markdown";
   if (XLSX_EXTS.has(ext)) return "xlsx";
   if (PPTX_EXTS.has(ext)) return "pptx";
+  if (PDF_EXTS.has(ext)) return "pdf";
   // 二进制 / 无文本预览
   const binary = new Set([
     "exe","dll","so","dylib","bin","dat","db","sqlite","sqlite3",
-    "pdf","zip","tar","gz","rar","7z",
+    "zip","tar","gz","rar","7z",
     "mp3","mp4","avi","mov","mkv","wav","flac",
     "ttf","otf","woff","woff2","eot","class","pyc","o","obj","lib","a","wasm",
   ]);
@@ -343,7 +346,7 @@ const hasEdit = computed(() =>
   fileKind.value !== "image" && fileKind.value !== "unsupported" && fileKind.value !== "xlsx" && fileKind.value !== "pptx" && fileKind.value !== "docx"
 );
 const hasPreview = computed(() =>
-  fileKind.value === "html" || fileKind.value === "markdown" || fileKind.value === "docx" || fileKind.value === "xlsx" || fileKind.value === "pptx" || fileKind.value === "image"
+  fileKind.value === "html" || fileKind.value === "markdown" || fileKind.value === "docx" || fileKind.value === "xlsx" || fileKind.value === "pptx" || fileKind.value === "pdf" || fileKind.value === "image"
 );
 
 // ── 加载文件 ──
@@ -1005,6 +1008,9 @@ function handleClose() {
         </div>
         <div v-else-if="fileKind === 'pptx'" class="flex-1 flex flex-col" style="min-height:0" @mouseup="onTextSelectionMouseUp">
           <PptxPreview :file="{ name: props.file!.name, path: props.file!.path }" />
+        </div>
+        <div v-else-if="fileKind === 'pdf'" class="flex-1 flex flex-col" style="min-height:0">
+          <PdfPreview :file="{ name: props.file!.name, path: props.file!.path }" />
         </div>
         <div v-else-if="fileKind === 'markdown'" class="flex-1 flex" style="min-height:0">
           <!-- 大纲侧边栏 -->

@@ -23,6 +23,8 @@ let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null;
 let renderTask: pdfjsLib.RenderTask | null = null;
 // 渲染序号：快速翻页/缩放时旧渲染请求作废，防止旧页覆盖新页
 let renderId = 0;
+// 加载序号：快速切换 file.path 时旧 load 的 getDocument 后返回会覆盖新文档，序号校验丢弃旧结果
+let loadId = 0;
 // 缩放上下限：过大渲染开销高，过小失去可读性
 const MAX_SCALE = 3, MIN_SCALE = 0.5;
 
@@ -66,15 +68,27 @@ async function renderPage() {
 
 async function load() {
   loading.value = true; error.value = ""; pageNum.value = 1; scale.value = 1;
+  // 记录本次加载序号：旧 load 在 await 返回后发现已被新 load 取代，直接丢弃
+  const myId = ++loadId;
   try {
     const b64 = await readFileBase64(props.file.path);
-    pdfDoc = await pdfjsLib.getDocument({ data: base64ToUint8Array(b64) }).promise;
+    const loadingTask = pdfjsLib.getDocument({ data: base64ToUint8Array(b64) });
+    const doc = await loadingTask.promise;
+    // 加载期间已有更新的 load 请求：销毁旧文档资源，避免旧文件覆盖新文件
+    if (myId !== loadId) {
+      void loadingTask.destroy?.();
+      return;
+    }
+    pdfDoc = doc;
     pageCount.value = pdfDoc.numPages;
     await renderPage();
   } catch {
+    // 被新 load 取代（destroy 使 promise reject）不报错，只有最新 load 才置错误
+    if (myId !== loadId) return;
     error.value = t("preview.pdfLoadFailed");
   } finally {
-    loading.value = false;
+    // 只有最新 load 才有权结束 loading，防止旧 load 提前清除新 load 的加载态
+    if (myId === loadId) loading.value = false;
   }
 }
 
