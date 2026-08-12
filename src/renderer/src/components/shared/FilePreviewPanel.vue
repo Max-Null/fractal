@@ -342,8 +342,9 @@ function detectKind(filename: string): FileKind {
 const fileKind = computed(() => props.file ? detectKind(props.file.name) : "unsupported");
 
 /** 哪些 tab 可用 */
+// pdf 与 docx/xlsx/pptx 一致：无编辑 tab（内容由 PdfPreview 只读渲染，编辑 tab 会空白）
 const hasEdit = computed(() =>
-  fileKind.value !== "image" && fileKind.value !== "unsupported" && fileKind.value !== "xlsx" && fileKind.value !== "pptx" && fileKind.value !== "docx"
+  fileKind.value !== "image" && fileKind.value !== "unsupported" && fileKind.value !== "xlsx" && fileKind.value !== "pptx" && fileKind.value !== "docx" && fileKind.value !== "pdf"
 );
 const hasPreview = computed(() =>
   fileKind.value === "html" || fileKind.value === "markdown" || fileKind.value === "docx" || fileKind.value === "xlsx" || fileKind.value === "pptx" || fileKind.value === "pdf" || fileKind.value === "image"
