@@ -118,7 +118,10 @@
     "todoDone": "Todos done",
     "subTaskUnavailable": "Subtask details unavailable",
     "subTaskStarting": "Starting subagent",
-    "timelineModelName": "Fractal"
+    "timelineModelName": "Fractal",
+    "fileChanges": "Files changed",
+    "added": "added",
+    "modified": "modified"
   },
   "provider": {
     "anthropic": "Anthropic",
