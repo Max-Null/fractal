@@ -5,6 +5,7 @@ import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, 
 import { isImageFile, mimeType } from "@/composables/useFilePreview";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
+import ConfirmDialog from "./ConfirmDialog.vue";
 import { marked, type Token, type Tokens } from "marked";
 import mammoth from "mammoth";
 import DOMPurify from "dompurify";
@@ -839,14 +840,18 @@ async function saveFile() {
   }
 }
 
-// ── 关闭确认 ──
-
+// ── 关闭确认（未保存更改）──
+// 原生 confirm 替换为 ConfirmDialog（2026-08-13 用户反馈弹窗太丑）：state 驱动
+const closeConfirmOpen = ref(false);
 function confirmClose() {
-  if (confirm(t("file.unsavedChanges"))) {
-    dirty.value = false;
-    emit("close");
-  }
+  closeConfirmOpen.value = true;
 }
+function onCloseConfirm() {
+  closeConfirmOpen.value = false;
+  dirty.value = false;
+  emit("close");
+}
+function onCloseCancel() { closeConfirmOpen.value = false; }
 
 /** 关闭预览：独立窗口直接 window.close()（Electron 渲染进程可关自身窗口）；嵌入模式 dirty 走确认弹窗 */
 function handleClose() {
@@ -1104,6 +1109,17 @@ function handleClose() {
       <button v-if="selectedDom" @click.stop="sendDomToChat" class="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80" style="background: var(--accent); color: var(--bg-root)">发送到对话</button>
     </div>
   </Teleport>
+
+  <!-- 未保存更改关闭确认（ConfirmDialog danger：确认后丢弃更改关闭） -->
+  <ConfirmDialog
+    :open="closeConfirmOpen"
+    :title="$t('file.unsavedTitle')"
+    :message="$t('file.unsavedChanges')"
+    :confirm-text="$t('modal.confirm')"
+    :danger="true"
+    @confirm="onCloseConfirm"
+    @cancel="onCloseCancel"
+  />
 </template>
 
 <style>

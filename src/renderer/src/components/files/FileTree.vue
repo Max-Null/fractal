@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, inject, nextTick, watch, type Ref } from "vue";
 import { useI18n } from "vue-i18n";
+import ConfirmDialog from "@/components/shared/ConfirmDialog.vue";
 import {
   listDir, deleteFile, renameFile, moveFile, copyFile, createDir,
   revealInExplorer as reveal, type FileEntry,
@@ -111,9 +112,12 @@ async function commitRename(entry: FileEntry) {
 function cancelRename() { renamingPath.value = null; }
 
 // ═══ 删除 ═══
-async function doDelete(entry: FileEntry) {
-  closeMenu();
-  if (!confirm(t("file.confirmDelete", { name: entry.name }))) return;
+// 原生 confirm 替换为 ConfirmDialog（2026-08-13 用户反馈弹窗太丑）：state 驱动
+const deleteTarget = ref<FileEntry | null>(null);
+async function onDeleteConfirm() {
+  const entry = deleteTarget.value;
+  deleteTarget.value = null;
+  if (!entry) return;
   try {
     await deleteFile(entry.path);
     props.onFileChanged?.();
@@ -121,6 +125,11 @@ async function doDelete(entry: FileEntry) {
     console.error("[FileTree] Delete failed:", e);
     alert(String(e));
   }
+}
+function onDeleteCancel() { deleteTarget.value = null; }
+function doDelete(entry: FileEntry) {
+  closeMenu();
+  deleteTarget.value = entry;
 }
 
 // ═══ 复制 / 剪切 ═══
@@ -394,5 +403,16 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
         >📝 {{ $t('file.copyName') }}</button>
       </div>
     </Teleport>
+
+    <!-- 删除文件确认（ConfirmDialog danger：确认后删除） -->
+    <ConfirmDialog
+      :open="!!deleteTarget"
+      :title="$t('file.delete')"
+      :message="$t('file.confirmDelete', { name: deleteTarget?.name ?? '' })"
+      :confirm-text="$t('modal.confirm')"
+      :danger="true"
+      @confirm="onDeleteConfirm"
+      @cancel="onDeleteCancel"
+    />
   </div>
 </template>
