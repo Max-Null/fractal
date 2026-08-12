@@ -39,7 +39,8 @@ const ALLOWED_INVOKE = [
   'capabilities:list',
   'window:openWorkspace',
   'window:registerWorkspace',
-  'preview:open'
+  'preview:open',
+  'pdf:htmlToPdf'
 ] as const
 
 /** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */

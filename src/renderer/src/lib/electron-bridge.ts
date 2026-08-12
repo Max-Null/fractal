@@ -409,6 +409,11 @@ export async function saveDialog(options?: SaveDialogOptions): Promise<string | 
   return invoke("dialog:saveDialog", { options: options ?? {} });
 }
 
+/** HTML 转 PDF（主进程隐藏窗口 printToPDF）：ok=false 且无 error = 用户取消保存对话框，前端静默 */
+export async function htmlToPdf(path: string): Promise<{ ok: boolean; path?: string; error?: string }> {
+  return invoke("pdf:htmlToPdf", { path });
+}
+
 // ══════════════════════════════════════════════════════════════════
 // B 类：引擎相关 → 主进程 IPC 真实实现（阶段 4 接入 serve）
 // ══════════════════════════════════════════════════════════════════
