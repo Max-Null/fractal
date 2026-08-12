@@ -93,6 +93,10 @@ export type StreamFrontendEvent =
       duration_ms?: number
       input_tokens?: number
       output_tokens?: number
+      /** 回合消息级缓存命中输入 tokens（ContextUsageModal 计算「当前上下文占用」= input+cacheRead+cacheWrite） */
+      cache_read_tokens?: number
+      /** 回合消息级缓存写入输入 tokens（同上） */
+      cache_write_tokens?: number
       /** 回合人民币成本（本地价格表计算，元）——serve 美元 cost 弃用（币种错 + tokens 内无 cost 字段） */
       cost_cny?: number
     }

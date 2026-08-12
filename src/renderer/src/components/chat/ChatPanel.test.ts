@@ -505,8 +505,8 @@ describe("ChatPanel 弹窗", () => {
     expect(chat.messages.filter(m => m.role === "user")).toHaveLength(1);
     expect(chat.messages.filter(m => m.role === "user")[0].content).toBe("补充信息A");
     expect(sendMessageMock).toHaveBeenCalledOnce();
-    // 无待处理队列/UI（延迟上屏机制已移除）
-    expect(chat.pendingFollowUps).toBeUndefined();
+    // 无待处理队列/UI（延迟上屏机制已移除；字段已不存在，断言恒真——仅保留 UI 断言）
+    expect((chat as any).pendingFollowUps).toBeUndefined();
     expect(wrapper.find(".pending-fu").exists()).toBe(false);
   });
 
