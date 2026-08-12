@@ -3,11 +3,20 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { getConfigPath, ensureConfig, buildPermissionRule, MANAGED_MODEL_LIMITS, resolveSmallModel, SMALL_MODEL } from './oc-config'
+import {
+  getConfigPath,
+  ensureConfig,
+  buildPermissionRule,
+  MANAGED_MODEL_LIMITS,
+  resolveSmallModel,
+  SMALL_MODEL
+} from './oc-config'
 
 describe('getConfigPath', () => {
   it('返回 <userData>/config/opencode/opencode.json（对齐 XDG_CONFIG_HOME 隔离路径）', () => {
-    expect(getConfigPath('C:\\oc-gui-data')).toBe('C:\\oc-gui-data\\config\\opencode\\opencode.json')
+    expect(getConfigPath('C:\\oc-gui-data')).toBe(
+      'C:\\oc-gui-data\\config\\opencode\\opencode.json'
+    )
   })
 })
 
@@ -15,7 +24,17 @@ describe('buildPermissionRule（权限模式 → OC 规则）', () => {
   it('default：敏感工具 ask，不含全放行通配', () => {
     const rule = buildPermissionRule('default')
     expect(rule['*']).toBeUndefined()
-    for (const tool of ['read', 'edit', 'glob', 'grep', 'bash', 'task', 'lsp', 'external_directory', 'skill']) {
+    for (const tool of [
+      'read',
+      'edit',
+      'glob',
+      'grep',
+      'bash',
+      'task',
+      'lsp',
+      'external_directory',
+      'skill'
+    ]) {
       expect(rule[tool]).toBe('ask')
     }
   })
@@ -41,6 +60,21 @@ describe('buildPermissionRule（权限模式 → OC 规则）', () => {
     expect(rule.skill).toBe('ask')
   })
 
+  it('default + userDataDir：external_directory 放行 opencode 工具临时目录（subagent 读临时文件不卡死，2026-08-13）', () => {
+    const rule = buildPermissionRule('default', 'C:\\oc-gui-data')
+    const ext = rule.external_directory as Record<string, string>
+    // 正反斜杠双规则：<tmp>/opencode/* 放行（MCP 输出/截图/超长工具输出统一落点，工具自身产生的安全区）
+    const tmp = join(tmpdir(), 'opencode', '*')
+    expect(ext[tmp]).toBe('allow')
+    expect(ext[tmp.replace(/\\/g, '/')]).toBe('allow')
+    // 其余外部目录仍 ask（catch-all 在前，最后匹配生效）
+    expect(ext['*']).toBe('ask')
+    // read/edit/write 不因临时目录放行而放宽——仍精确到 settings.json（provider-configs.json 明文不暴露）
+    const readRule = rule.read as Record<string, string>
+    expect(readRule[tmp]).toBeUndefined()
+    expect(readRule['C:\\oc-gui-data\\settings.json']).toBe('allow')
+  })
+
   it('auto：全部 allow（userDataDir 不改变 auto 行为）', () => {
     expect(buildPermissionRule('auto')).toEqual({ '*': 'allow' })
     expect(buildPermissionRule('auto', 'C:\\data')).toEqual({ '*': 'allow' })
@@ -60,7 +94,10 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
 
   it('首次写入：受管字段完整（apiKey/baseURL/models/model/small_model/permission 含 userData 例外）', async () => {
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
     const ds = (cfg.provider as Record<string, unknown>).deepseek as Record<string, unknown>
     const options = ds.options as { apiKey: string; baseURL: string }
     expect(options.apiKey).toBe('sk-test')
@@ -96,7 +133,11 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
   it('受管字段覆盖旧值（apiKey 更新）', async () => {
     const file = getConfigPath(dir)
     await fsp.mkdir(join(dir, 'config', 'opencode'), { recursive: true })
-    await fsp.writeFile(file, JSON.stringify({ provider: { ds: { options: { apiKey: 'old-key' } } } }), 'utf-8')
+    await fsp.writeFile(
+      file,
+      JSON.stringify({ provider: { ds: { options: { apiKey: 'old-key' } } } }),
+      'utf-8'
+    )
     await ensureConfig(dir, { apiKey: 'new-key', permissionMode: 'default' })
     const cfg = JSON.parse(await fsp.readFile(file, 'utf-8')) as Record<string, unknown>
     const ds = (cfg.provider as Record<string, unknown>).deepseek as { options: { apiKey: string } }
@@ -114,9 +155,16 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
 
   it('small_model 跟随设置页显式选择（settings.json smallModel=pro → 写入 opencode.json）', async () => {
     // 模拟设置页已保存：settings.json 显式选 deepseek-v4-pro
-    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
+    await fsp.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }),
+      'utf-8'
+    )
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
     expect(cfg.small_model).toBe('deepseek/deepseek-v4-pro')
   })
 
@@ -124,7 +172,10 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     // 用户选「跟随主模型」：smallModel 显式空 → ensureConfig 不写 small_model 字段（避免上次显式选择残留）
     await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
     expect(cfg.small_model).toBeUndefined()
   })
 
@@ -132,7 +183,11 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     const file = getConfigPath(dir)
     await fsp.mkdir(join(dir, 'config', 'opencode'), { recursive: true })
     // 旧配置：small_model 已写 flash（之前显式选择过）
-    await fsp.writeFile(file, JSON.stringify({ small_model: 'deepseek/deepseek-v4-flash' }), 'utf-8')
+    await fsp.writeFile(
+      file,
+      JSON.stringify({ small_model: 'deepseek/deepseek-v4-flash' }),
+      'utf-8'
+    )
     await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
     const cfg = JSON.parse(await fsp.readFile(file, 'utf-8')) as Record<string, unknown>
@@ -142,12 +197,21 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
   it('moonshotai-cn：provider 定义恒写（key 空时 models 也写——provider 可被 serve 识别，填 key 即通）', async () => {
     // 老文件只有 deepseek 条目（或 provider-configs.json 不存在）→ moonshotai-cn 用空 key
     await ensureConfig(dir, { apiKey: 'sk-test', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
-    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { models: unknown; options: { apiKey: string } }
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as {
+      models: unknown
+      options: { apiKey: string }
+    }
     expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
     expect(kimi.options.apiKey).toBe('')
     // ds-anthropic：侦查兵专用 provider（Anthropic 端点 + deepseek 同 key + 同 models）
-    const anthropic = (cfg.provider as Record<string, unknown>)['ds-anthropic'] as { npm?: string; options: { apiKey: string; baseURL: string } }
+    const anthropic = (cfg.provider as Record<string, unknown>)['ds-anthropic'] as {
+      npm?: string
+      options: { apiKey: string; baseURL: string }
+    }
     expect(anthropic.npm).toBe('@ai-sdk/anthropic')
     expect(anthropic.options.apiKey).toBe('sk-test')
     expect(anthropic.options.baseURL).toBe('https://api.deepseek.com/anthropic')
@@ -160,12 +224,20 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
     // 模拟设置页已保存 kimi key（saveProviderConfig 落盘 provider-configs.json）
     await fsp.writeFile(
       join(dir, 'provider-configs.json'),
-      JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' }, 'moonshotai-cn': { apiKey: 'sk-kimi' } }),
+      JSON.stringify({
+        deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' },
+        'moonshotai-cn': { apiKey: 'sk-kimi' }
+      }),
       'utf-8'
     )
     await ensureConfig(dir, { apiKey: 'sk-ds', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
-    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { options: { apiKey: string } }
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as {
+      options: { apiKey: string }
+    }
     expect(kimi.options.apiKey).toBe('sk-kimi')
   })
 
@@ -177,8 +249,14 @@ describe('ensureConfig（merge 不覆盖用户字段）', () => {
       'utf-8'
     )
     await ensureConfig(dir, { apiKey: 'sk-ds', permissionMode: 'default' })
-    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<string, unknown>
-    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as { models: unknown; options: { apiKey: string } }
+    const cfg = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as Record<
+      string,
+      unknown
+    >
+    const kimi = (cfg.provider as Record<string, unknown>)['moonshotai-cn'] as {
+      models: unknown
+      options: { apiKey: string }
+    }
     expect(kimi.models).toEqual({ 'kimi-k3': { options: { reasoningEffort: 'low' } } })
     expect(kimi.options.apiKey).toBe('')
   })
@@ -196,12 +274,20 @@ describe('resolveSmallModel（LOW 槽位：读设置页 settings.json smallModel
   })
 
   it('缺省：settings.json 无 smallModel 字段 → SMALL_MODEL 常量', async () => {
-    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ dataMode: 'isolated' }), 'utf-8')
+    await fsp.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ dataMode: 'isolated' }),
+      'utf-8'
+    )
     expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
   })
 
   it('显式值：settings.json smallModel=pro → 返回 pro 全名', async () => {
-    await fsp.writeFile(join(dir, 'settings.json'), JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }), 'utf-8')
+    await fsp.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ smallModel: 'deepseek/deepseek-v4-pro' }),
+      'utf-8'
+    )
     expect(await resolveSmallModel(dir)).toBe('deepseek/deepseek-v4-pro')
   })
 
@@ -224,5 +310,3 @@ describe('resolveSmallModel（LOW 槽位：读设置页 settings.json smallModel
     expect(await resolveSmallModel(dir)).toBe(SMALL_MODEL)
   })
 })
-
-

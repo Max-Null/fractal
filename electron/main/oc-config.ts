@@ -3,6 +3,7 @@
 // 支撑 agent 自检自改配置。merge 策略：受管字段（provider.deepseek / model / permission）覆盖写，
 // 用户其他字段（agent/plugins/ui 等）原样保留。
 import { promises as fsp } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 /** 受管 provider 配置（provider.deepseek 整体覆盖） */
@@ -16,7 +17,7 @@ export interface EnsureConfigOptions {
 /** DeepSeek 模型上下文限制（对应 opencode.json provider.deepseek.models，规格 D16 模型固定） */
 export const MANAGED_MODEL_LIMITS: Record<string, { context: number; output: number }> = {
   'deepseek-v4-flash': { context: 1000000, output: 131072 },
-  'deepseek-v4-pro': { context: 1000000, output: 131072 },
+  'deepseek-v4-pro': { context: 1000000, output: 131072 }
 }
 
 /**
@@ -44,7 +45,7 @@ export async function resolveSmallModel(userDataDir: string): Promise<string> {
     return SMALL_MODEL
   }
   try {
-    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as Record<string, unknown>
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as Record<string, unknown>
     const value = parsed?.smallModel
     // 字段缺失 → 默认小模型；显式字符串（含 '' 跟随主模型）原样返回——'' 由 ensureConfig 判定不写
     return typeof value === 'string' ? value : SMALL_MODEL
@@ -72,7 +73,7 @@ export const ANTHROPIC_MODEL = 'ds-anthropic/deepseek-v4-flash'
  * kimi-k3 为 models.dev 内置模型，仅显式 reasoningEffort=low（对齐用户全局配置参考，无 key 也写）
  */
 export const KIMI_MODEL_LIMITS: Record<string, { options: { reasoningEffort: string } }> = {
-  'kimi-k3': { options: { reasoningEffort: 'low' } },
+  'kimi-k3': { options: { reasoningEffort: 'low' } }
 }
 
 /**
@@ -99,18 +100,42 @@ export function getJsoncPath(userDataDir: string): string {
  * 对 userData 目录放行。对象语法（{"*": "ask", "<path>/*": "allow"}）表达「目录例外」；
  * 通配符最后匹配生效，catch-all "*" 必须放前面（v1.18.x 配置 schema 文档）。
  */
-export function buildPermissionRule(permissionMode: 'default' | 'auto', userDataDir?: string): Record<string, unknown> {
+export function buildPermissionRule(
+  permissionMode: 'default' | 'auto',
+  userDataDir?: string
+): Record<string, unknown> {
   if (permissionMode === 'auto') return { '*': 'allow' }
-  const sensitiveTools = ['read', 'edit', 'glob', 'grep', 'bash', 'task', 'lsp', 'external_directory', 'skill']
+  const sensitiveTools = [
+    'read',
+    'edit',
+    'glob',
+    'grep',
+    'bash',
+    'task',
+    'lsp',
+    'external_directory',
+    'skill'
+  ]
   if (!userDataDir) {
     return Object.fromEntries(sensitiveTools.map((t) => [t, 'ask']))
   }
   // 精确到 settings.json 文件而非整个 userData 目录——目录通配会暴露 provider-configs.json（API Key 明文）
   // Windows 路径分隔符不确定（\ 或 /），两条规则都加，保证 OC 内部路径匹配命中
   const settingsJsonPath = join(userDataDir, 'settings.json')
-  const allowPatterns = [settingsJsonPath, settingsJsonPath.replace(/\\/g, '/')]
+  const settingsPatterns = [settingsJsonPath, settingsJsonPath.replace(/\\/g, '/')]
+  // opencode 工具临时目录（<tmp>/opencode/*）：MCP 输出/截图/超长工具输出统一落点。
+  // 2026-08-13 实测定案：制图师 subagent 读这些临时文件若走 external_directory ask，用户不在场 → 权限请求 3.5 分钟无人响应卡死
+  // （另一台机器日志：permission=external_directory pattern="C:\...\AppData\Local\Temp\opencode\*" action=ask）。
+  // 该目录是工具自身产生的安全区（非用户数据），external_directory 单独放行，read/edit/write 仍精确到 settings.json。
+  const opencodeTmpPatterns = [
+    join(tmpdir(), 'opencode', '*'),
+    join(tmpdir(), 'opencode', '*').replace(/\\/g, '/')
+  ]
   // 对象语法：catch-all ask 在前，settings.json 文件 allow 在后（最后匹配生效）
-  const withFileAllow = (): Record<string, string> => ({ '*': 'ask', ...Object.fromEntries(allowPatterns.map((p) => [p, 'allow'])) })
+  const withFileAllow = (extraPatterns: string[] = []): Record<string, string> => ({
+    '*': 'ask',
+    ...Object.fromEntries([...settingsPatterns, ...extraPatterns].map((p) => [p, 'allow']))
+  })
   const rule: Record<string, unknown> = {
     read: withFileAllow(),
     edit: withFileAllow(),
@@ -123,8 +148,8 @@ export function buildPermissionRule(permissionMode: 'default' | 'auto', userData
     task: 'ask',
     lsp: 'ask',
     skill: 'ask',
-    // external_directory 默认 ask——对 settings.json 文件放行后 agent 才能自由读写（方案 3.8.4 权限预置）
-    external_directory: withFileAllow(),
+    // external_directory 默认 ask——对 settings.json 文件与 opencode 工具临时目录放行后 agent 才能自由读写（方案 3.8.4 权限预置）
+    external_directory: withFileAllow(opencodeTmpPatterns)
   }
   return rule
 }
@@ -135,10 +160,12 @@ export function buildPermissionRule(permissionMode: 'default' | 'auto', userData
  * ensureConfig 双 provider 写入依赖此文件（GUI 保存 API Key 的落盘点），deepseek 的 key 仍以 opts.apiKey 为准
  * （向后兼容：调用方显式传入的 key 覆盖文件值，见 ipc saveProviderConfig 注释）。
  */
-async function readProviderConfigs(userDataDir: string): Promise<Record<string, { apiKey?: string }>> {
+async function readProviderConfigs(
+  userDataDir: string
+): Promise<Record<string, { apiKey?: string }>> {
   try {
     const raw = await fsp.readFile(join(userDataDir, 'provider-configs.json'), 'utf-8')
-    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       return parsed as Record<string, { apiKey?: string }>
     }
@@ -157,7 +184,7 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   let cfg: Record<string, unknown> = {}
   try {
     const raw = await fsp.readFile(filePath, 'utf-8')
-    const parsed = JSON.parse(raw.replace(/^\uFEFF/, "")) as unknown
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       cfg = parsed as Record<string, unknown>
     }
@@ -173,13 +200,13 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   // provider id 用 serve 实测值 "deepseek"（阶段 0 fixtures/providers.json：all[].id=deepseek）
   provider.deepseek = {
     options: { apiKey: opts.apiKey, baseURL: 'https://api.deepseek.com/v1' },
-    models: MANAGED_MODEL_LIMITS,
+    models: MANAGED_MODEL_LIMITS
   }
   // moonshotai-cn：key 从 provider-configs.json 读（saveProviderConfig 落盘点）；models 定义恒写
   // 对齐用户全局配置参考：{ "moonshotai-cn": { "models": { "kimi-k3": { "options": { "reasoningEffort": "low" } } } } }
   provider['moonshotai-cn'] = {
     models: KIMI_MODEL_LIMITS,
-    options: { apiKey: savedProviders['moonshotai-cn']?.apiKey ?? '' },
+    options: { apiKey: savedProviders['moonshotai-cn']?.apiKey ?? '' }
   }
   // ds-anthropic：侦查兵专用（Anthropic 兼容端点自带 web_search 工具，2026-08-09 同步 oc-plus）
   // baseURL 指向 Anthropic 兼容端点；key 复用 deepseek（同一账户）；models 同 deepseek 定义（flash/pro）
@@ -188,7 +215,7 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   provider['ds-anthropic'] = {
     npm: '@ai-sdk/anthropic',
     options: { apiKey: opts.apiKey, baseURL: 'https://api.deepseek.com/anthropic' },
-    models: MANAGED_MODEL_LIMITS,
+    models: MANAGED_MODEL_LIMITS
   }
   cfg.provider = provider
   // 默认模型：pro（深度）——会话级参数由 ipc.ts 覆盖，此处为 serve 全局默认
@@ -215,4 +242,3 @@ export async function ensureConfig(userDataDir: string, opts: EnsureConfigOption
   // 双写 jsonc：serve 候选加载 opencode.jsonc 优先于 opencode.json（首启默认文件），只写 json 会被忽略（2026-08-06 实测）
   await fsp.writeFile(getJsoncPath(userDataDir), content, 'utf-8')
 }
-
