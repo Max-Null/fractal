@@ -111,6 +111,15 @@ describe("NodeCard", () => {
     const w = mountCard(node({ kind: "text", text: "最终总结", isSummary: true }));
     expect(w.classes()).toContain("node-card--summary");
     expect(w.find(".node-card-summary-head").text()).toContain("Summary");
+    // 展开态：--show class 常驻 head 展开（2026-08-13 防抖：head 恒渲染，切换只动 class 不平插）
+    expect(w.find(".node-card-summary-head").classes()).toContain("node-card-summary-head--show");
+  });
+
+  it("普通 text：summary-head 常驻但折叠（--show 缺省）——完成瞬间无高度突变（防抖，2026-08-13）", () => {
+    const w = mountCard(node({ kind: "text", text: "输出中的正文" }));
+    // head 恒渲染（DOM 占位由 CSS max-height:0 折叠，不占布局）→ 切换 isSummary 时不平插元素
+    expect(w.find(".node-card-summary-head").exists()).toBe(true);
+    expect(w.find(".node-card-summary-head").classes()).not.toContain("node-card-summary-head--show");
   });
 
   // ═══ 首 text 节点（思考结果块，2026-08-11 用户拍板：结构标记 isLeadText，不靠标题文字）═══
@@ -243,7 +252,9 @@ describe("NodeCard", () => {
   it("text 节点不显示耗时（2026-08-10 用户拍板：demo 中耗时只在节点标题行，text 正文无）", () => {
     const withDur = mountCard(node({ kind: "text", text: "正文", durationMs: 3200 }));
     expect(withDur.text()).not.toContain("⏱");
-    expect(withDur.text()).toBe("正文");
+    // 正文内容用 md-stub 断言（head 标签恒渲染但 CSS 折叠隐藏——max-height:0+overflow:hidden 裁剪，
+    // 用户复制/选中不会带上「回合总结」标签，2026-08-13 防抖改动后 DOM 文本含隐藏标签）
+    expect(withDur.find(".md-stub").text()).toBe("正文");
   });
 
   // ═══ todo 变体（2026-08-10 用户拍板：复用 TodoRecordCard——单行摘要默认收起，点击展开 chips 列表）═══

@@ -198,8 +198,12 @@ function formatJSON(obj: unknown): string {
 
     <!-- ═══ text / summary：无标题行直接正文（始终展开）；2026-08-10 用户拍板：text 不显示耗时（demo 中耗时只在节点标题行） ═══ -->
     <div v-else-if="node.kind === 'text'" class="node-card-text">
-      <!-- D7 总结节点：绿底渐变 + Flag + 总结（视觉强调回合最终产出） -->
-      <div v-if="isSummaryNode" class="node-card-summary-head">
+      <!-- D7 总结节点：Flag + 总结（视觉强调回合最终产出）。head 常驻 DOM（折叠态 max-height:0 不占位），
+           idle 切 isSummary 时平滑展开——避免 v-if 插入导致节点高度突增、下方内容跳动（2026-08-13 用户实测「总结节点输出完会跳一下」） -->
+      <div
+        class="node-card-summary-head"
+        :class="{ 'node-card-summary-head--show': isSummaryNode }"
+      >
         <Flag class="node-card-icon" :size="13" />
         <span class="node-card-label">{{ t('chat.timelineSummary') }}</span>
       </div>
@@ -284,7 +288,8 @@ function formatJSON(obj: unknown): string {
 .node-card {
   border-radius: 6px;
   border: 1px solid transparent;
-  transition: border-color 200ms;
+  /* padding transition：summary 变体 padding 0→2px 10px 平滑过渡（配合 head 折叠展开，消除完成瞬间跳动，2026-08-13） */
+  transition: border-color 200ms, padding 220ms ease;
 }
 .node-card--busy {
   border-color: rgba(217, 119, 6, 0.5);
@@ -461,6 +466,16 @@ function formatJSON(obj: unknown): string {
   font-size: 11px;
   color: #16a34a;
   margin-bottom: 2px;
+  /* 折叠态：常驻 DOM 但不占位（max-height:0 + overflow:hidden）——idle 切 summary 时 max-height/opacity
+     过渡平滑展开，避免 v-if 插入的高度突增与下方内容跳动（2026-08-13 用户实测「总结节点输出完会跳一下」） */
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 220ms ease, opacity 220ms ease;
+}
+.node-card-summary-head--show {
+  max-height: 28px;
+  opacity: 1;
 }
 
 /* ── tool 展开区（原 MessageBubble tl-tool 样式迁移） ── */
