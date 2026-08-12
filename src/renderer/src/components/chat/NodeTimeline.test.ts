@@ -34,6 +34,13 @@ const TodoRecordCardStub = {
   template: '<div class="todo-record-stub">todos={{ todos.length }} embedded={{ embedded }}</div>',
 };
 
+// FileChangeCard stub：断言回合文件修改卡片渲染（changes 为合并后数组；文本渲染条数）
+const FileChangeCardStub = {
+  name: "FileChangeCard",
+  props: { changes: null },
+  template: '<div class="file-change-card-stub">changes={{ changes.length }}</div>',
+};
+
 function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: Message[] }; subtaskState: Record<string, SubTask>; historySubtasks: Record<string, SubTask>; completedAt: number; todoRecord: { endedAt: number; todos: TodoItem[] } }>) {
   const user: Message = {
     id: "u1", role: "user", content: "你好", thinking: "", toolUses: [], timestamp: 0, isStreaming: false,
@@ -46,7 +53,7 @@ function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: M
       completedAt: overrides.completedAt,
       todoRecord: overrides.todoRecord,
     },
-    global: { plugins: [i18n], stubs: { NodeCard: NodeCardStub, TodoRecordCard: TodoRecordCardStub } },
+    global: { plugins: [i18n], stubs: { NodeCard: NodeCardStub, TodoRecordCard: TodoRecordCardStub, FileChangeCard: FileChangeCardStub } },
   });
 }
 
@@ -290,6 +297,28 @@ describe("NodeTimeline", () => {
       turn: { user: { id: "u1", role: "user", content: "q", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [asst({ contentBlocks: [textBlock("done")], isStreaming: false })] },
     });
     expect(w.find(".todo-record-stub").exists()).toBe(false);
+  });
+
+  // ═══ 回合文件修改卡片（Task 5：回合末尾挂载 FileChangeCard）═══
+
+  it("回合内 assistant 有 fileChanges → 渲染 FileChangeCard（多消息同文件合并去重后传入）", () => {
+    const w = mountTimeline({
+      turn: { user: { id: "u1", role: "user", content: "改", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [
+        asst({ id: "a1", fileChanges: [{ filePath: "a.txt", toolName: "write", newString: "x", status: "modified" }] }),
+        asst({ id: "a2", fileChanges: [{ filePath: "a.txt", toolName: "edit", oldString: "y", newString: "z", status: "modified" }] }),
+      ] },
+    });
+    const card = w.find(".file-change-card-stub");
+    expect(card.exists()).toBe(true);
+    // 两条 assistant 消息修改同一文件 → mergeFileChanges 合并为 1 条传入卡片
+    expect(card.text()).toContain("changes=1");
+  });
+
+  it("回合内无 fileChanges → 不渲染文件修改卡片", () => {
+    const w = mountTimeline({
+      turn: { user: { id: "u1", role: "user", content: "q", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [asst({ contentBlocks: [textBlock("done")], isStreaming: false })] },
+    });
+    expect(w.find(".file-change-card-stub").exists()).toBe(false);
   });
 
   // ═══ 节点 key 稳定（D17）═══

@@ -3,11 +3,13 @@
 // 数据源：turn（user + 多条 assistant 消息聚合）；节点序列 computed 缓存（D17 流式性能）
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
-import type { Message, SubTask, TodoItem } from "@/stores/chat";
+import type { Message, SubTask, TodoItem, FileChangeItem } from "@/stores/chat";
 import { buildTurnNodes, type TimelineNode } from "@/lib/node-timeline";
 import { formatNum } from "@/lib/utils";
+import { mergeFileChanges } from "@/lib/file-changes";
 import NodeCard from "./NodeCard.vue";
 import TodoRecordCard from "./TodoRecordCard.vue";
+import FileChangeCard from "./FileChangeCard.vue";
 
 const { t } = useI18n();
 
@@ -89,6 +91,10 @@ function subtaskFor(node: TimelineNode): SubTask | null {
 // ── 回合完成标记（D9）：最后 assistant 消息 idle（isStreaming=false）→ 渲染 ──
 const lastAssistant = computed(() => props.turn.assistants[props.turn.assistants.length - 1]);
 const turnDone = computed(() => !!lastAssistant.value && !lastAssistant.value.isStreaming);
+/** 回合文件修改卡片数据：所有 assistant 消息的 fileChanges 合并去重；无则不渲染 */
+const turnFileChanges = computed<FileChangeItem[]>(() =>
+  mergeFileChanges(props.turn.assistants.flatMap((a) => a.fileChanges ?? []))
+);
 /** 回合耗时：最后消息 durationMs → 秒（保留 1 位）；无则空（历史旧档可能缺失） */
 const turnDurationSec = computed(() => {
   const d = lastAssistant.value?.durationMs;
@@ -150,6 +156,14 @@ const tokenLabel = computed(() => {
       <div class="node-timeline-dot node-timeline-dot--todo"></div>
       <div class="node-timeline-content">
         <TodoRecordCard :ended-at="todoRecord.endedAt" :todos="todoRecord.todos" embedded />
+      </div>
+    </div>
+
+    <!-- 文件修改卡片（设计 v1.0）：回合末尾展示本轮 write/edit 修改的文件；无修改不渲染 -->
+    <div v-if="turnFileChanges.length" class="node-timeline-item node-timeline-item--filechanges">
+      <div class="node-timeline-dot node-timeline-dot--filechanges"></div>
+      <div class="node-timeline-content">
+        <FileChangeCard :changes="turnFileChanges" />
       </div>
     </div>
 
@@ -216,6 +230,14 @@ const tokenLabel = computed(() => {
 /* 待办记录结束节点：竖线截断（不延伸到回合完成标记） */
 .node-timeline-item--todo::after {
   display: none;
+}
+
+/* 文件修改节点：竖线截断（不延伸到回合完成标记），圆点用文件语义色（信息蓝，与 FileChangeCard 修改徽标一致） */
+.node-timeline-item--filechanges::after {
+  display: none;
+}
+.node-timeline-dot--filechanges {
+  border-color: var(--blue);
 }
 
 /* D8 进行中：琥珀边框 + 圆点呼吸（box-shadow 扩散脉冲 1.4s） */
