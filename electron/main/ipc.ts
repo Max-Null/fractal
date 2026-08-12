@@ -944,7 +944,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     // 先 await ready（共享启动 promise），避免 serve 未就绪时 getServerInfo 拿不到连接信息
     await requireClient()
     const { baseURL, authHeader } = getServerAuth()
-    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reply`, {
+    // serve 多实例按工作区目录路由（WorkspaceRoutingMiddleware）：不传 directory 会落到
+    // process.cwd() 默认实例，跨工作区提问时 pending 在别的实例 → 404 QuestionNotFoundError
+    // （2026-08-12 实测：切换工作区后 question:reply 报 HTTP 404）。readProjectCwd 读当前工作区。
+    const cwd = await readProjectCwd(app.getPath('userData'))
+    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reply${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: authHeader },
       body: JSON.stringify({ answers: args.answers }),
@@ -961,7 +965,10 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
     await requireClient()
     const { baseURL, authHeader } = getServerAuth()
-    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reject`, {
+    // 与 question:reply 同因：不带 directory 会路由到 process.cwd() 默认实例，
+    // 跨工作区拒绝提问会 404（2026-08-12 实测同源问题）
+    const cwd = await readProjectCwd(app.getPath('userData'))
+    const res = await fetch(`${baseURL}/question/${encodeURIComponent(args.requestId)}/reject${cwd ? `?directory=${encodeURIComponent(cwd)}` : ''}`, {
       method: 'POST',
       headers: { Authorization: authHeader },
     })

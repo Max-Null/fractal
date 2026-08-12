@@ -1428,19 +1428,19 @@ watch(
     <!-- AskUserQuestion 问答弹窗（serve question.asked → subtype='question'） -->
     <ModalShell :open="chat.pendingControlRequest?.subtype === 'question'" size="md" position="top" @close="skipQuestions">
       <template #header>
-        <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.askUserQuestion') }}</span>
+        <span class="text-base font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.askUserQuestion') }}</span>
       </template>
-      <div class="space-y-4 px-1">
-        <div v-for="(q, qi) in getQuestions()" :key="qi" class="space-y-2">
-          <div class="flex items-center gap-1.5">
+      <div class="space-y-5 px-1">
+        <div v-for="(q, qi) in getQuestions()" :key="qi" class="space-y-3">
+          <div class="flex items-center gap-2">
             <span v-if="q.header" class="badge font-medium whitespace-nowrap shrink-0" :style="{ background: 'var(--accent-glow)', color: 'var(--accent)' }">{{ q.header }}</span>
-            <span class="text-xs font-medium" :style="{ color: 'var(--text-primary)' }">{{ q.question }}</span>
+            <span class="text-sm font-medium" :style="{ color: 'var(--text-primary)' }">{{ q.question }}</span>
           </div>
-          <div class="space-y-1 ml-1">
+          <div class="space-y-1.5 ml-1">
             <label
               v-for="opt in q.options"
               :key="opt.label"
-              class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]"
+              class="flex items-start gap-2.5 px-3 py-2.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]"
             >
               <input
                 :type="q.multiple ? 'checkbox' : 'radio'"
@@ -1449,30 +1449,30 @@ watch(
                   ? (Array.isArray(questionAnswers.get(q.question)) && (questionAnswers.get(q.question) as string[]).includes(opt.label))
                   : questionAnswers.get(q.question) === opt.label"
                 @change="toggleAnswer(q.question, opt.label, q.multiple)"
-                class="mt-0.5 shrink-0"
+                class="mt-1 shrink-0 scale-110"
               />
               <div class="min-w-0">
-                <div class="text-xs font-medium" :style="{ color: 'var(--text-secondary)' }">{{ opt.label }}</div>
-                <div class="text-[11px] leading-relaxed" :style="{ color: 'var(--text-muted)' }">{{ opt.description }}</div>
+                <div class="text-sm font-medium" :style="{ color: 'var(--text-secondary)' }">{{ opt.label }}</div>
+                <div class="text-xs leading-relaxed" :style="{ color: 'var(--text-muted)' }">{{ opt.description }}</div>
               </div>
             </label>
             <!-- Other 自由输入 -->
-            <label class="flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]">
+            <label class="flex items-start gap-2.5 px-3 py-2.5 rounded cursor-pointer transition-colors hover:bg-[var(--bg-hover)]">
               <input
                 :type="q.multiple ? 'checkbox' : 'radio'"
                 :name="`q_${qi}`"
                 :checked="questionOther.has(q.question)"
                 @change="questionOther.set(q.question, '')"
-                class="mt-0.5 shrink-0"
+                class="mt-1 shrink-0 scale-110"
               />
               <div class="flex-1 min-w-0">
-                <div class="text-xs font-medium" :style="{ color: 'var(--text-secondary)' }">Other</div>
+                <div class="text-sm font-medium" :style="{ color: 'var(--text-secondary)' }">Other</div>
                 <input
                   v-if="questionOther.has(q.question)"
                   :value="questionOther.get(q.question) || ''"
                   @input="(e) => setOther(q.question, (e.target as HTMLInputElement).value)"
                   placeholder="输入自定义答案..."
-                  class="input-plain mt-1"
+                  class="input-plain mt-1.5"
                   :style="{ background: 'var(--bg-elevated)', border: '1px solid var(--border-dim)', color: 'var(--text-primary)', caretColor: 'var(--accent)' }"
                 />
               </div>
@@ -1482,8 +1482,8 @@ watch(
       </div>
       <template #footer>
         <div class="flex items-center justify-end gap-2">
-          <button @click="skipQuestions" class="text-xs px-3 py-1.5 rounded transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }">{{ $t('chat.skip') }}</button>
-          <button @click="submitAnswers" class="px-4 py-1.5 rounded text-xs font-medium transition-colors" :style="{ background: 'var(--accent)', color: 'var(--bg-root)' }">{{ $t('chat.submit') }}</button>
+          <button @click="skipQuestions" class="text-sm px-4 py-2 rounded transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }">{{ $t('chat.skip') }}</button>
+          <button @click="submitAnswers" class="px-5 py-2 rounded text-sm font-medium transition-colors" :style="{ background: 'var(--accent)', color: 'var(--bg-root)' }">{{ $t('chat.submit') }}</button>
         </div>
       </template>
     </ModalShell>

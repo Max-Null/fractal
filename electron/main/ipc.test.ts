@@ -784,6 +784,74 @@ describe('deepseek:getBalance（计费迭代：DeepSeek 余额查询）', () => 
   })
 })
 
+describe('question:reply / question:reject（多实例路由：带 directory query）', () => {
+  let userDataDir: string
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-question-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+    fetchMock = vi.fn(async () => new Response('true', { status: 200 }))
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  afterEach(async () => {
+    globalThis.fetch = fetchMock.mockClear() as unknown as typeof fetch
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('reply 携带当前工作区 directory（serve 多实例路由到正确实例）', async () => {
+    // ui-settings.json 写当前工作区 → readProjectCwd 读取 → fetch URL 带 ?directory=
+    await fsp.writeFile(join(userDataDir, 'ui-settings.json'), JSON.stringify({ cwd: 'H:\\MaxNull\\WorkStation\\test' }), 'utf-8')
+    registerIpcHandlers({
+      ready: async () => {},
+      getClient: () => ({}),
+      getServerInfo: () => ({ baseURL: 'http://127.0.0.1:4000', username: 'u', password: 'p' }),
+    } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'question:reply')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { sessionId: 'ses-1', requestId: 'que-1', answers: [['A']] })) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('/question/que-1/reply')
+    expect(url).toContain('directory=')
+    expect(url).toContain(encodeURIComponent('H:\\MaxNull\\WorkStation\\test'))
+  })
+
+  it('reject 携带当前工作区 directory', async () => {
+    await fsp.writeFile(join(userDataDir, 'ui-settings.json'), JSON.stringify({ cwd: 'H:\\MaxNull\\WorkStation\\test' }), 'utf-8')
+    registerIpcHandlers({
+      ready: async () => {},
+      getClient: () => ({}),
+      getServerInfo: () => ({ baseURL: 'http://127.0.0.1:4000', username: 'u', password: 'p' }),
+    } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'question:reject')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { sessionId: 'ses-1', requestId: 'que-1' })) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).toContain('/question/que-1/reject')
+    expect(url).toContain('directory=')
+  })
+
+  it('无 ui-settings.json（cwd 为空）→ URL 不带 directory（默认实例路由兜底）', async () => {
+    registerIpcHandlers({
+      ready: async () => {},
+      getClient: () => ({}),
+      getServerInfo: () => ({ baseURL: 'http://127.0.0.1:4000', username: 'u', password: 'p' }),
+    } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'question:reply')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { sessionId: 'ses-1', requestId: 'que-1', answers: [['A']] })) as { ok: boolean }
+    expect(r.ok).toBe(true)
+    const url = fetchMock.mock.calls[0][0] as string
+    expect(url).not.toContain('directory')
+  })
+})
+
 describe('resolveSessionModel（serve 会话模型提取）', () => {
   it('对象形态 {id, providerID, variant} → 取 id', () => {
     expect(resolveSessionModel({ id: 'deepseek-v4-pro', providerID: 'deepseek', variant: 'default' })).toBe('deepseek-v4-pro')
