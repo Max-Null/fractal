@@ -5,6 +5,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent, type EngineStatus } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
+import { extractFileChanges } from "@/lib/file-changes";
 
 let unlisten: (() => void) | null = null;
 let unlistenStatus: (() => void) | null = null;
@@ -361,6 +362,8 @@ export function useStreamProcessor() {
           const msg = chat.currentAssistantMsg;
           if (msg) {
             const targetSessionId = data.session_id || session.activeSessionId;
+            // 回合文件修改提取：从 toolUses 提取 write/edit 并合并去重，挂到消息供卡片渲染与持久化
+            msg.fileChanges = extractFileChanges(msg.toolUses);
             // Save full message as JSON blob: content + thinking + toolUses + stats
             const fullContent = JSON.stringify({
               text: msg.content,
@@ -377,6 +380,7 @@ export function useStreamProcessor() {
               // 人民币成本优先；旧存档只有美元时保留（历史会话兼容）
               costCNY: data.cost_cny ?? msg.costCNY,
               costUSD: data.cost_usd ?? msg.costUSD,
+              fileChanges: msg.fileChanges,
             });
             saveMessage(msg.id, targetSessionId, "assistant", fullContent, "{}").catch(() => {});
           }
