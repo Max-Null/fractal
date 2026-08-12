@@ -49,13 +49,19 @@ function taskBlock(id: string, name = "task"): ContentBlock {
   return { type: "tool_use", toolUse: { id, name, input: { prompt: "子任务" } } };
 }
 
+/** 完成态包装：buildTurnNodes(turn, true)——测试多为静态回合断言（isSummary 仅在完成态标记）。
+ * 流式态（isStreaming 中）不标总结的用例单独用 buildTurnNodes(turn)（无第二参）验证 */
+function buildDone(turn: { user: Message; assistants: Message[] }): TimelineNode[] {
+  return buildTurnNodes(turn, true);
+}
+
 describe("buildTurnNodes", () => {
   it("空回合（无 assistants）→ 空数组", () => {
-    expect(buildTurnNodes({ user: userMsg(), assistants: [] })).toEqual([]);
+    expect(buildDone({ user: userMsg(), assistants: [] })).toEqual([]);
   });
 
   it("thinking + text → 两个节点，最后 text 标记总结（D7）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: blocks(thinkingBlock("思考中"), textBlock("回答")) })],
     });
@@ -66,7 +72,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("相邻 text 合并：同消息多 text 块 → 单节点（内容换行保序）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: blocks(textBlock("第一段"), textBlock("第二段")) })],
     });
@@ -77,7 +83,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("相邻合并跨消息边界（D4 回合级）：msg1 text + msg2 text → 单 text 节点", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({ id: "a1", contentBlocks: blocks(textBlock("第一轮输出")) }),
@@ -90,7 +96,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("相邻 thinking 合并跨消息：msg1 thinking + msg2 thinking → 单 thinking 节点", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({ id: "a1", contentBlocks: blocks(thinkingBlock("思考一")) }),
@@ -103,8 +109,24 @@ describe("buildTurnNodes", () => {
     expect(nodes[0].isSummary).toBeUndefined();
   });
 
-  it("工具打断后 text 独立：text → tool → text，最后 text 总结", () => {
+  it("流式态（turnComplete 缺省/false）：最后 text 不标总结——总结标记只在回合完成（2026-08-13 用户实测闪烁）", () => {
+    // 输出中的回合：最后 assistant 仍 isStreaming（buildTurnNodes 不传第二参 = 流式态）
     const nodes = buildTurnNodes({
+      user: userMsg(),
+      assistants: [makeAssistant({ isStreaming: true, contentBlocks: blocks(textBlock("正在输出中...")) })],
+    });
+    expect(nodes[0].kind).toBe("text");
+    expect(nodes[0].isSummary).toBeUndefined();
+    // 完成态（显式 true）才标总结
+    const done = buildDone({
+      user: userMsg(),
+      assistants: [makeAssistant({ isStreaming: false, contentBlocks: blocks(textBlock("最终回答")) })],
+    });
+    expect(done[0].isSummary).toBe(true);
+  });
+
+  it("工具打断后 text 独立：text → tool → text，最后 text 总结", () => {
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -120,7 +142,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("首 text 节点标记（2026-08-11）：轮内 ≥2 条 text → 第一条 isLeadText（思考结果块），最后一条 isSummary", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -136,7 +158,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("唯一 text 轮（仅一条正文）→ 不标记 isLeadText（避免把唯一内容当思考结果强调）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: blocks(textBlock("唯一回答")) })],
     });
@@ -146,7 +168,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("tool_result 块跳过：tool_use + tool_result → 仅 tool 节点", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -163,7 +185,7 @@ describe("buildTurnNodes", () => {
 
   it("task 工具 → subtask 节点（D12 小写规范化：task/Task 均识别）", () => {
     for (const name of ["task", "Task"]) {
-      const nodes = buildTurnNodes({
+      const nodes = buildDone({
         user: userMsg(),
         assistants: [
           makeAssistant({ contentBlocks: blocks(taskBlock("sub_1", name), textBlock("子任务后")) }),
@@ -177,7 +199,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("tool/subtask 不合并：连续两个工具 → 两个独立节点", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({ contentBlocks: blocks(toolBlock("t1"), toolBlock("t2")) }),
@@ -189,7 +211,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("回合最后是工具 → 无总结标记", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: blocks(textBlock("思考"), toolBlock("t1")) })],
     });
@@ -206,7 +228,7 @@ describe("buildTurnNodes", () => {
     });
     // 明确无 contentBlocks（降级路径）
     delete (msg as { contentBlocks?: ContentBlock[] }).contentBlocks;
-    const nodes = buildTurnNodes({ user: userMsg(), assistants: [msg] });
+    const nodes = buildDone({ user: userMsg(), assistants: [msg] });
     expect(nodes.map((n) => n.kind)).toEqual(["thinking", "tool", "text"]);
     expect(nodes[0].text).toBe("分析中");
     expect(nodes[1].tool?.id).toBe("t1");
@@ -215,7 +237,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("key 稳定：text/thinking 用块索引，tool 用工具 id", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -229,7 +251,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("多消息混合：跨消息 text 合并但工具打断各自独立", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({ id: "a1", contentBlocks: blocks(textBlock("第一段")) }),
@@ -244,7 +266,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("空 contentBlocks（[]）→ 无节点", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: [] })],
     });
@@ -254,7 +276,7 @@ describe("buildTurnNodes", () => {
   // ── taskId 提取（3b：subtask 节点 → 子会话 id 查询键）──
 
   it("task 块 input.metadata.sessionId → taskId（实时 running 事件字段）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -270,7 +292,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("task 块 result 的 <task id> → taskId（历史完成态，extractSubTaskIds 同正则）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -286,7 +308,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("task 块无 sessionId / <task id> → taskId 缺省", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [makeAssistant({ contentBlocks: [{ type: "tool_use", toolUse: { id: "t1", name: "task", input: {} } }] })],
     });
@@ -295,7 +317,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("thinking 节点 durationMs 回填：其后相邻 tool 块的 thinkingDurationMs", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -311,7 +333,7 @@ describe("buildTurnNodes", () => {
   });
 
   it("thinking 节点 durationMs 直接取块自带值（历史路径 serve ReasoningPart.time 透传，2026-08-10）", () => {
-    const nodes = buildTurnNodes({
+    const nodes = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({
@@ -325,7 +347,7 @@ describe("buildTurnNodes", () => {
     expect(nodes[0].kind).toBe("thinking");
     expect(nodes[0].durationMs).toBe(900);
     // 块自带值与相邻工具块回填不冲突：已有时不回填（node-timeline 的 undefined 检查）
-    const merged = buildTurnNodes({
+    const merged = buildDone({
       user: userMsg(),
       assistants: [
         makeAssistant({

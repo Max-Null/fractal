@@ -31,7 +31,13 @@ const emit = defineEmits<{
 }>();
 
 // D17：节点序列 computed 缓存——流式增量只触发 block 内容更新（contentBlocks 引用不变时序列不重建）
-const nodes = computed<TimelineNode[]>(() => buildTurnNodes(props.turn));
+// turnComplete：最后 assistant 已 idle（非流式）→ 才标总结节点；流式中最后 text 只是临时位置，
+// 标记会随增量翻转（总结闪烁 + summary/lead-text 样式反复切换，2026-08-13 用户实测）
+const turnComplete = computed(() => {
+  const last = props.turn.assistants[props.turn.assistants.length - 1];
+  return !last?.isStreaming;
+});
+const nodes = computed<TimelineNode[]>(() => buildTurnNodes(props.turn, turnComplete.value));
 
 /** todo 更新节点（todowrite 工具）判定：圆点用主题色（2026-08-10 反馈：待办节点圆圈应与待办主题一致） */
 const isTodoNode = computed(() => (n: TimelineNode) =>

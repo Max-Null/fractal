@@ -87,8 +87,11 @@ export function groupTurns(messages: Message[]): Array<{ user: Message; assistan
   return turns;
 }
 
-/** 将回合（user + assistants）折叠为时间线节点数组 */
-export function buildTurnNodes(turn: { user: Message; assistants: Message[] }): TimelineNode[] {
+/** 将回合（user + assistants）折叠为时间线节点数组。
+ *  turnComplete=true（最后 assistant 已 idle，非流式）才标记 isSummary——流式中
+ *  「最后一个 text 节点」是临时位置，标记会随增量翻转（总结闪烁 + 样式反复切换，
+ *  2026-08-13 用户实测）。省略/false = 流式中：不标总结。 */
+export function buildTurnNodes(turn: { user: Message; assistants: Message[] }, turnComplete?: boolean): TimelineNode[] {
   const nodes: TimelineNode[] = [];
   // lastKind 跨消息保留 → 相邻同类（text/thinking）跨消息边界也合并（D4 回合级）
   let lastKind: "thinking" | "text" | "tool" | "subtask" | null = null;
@@ -134,8 +137,11 @@ export function buildTurnNodes(turn: { user: Message; assistants: Message[] }): 
     });
   });
   // D7：回合最后 text 块 → ✅ 总结节点（末尾非 text 则无总结标记）
-  const last = nodes[nodes.length - 1];
-  if (last?.kind === "text") last.isSummary = true;
+  // 仅回合完成（turnComplete）时标记——流式中最后 text 只是临时位置，标记会闪烁
+  if (turnComplete) {
+    const last = nodes[nodes.length - 1];
+    if (last?.kind === "text") last.isSummary = true;
+  }
   // 首 text 节点标记（2026-08-11 用户拍板）：轮内 text ≥2 时第一条即「思考结果」块（主题色渲染）。
   // 单 text 轮（唯一正文/总结）不标记——避免把唯一内容当思考结果强调
   const textNodes = nodes.filter((n) => n.kind === "text");
