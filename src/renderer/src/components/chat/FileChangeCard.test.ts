@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
 import FileChangeCard from "./FileChangeCard.vue";
+import { readFileContent } from "@/lib/electron-bridge";
 import type { FileChangeItem } from "@/stores/chat";
 
 const i18n = createI18n({
@@ -11,10 +12,14 @@ const i18n = createI18n({
   messages: { en: { chat: { fileChanges: "Files changed", added: "added", modified: "modified" } } },
 });
 
-// readFileContent mock：默认拒绝（文件不存在 → added 升级）；可注入存在文件
+// readFileContent mock：可注入不同错误；默认 ENOENT（文件不存在 → added 升级）
 vi.mock("@/lib/electron-bridge", () => ({
-  readFileContent: vi.fn().mockRejectedValue(new Error("ENOENT")),
+  readFileContent: vi.fn(),
 }));
+
+beforeEach(() => {
+  (readFileContent as any).mockRejectedValue(new Error("ENOENT: no such file"));
+});
 
 function mountCard(changes: FileChangeItem[]) {
   return mount(FileChangeCard, { props: { changes }, global: { plugins: [i18n] } });
@@ -49,5 +54,13 @@ describe("FileChangeCard", () => {
     // onMounted 探测为 async，需 flush 全部 promise 链后状态才落定
     await flushPromises();
     expect(w.text()).toContain("added");
+  });
+
+  it("write 探测非 ENOENT 错误（如权限）→ 保持 modified", async () => {
+    (readFileContent as any).mockRejectedValue(new Error("EACCES: permission denied"));
+    const w = mountCard([{ filePath: "a.txt", toolName: "write", newString: "x", status: "modified" }]);
+    await flushPromises();
+    expect(w.text()).toContain("modified");
+    expect(w.text()).not.toContain("added");
   });
 });

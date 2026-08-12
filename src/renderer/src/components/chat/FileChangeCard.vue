@@ -23,9 +23,9 @@ onMounted(async () => {
     try {
       await readFileContent(c.filePath);
       status.value[c.filePath] = "modified";
-    } catch {
-      // 读取失败视为文件不存在 → 升级 added
-      status.value[c.filePath] = "added";
+    } catch (err) {
+      // 只有确认文件不存在（ENOENT）才升级 added；IPC/权限等其他错误保持 modified（尽力而为语义）
+      status.value[c.filePath] = String(err instanceof Error ? err.message : err).includes("ENOENT") ? "added" : "modified";
     }
   }
 });
