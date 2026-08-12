@@ -30,6 +30,8 @@ export interface Message {
   attachments?: AttachedFile[];
   /** 用户手动停止（非自然结束） */
   wasStopped?: boolean;
+  /** 回合修改的文件清单（write/edit 提取，合并去重；旧会话无此字段则不渲染卡片） */
+  fileChanges?: FileChangeItem[];
 }
 
 export interface ToolUse {
@@ -44,6 +46,18 @@ export interface ToolUse {
   executionDurationMs?: number;
   /** 工具开始执行的时间戳（Date.now()），用于流式期间显示实时计时 */
   startedAt?: number;
+}
+
+/** 会话流文件修改卡片条目：write/edit 工具提取，status 持久化为 modified，显示层探测升级 added */
+export interface FileChangeItem {
+  filePath: string;
+  /** 原始工具名（write/edit，小写） */
+  toolName: string;
+  /** edit 旧内容（同文件多次 edit 按序拼接）；write 时无 */
+  oldString?: string;
+  /** edit 新内容 / write 全文 */
+  newString?: string;
+  status: "added" | "modified";
 }
 
 /** 工具执行结果（来自 user 事件的 tool_result 块） */
@@ -1074,6 +1088,7 @@ export const useChatStore = defineStore("chat", () => {
     let cacheWriteTokens: number | undefined;
     let costUSD: number | undefined;
     let costCNY: number | undefined;
+    let fileChanges: FileChangeItem[] | undefined;
 
     // Try to parse JSON for assistant messages (new format)
     let attachments: AttachedFile[] | undefined;
@@ -1094,6 +1109,8 @@ export const useChatStore = defineStore("chat", () => {
           cacheWriteTokens = parsed.cacheWriteTokens;
           costUSD = parsed.costUSD;
           costCNY = parsed.costCNY;
+          // 文件修改卡片：旧存档无此字段 → undefined（不渲染），新存档直接还原
+          if (Array.isArray(parsed.fileChanges)) fileChanges = parsed.fileChanges;
           // 新存档已有 contentBlocks，旧存档从现有字段重建时间线
           contentBlocks = parsed.contentBlocks || synthesizeBlocks(thinking, toolUses, textContent);
         } else if (rec.role === "user" && Array.isArray(parsed.attachments)) {
@@ -1125,6 +1142,7 @@ export const useChatStore = defineStore("chat", () => {
       cacheWriteTokens,
       costUSD,
       costCNY,
+      fileChanges,
       attachments,
     };
   }

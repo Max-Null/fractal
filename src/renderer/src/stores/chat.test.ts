@@ -760,6 +760,27 @@ describe("chat store", () => {
     expect(chat.timelineIndex[0].created).toBeGreaterThan(0);
   });
 
+  it("recordToMessage 还原 assistant 存档中的 fileChanges", () => {
+    const chat = useChatStore();
+    chat.loadFullHistory([
+      {
+        id: "a1",
+        role: "assistant",
+        content: JSON.stringify({
+          text: "改好了",
+          thinking: "",
+          toolUses: [{ id: "t1", name: "write", input: { file_path: "a.txt" } }],
+          contentBlocks: [{ type: "text", content: "改好了" }],
+          fileChanges: [{ filePath: "a.txt", toolName: "write", status: "modified" }],
+        }),
+        created_at: "2026-01-01T00:02:00",
+      },
+    ]);
+    expect(chat.messages[0].fileChanges).toEqual([
+      { filePath: "a.txt", toolName: "write", status: "modified" },
+    ]);
+  });
+
   // ── prependFromFullHistory（从内存切片加载更早，同步无网络）──
 
   it("prependFromFullHistory 从内存切片更早 50 条且保持旧→新顺序", () => {
