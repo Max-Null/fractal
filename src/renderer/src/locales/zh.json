@@ -296,6 +296,8 @@
     "unsupported": "此文件类型不支持预览",
     "unsupportedHint": "二进制/专有格式 — 请在外部打开",
     "htmlFit": "跟随",
+    "inspectOn": "检查",
+    "inspectOff": "交互",
     "sendToChat": "发送到对话",
     "refresh": "刷新（重新读取文件）",
     "openInWindow": "在独立窗口打开（双屏联调）",

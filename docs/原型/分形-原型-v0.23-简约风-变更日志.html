@@ -924,9 +924,19 @@ input, textarea { font-family: inherit; }
 .html-stage .mock-el { outline: 2px solid transparent; outline-offset: 1px; transition: outline-color 0.1s; cursor: pointer; }
 .html-stage .mock-el:hover { outline-color: var(--blue); }
 .html-stage .mock-el.sel { outline-color: var(--accent); background: var(--accent-soft); }
-.html-widths { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.html-widths { display: flex; gap: 4px; padding: 8px 12px; border-bottom: 1px solid var(--line); align-items: center; }
 .width-btn { padding: 2px 8px; border-radius: 5px; font-size: 10px; color: var(--text-low); border: 1px solid var(--line); }
 .width-btn.active { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+/* 检查模式开关（HTML 预览：开=点击选元素，关=页面可交互——v0.24 演示） */
+.inspect-toggle { padding: 2px 10px; border-radius: 5px; font-size: 10px; border: 1px solid var(--line); cursor: pointer; }
+.inspect-toggle.on { color: var(--accent); border-color: var(--accent-line); background: var(--accent-soft); }
+.inspect-toggle:not(.on) { color: var(--text-mid); background: var(--bg-hover); }
+/* 悬停展开菜单（检查模式关闭时可正常操作——需操作才出现的元素演示） */
+.mock-menu-wrap { position: relative; display: inline-block; margin-bottom: 8px; }
+.mock-menu { display: none; position: absolute; top: 100%; left: 0; margin-top: 2px; min-width: 120px; background: var(--bg-card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 8px 20px rgba(0,0,0,.12); z-index: 20; }
+.mock-menu.open { display: block; }
+.mock-menu-item { padding: 6px 12px; font-size: 11.5px; color: var(--text-mid); cursor: pointer; }
+.mock-menu-item:hover { background: var(--bg-hover); color: var(--accent); }
 
 /* MD 大纲 */
 .md-outline {
@@ -2467,27 +2477,53 @@ function scrollMdOutline(t) {
   }
 }
 
-/* ── html：模拟页面 + DOM 选择器（hover 高亮 + 点击收集） ── */
+/* ── html：模拟页面 + DOM 选择器（hover 高亮 + 点击收集）+ 检查模式开关 ── */
+let htmlInspectOn = true; // 检查模式开关（true=元素检查，false=页面正常交互）
 function renderHtml() {
   document.getElementById('previewBody').innerHTML =
-    '<div class="html-widths">' + [0, 375, 768, 1024, 1440, 1920].map(w => '<button class="width-btn' + (w === 0 ? ' active' : '') + '" onclick="setHtmlWidth(' + w + ')">' + (w === 0 ? '跟随' : w) + '</button>').join('') + '</div>' +
-    '<div class="tip-hint">◉ 点击页面元素 → 发送至对话（hover 高亮预览）</div>' +
+    '<div class="html-widths">' +
+    '<span class="html-mode-label" style="margin-right:auto;font-size:10px;color:var(--text-faint)">检查模式</span>' +
+    '<button class="inspect-toggle' + (htmlInspectOn ? ' on' : '') + '" onclick="toggleHtmlInspect()">' + (htmlInspectOn ? '开 · 点击选元素' : '关 · 页面可交互') + '</button>' +
+    '<span style="width:8px"></span>' +
+    [0, 375, 768, 1024, 1440, 1920].map(w => '<button class="width-btn' + (w === 0 ? ' active' : '') + '" onclick="setHtmlWidth(' + w + ')">' + (w === 0 ? '跟随' : w) + '</button>').join('') + '</div>' +
+    '<div class="tip-hint">' + (htmlInspectOn ? '◉ 点击页面元素 → 发送至对话（hover 高亮预览）' : '◉ 检查模式已关闭：可正常点击页面按钮/菜单（如「操作 ▾」），再打开开关继续选元素') + '</div>' +
     '<div class="html-stage"><div class="mock-page" id="mockPage">' +
     '<h4 class="mock-el" data-tag="h4" data-id="page-title">七月工作周报</h4>' +
     '<p class="mock-el" data-tag="p" data-id="intro">本周完成报销流程自动化，累计处理 71 笔报销单。</p>' +
-    '<span class="mock-el mock-btn" data-tag="button" data-id="submit-btn">提交审批</span>' +
+    '<div class="mock-menu-wrap">' +
+    '  <span class="mock-el mock-btn mock-menu-trigger" data-tag="button" data-id="ops-btn">操作 ▾</span>' +
+    '  <div class="mock-menu"><div class="mock-menu-item" data-tag="a" data-id="op-export">导出报表</div><div class="mock-menu-item" data-tag="a" data-id="op-email">邮件抄送</div><div class="mock-menu-item" data-tag="a" data-id="op-archive">归档</div></div>' +
+    '</div>' +
     '<table class="mock-el" data-tag="table" data-id="summary-table"><tr><th>部门</th><th>总额</th></tr><tr><td>销售部</td><td>¥41,280</td></tr><tr><td>研发部</td><td>¥66,730</td></tr></table>' +
     '</div></div>';
   const page = document.getElementById('mockPage');
+  // 悬停展开菜单：检查模式关闭时也响应 hover（演示「需操作才出现的元素」）
+  const trigger = page.querySelector('.mock-menu-trigger');
+  if (trigger) {
+    trigger.addEventListener('mouseenter', () => page.querySelector('.mock-menu').classList.add('open'));
+    page.querySelector('.mock-menu').addEventListener('mouseleave', () => page.querySelector('.mock-menu').classList.remove('open'));
+  }
   page.querySelectorAll('.mock-el').forEach(el => {
-    el.addEventListener('mouseover', () => { page.querySelectorAll('.mock-el').forEach(x => x.classList.remove('sel')); el.classList.add('sel'); });
+    el.addEventListener('mouseover', () => {
+      // 检查模式关闭时不高亮（避免干扰页面交互视觉）
+      if (!htmlInspectOn) return;
+      page.querySelectorAll('.mock-el').forEach(x => x.classList.remove('sel')); el.classList.add('sel');
+    });
     el.addEventListener('click', () => {
+      // 检查模式关闭时点击交给页面（菜单项可正常点击）；开启时拦截弹 tip
+      if (!htmlInspectOn) return;
       selDomInfo = { tag: el.dataset.tag, id: el.dataset.id, text: el.textContent.trim().slice(0, 60) };
       const r = el.getBoundingClientRect();
       showSelTip('已选 <' + selDomInfo.tag + (selDomInfo.id ? ' id="' + selDomInfo.id + '"' : '') + '>', r.left, r.bottom + 6);
       selTip._full = '我在 `' + curPreview.name + '` 中选中了这个元素，请修改其内容：\n\n```html\n<' + selDomInfo.tag + (selDomInfo.id ? ' id="' + selDomInfo.id + '"' : '') + '>\n  ' + selDomInfo.text + '\n</' + selDomInfo.tag + '>\n```';
     });
   });
+}
+function toggleHtmlInspect() {
+  htmlInspectOn = !htmlInspectOn;
+  // 关闭时清除已选高亮 + 关闭已开 tip；重新渲染提示条与开关状态
+  if (!htmlInspectOn) { if (typeof selTip !== 'undefined') selTip.hide(); document.querySelectorAll('.mock-el.sel').forEach(x => x.classList.remove('sel')); }
+  renderHtml();
 }
 function setHtmlWidth(w) {
   const page = document.querySelector('.mock-page');

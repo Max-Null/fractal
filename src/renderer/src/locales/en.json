@@ -296,6 +296,8 @@
     "unsupported": "Preview not available for this file type",
     "unsupportedHint": "Binary / proprietary format — open externally",
     "htmlFit": "Fit",
+    "inspectOn": "Inspect",
+    "inspectOff": "Interact",
     "sendToChat": "Send to Chat",
     "refresh": "Refresh (reload file)",
     "openInWindow": "Open in separate window",

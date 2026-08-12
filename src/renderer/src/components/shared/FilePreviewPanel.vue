@@ -11,7 +11,7 @@ import DOMPurify from "dompurify";
 import { useI18n } from "vue-i18n";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 import { useSelectionTip } from "@/composables/useSelectionTip";
-import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2 } from "lucide-vue-next";
+import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2, MousePointerClick } from "lucide-vue-next";
 import PptxPreview from "./PptxPreview.vue";
 import * as XLSX from "xlsx";
 // CodeMirror 6（编辑 tab）
@@ -123,6 +123,20 @@ onUnmounted(() => URL.revokeObjectURL(previewHtmlBlob.value));
 interface DomInfo { tag: string; id: string; classes: string; text: string; attrs: Record<string, string>; left: number; top: number; bottom: number }
 const selectedDom = ref<DomInfo | null>(null);
 const previewIframe = ref<HTMLIFrameElement | null>(null);
+
+// 检查模式开关（2026-08-12）：开=点击选元素（默认），关=iframe 页面恢复正常交互——
+// 部分页面元素需操作（hover 菜单/下拉/tab）才出现，检查模式拦截 click 导致无法触发。
+// 状态不持久化：切文件/关闭面板重置为开。
+const inspectorEnabled = ref(true);
+/** 切换检查模式：通过 postMessage 控制 iframe 内脚本 flag（不重新注入/reload blob）；关闭时清掉已开 tip */
+function toggleInspector() {
+  inspectorEnabled.value = !inspectorEnabled.value;
+  previewIframe.value?.contentWindow?.postMessage(
+    { type: "set-inspect-enabled", enabled: inspectorEnabled.value },
+    "*",
+  );
+  if (!inspectorEnabled.value) selectedDom.value = null;
+}
 
 function onIframeMessage(e: MessageEvent) {
   if (e.data?.type !== "dom-selected") return;
@@ -250,11 +264,17 @@ function sendMdToChat() {
 // 故弃 blob 外部脚本方案，恢复 cc-gui 原版内联注入；CSP script-src 需 'unsafe-inline'，见 index.html）
 // \x3C 转义：vue SFC 编译器扫描 <script> 块时把字面闭合标签当块结束
 const INSPECTOR_SCRIPT = `\x3Cscript\x3E
+// 检查模式开关：父窗口 postMessage 切换（关闭=页面可交互，动态元素可操作——2026-08-12）
+window.__inspectEnabled=true;
+window.addEventListener('message',function(ev){
+if(ev.data&&ev.data.type==='set-inspect-enabled'){window.__inspectEnabled=!!ev.data.enabled;if(!window.__inspectEnabled){__o.style.display='none';}}
+});
 var __o=document.createElement('div');
 __o.style.cssText='position:fixed;pointer-events:none;z-index:99999;border:2px solid #3b82f6;background:rgba(59,130,246,0.08);display:none;border-radius:2px;';
 document.body.appendChild(__o);
 var __last=null;
 document.addEventListener('mouseover',function(e){
+if(!window.__inspectEnabled){__o.style.display='none';return;}
 var el=e.target;
 if(el===__o||el===document.body||el===document.documentElement)return;
 if(el===__last)return;
@@ -264,6 +284,8 @@ __o.style.display='block';__o.style.left=r.left+'px';__o.style.top=r.top+'px';
 __o.style.width=r.width+'px';__o.style.height=r.height+'px';
 });
 document.addEventListener('click',function(e){
+// 检查模式关闭时不拦截——点击交给页面正常响应（按钮/菜单/下拉可操作）
+if(!window.__inspectEnabled)return;
 e.preventDefault();e.stopPropagation();
 __last=null;__o.style.display='none';
 var el=e.target,a={};
@@ -910,8 +932,22 @@ function handleClose() {
           <img v-if="imageSrc" :src="imageSrc" :alt="file.name" class="max-w-full max-h-full object-contain rounded" />
         </div>
         <div v-else-if="fileKind === 'html'" class="flex-1 flex flex-col" style="min-height: 0">
-          <!-- 宽度预设工具栏 -->
+          <!-- 宽度预设工具栏 + 检查模式开关（2026-08-12：关闭后页面可交互，动态元素可操作） -->
           <div class="flex items-center gap-1 px-2 h-7 text-[10px] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
+            <button
+              @click="toggleInspector"
+              :title="inspectorEnabled ? '检查模式：点击元素选中发送（关闭可操作页面）' : '检查模式已关闭：页面可正常交互（打开后点击元素选中）'"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-medium shrink-0"
+              :style="{
+                background: inspectorEnabled ? 'var(--accent)' : 'transparent',
+                color: inspectorEnabled ? 'var(--bg-root)' : 'var(--text-muted)',
+                border: inspectorEnabled ? 'none' : '1px solid var(--border-dim)',
+              }"
+            >
+              <MousePointerClick :size="11" />
+              {{ inspectorEnabled ? $t('preview.inspectOn') : $t('preview.inspectOff') }}
+            </button>
+            <span class="w-px h-3 shrink-0" style="background: var(--border-dim)"></span>
             <button
               v-for="w in HTML_PRESETS" :key="w"
               @click="htmlWidth = w"
