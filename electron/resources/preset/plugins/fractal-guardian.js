@@ -1,10 +1,10 @@
-// fractal.ts
+// 分形/fractal.ts
 import fs5 from "node:fs";
 import path4 from "node:path";
 import os3 from "node:os";
 import crypto from "node:crypto";
 
-// lib/prompts.ts
+// 分形/lib/prompts.ts
 function getSystemPrompt() {
   return `\u4F60\u662F\u7528\u6237\u7684\u8D5B\u535A\u5206\u8EAB\u2014\u2014\u8BB0\u5FC6\u7BA1\u5BB6\uFF08\u5206\u6790\u6A21\u5F0F\uFF09\u3002
 
@@ -206,7 +206,7 @@ memPath \u5FC5\u987B\u662F 0\u30011 \u6216 2\uFF0C\u6309\u4EE5\u4E0B\u89C4\u5219
 \u8BF7\u5206\u6790\u5E76\u8FD4\u56DE JSON\u3002`;
 }
 
-// lib/no-feedback.ts
+// 分形/lib/no-feedback.ts
 import fs from "node:fs";
 var NO_FEEDBACK_THRESHOLD = 3;
 function emptyNoFeedbackState() {
@@ -257,7 +257,7 @@ function buildNoFeedbackWarning(consecutiveTurns, threshold = NO_FEEDBACK_THRESH
 `;
 }
 
-// pipeline.ts
+// 分形/pipeline.ts
 import fs2 from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -618,7 +618,7 @@ function getStageSkipRejection(feature) {
   ].join("\n");
 }
 
-// dedup-checker.ts
+// 分形/dedup-checker.ts
 import fs3 from "node:fs";
 import path2 from "node:path";
 import os2 from "node:os";
@@ -862,11 +862,11 @@ ${items}${more}
 \u786E\u8BA4\u65B9\u5F0F\uFF1A\u8BF4"\u5408\u5E76\u8BB0\u5FC6 {\u5E8F\u53F7}" \u9010\u5BF9\u5904\u7406\uFF0C\u6216\u8BF4"\u90FD\u4E0D\u5408\u5E76"\u8DF3\u8FC7\u3002`;
 }
 
-// engine/engine.ts
+// 分形/engine/engine.ts
 import fs4 from "node:fs";
 import path3 from "node:path";
 
-// engine/bm25.ts
+// 分形/engine/bm25.ts
 var BM25_K1 = 1.5;
 var BM25_B = 0.75;
 var BM25Index = class {
@@ -1020,13 +1020,12 @@ function splitMixed(text) {
   return result;
 }
 
-// engine/vector.ts
+// 分形/engine/vector.ts
 import { execSync } from "node:child_process";
 var MODEL_ID = "Xenova/bge-small-zh-v1.5";
 var DIM = 384;
 var RRF_K = 60;
 var W_BM25 = 0.7;
-var ensureModelWarned = false;
 var W_VEC = 0.3;
 function rrfFuse(bm25Ranks, vecRanks, topK = 5) {
   const acc = /* @__PURE__ */ new Map();
@@ -1076,10 +1075,7 @@ var VectorIndex = class {
       this.extractor = pipe;
       return true;
     } catch (e) {
-      if (!ensureModelWarned) {
-        ensureModelWarned = true;
-        console.error(`[vector] ensureModel \u5931\u8D25\uFF0C\u964D\u7EA7 BM25\uFF08\u5B89\u88C5\u4F9D\u8D56\u53EF\u542F\u7528\u8BED\u4E49\u68C0\u7D22: npm install @huggingface/transformers\uFF09: ${String(e)}`);
-      }
+      console.error(`[vector] ensureModel \u5931\u8D25\uFF0C\u964D\u7EA7 BM25: ${String(e)}`);
       this.extractor = null;
       return false;
     }
@@ -1157,7 +1153,7 @@ function _regQuery(valueName) {
   return m ? m[1].trim() : null;
 }
 
-// engine/engine.ts
+// 分形/engine/engine.ts
 var STATUS_DIRS = ["pending", "auto", "suggest"];
 var KnowledgeEngine = class _KnowledgeEngine {
   dirs;
@@ -1390,7 +1386,7 @@ function _extractBody(content) {
   return valueLines.join("\n").trim();
 }
 
-// fractal.ts
+// 分形/fractal.ts
 var _FRACTAL_DEBUG_FLAG = path4.join(os3.homedir(), ".config", "opencode", "memories", ".fractal-debug");
 var _FRACTAL_DEBUG_LOG = path4.join(os3.homedir(), ".config", "opencode", "memories", "fractal-startup.log");
 var _IS_FRACTAL_DEBUG = fs5.existsSync(_FRACTAL_DEBUG_FLAG);
@@ -1426,7 +1422,6 @@ var ASSERTION_FLAG = path4.join(MEMORIES_DIR3, ".assertion-flag.json");
 var ASSERTION_COUNTER = path4.join(MEMORIES_DIR3, ".assertion-counter.json");
 var NO_FEEDBACK_STATE = path4.join(MEMORIES_DIR3, ".no-feedback-loop.json");
 var CARTOGRAPHER_LOG = path4.join(MEMORIES_DIR3, "cartographer-calls.log");
-var RAW_EVENT_TYPES = /* @__PURE__ */ new Set();
 var ASSERTION_RE = /(?:不支持|做不到|只有\s*\d+\s*种|(?<!\S)(?:没有|缺少)\s+\S+|不存在|无法\s+\S+|远[比低高]\S+|过于\S+)/;
 var WEBSEARCH_TOOLS = /websearch|web_search|webfetch/;
 var COUNTER_DECAY_TURNS = 3;
@@ -1486,17 +1481,12 @@ function rotateLog(logPath, maxSize = MAX_LOG_SIZE) {
     if (!fs5.existsSync(logPath)) return;
     const stat = fs5.statSync(logPath);
     if (stat.size <= maxSize) return;
-    const archive = `${logPath}.1`;
-    try {
-      fs5.rmSync(archive, { force: true });
-    } catch {
-    }
-    try {
-      fs5.renameSync(logPath, archive);
-    } catch {
-      fs5.truncateSync(logPath, 0);
-    }
-    debug(`LOG: \u8F6E\u8F6C ${logPath}\uFF0C${stat.size} \u2192 \u65B0\u6587\u4EF6\uFF08\u5F52\u6863 ${archive}\uFF09`);
+    const content = fs5.readFileSync(logPath, "utf-8");
+    const keepSize = Math.floor(maxSize / 2);
+    const tail = content.slice(-keepSize);
+    const firstNewline = tail.indexOf("\n");
+    fs5.writeFileSync(logPath, firstNewline > 0 ? tail.slice(firstNewline + 1) : tail, "utf-8");
+    debug(`LOG: \u8F6E\u8F6C ${logPath}\uFF0C${stat.size} \u2192 ${fs5.statSync(logPath).size} bytes`);
   } catch {
   }
 }
@@ -3494,8 +3484,6 @@ ${pendingList}
         }
       }
       try {
-        if (RAW_EVENT_TYPES.has(event.type)) return;
-        RAW_EVENT_TYPES.add(event.type);
         const rawLog = path4.join(MEMORIES_DIR3, "raw-events.log");
         const sample = {
           ts: (/* @__PURE__ */ new Date()).toISOString(),
