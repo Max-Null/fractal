@@ -1,60 +1,90 @@
 <script setup lang="ts">
 // 会话流文件修改卡片：展示回合内 write/edit 修改的文件清单，点击单文件展开 diff 区
 // 状态判定：write 条目 mounted 时探测文件存在性——不存在升级 added（尽力而为，失败保持 modified）
-import { ref, onMounted } from "vue";
-import { FilePlus2, FilePenLine, ChevronDown, ChevronRight } from "lucide-vue-next";
-import { readFileContent } from "@/lib/electron-bridge";
-import type { FileChangeItem } from "@/stores/chat";
+import { ref, onMounted } from 'vue'
+import { FilePlus2, FilePenLine, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { readFileContent } from '@/lib/electron-bridge'
+import { useSettingsStore } from '@/stores/settings'
+import type { FileChangeItem } from '@/stores/chat'
 
-const props = defineProps<{ changes: FileChangeItem[] }>();
+const props = defineProps<{ changes: FileChangeItem[] }>()
 
 /** 展开态：filePath → boolean（默认全收起） */
-const expanded = ref<Record<string, boolean>>({});
+const expanded = ref<Record<string, boolean>>({})
 function toggle(path: string) {
-  expanded.value = { ...expanded.value, [path]: !expanded.value[path] };
+  expanded.value = { ...expanded.value, [path]: !expanded.value[path] }
+}
+
+/** 绝对路径判定：正斜杠开头（Unix）/ UNC 反斜杠 / Windows 盘符——主进程 fs 通道强制绝对路径（ipc.ts assertValidFsPath） */
+function isAbsolutePath(p: string): boolean {
+  return p.startsWith('/') || p.startsWith('\\\\') || /^[a-zA-Z]:/.test(p)
 }
 
 /** write 条目探测升级：文件已不存在 → added（新增）；存在或探测失败 → 保持 modified */
-const status = ref<Record<string, FileChangeItem["status"]>>({});
+const status = ref<Record<string, FileChangeItem['status']>>({})
 onMounted(async () => {
+  // OC 原始 file_path 多为相对路径（src/foo.ts），主进程拒绝相对路径（非 ENOENT 错误）→ 基于工作区 resolve 成绝对路径
+  const cwd = useSettingsStore().cwd
   for (const c of props.changes) {
     // 仅 write 条目需要探测；edit 必然修改已存在文件，无需探测
-    if (c.toolName !== "write") continue;
+    if (c.toolName !== 'write') continue
+    // 无 cwd 时相对路径无法 resolve → 跳过探测保持 modified（尽力而为语义）
+    if (!cwd) continue
+    const abs = isAbsolutePath(c.filePath)
+      ? c.filePath
+      : `${cwd.replace(/[\\/]+$/, '')}/${c.filePath}`
     try {
-      await readFileContent(c.filePath);
-      status.value[c.filePath] = "modified";
+      await readFileContent(abs)
+      status.value[c.filePath] = 'modified'
     } catch (err) {
       // 只有确认文件不存在（ENOENT）才升级 added；IPC/权限等其他错误保持 modified（尽力而为语义）
-      status.value[c.filePath] = String(err instanceof Error ? err.message : err).includes("ENOENT") ? "added" : "modified";
+      status.value[c.filePath] = String(err instanceof Error ? err.message : err).includes('ENOENT')
+        ? 'added'
+        : 'modified'
     }
   }
-});
-function statusFor(c: FileChangeItem): FileChangeItem["status"] {
-  return status.value[c.filePath] ?? c.status;
+})
+function statusFor(c: FileChangeItem): FileChangeItem['status'] {
+  return status.value[c.filePath] ?? c.status
+}
+
+/** 展示用相对路径：在 cwd 下则去掉 cwd 前缀（分隔符归一），否则原样（设计 3.4：路径相对 cwd 展示） */
+function displayPath(p: string): string {
+  const cwd = useSettingsStore().cwd
+  if (!cwd) return p
+  const norm = (s: string) => s.replace(/\\/g, '/')
+  const cwdN = norm(cwd).replace(/\/+$/, '')
+  const pN = norm(p)
+  return pN.startsWith(cwdN + '/') ? pN.slice(cwdN.length + 1) : p
 }
 </script>
 
 <template>
   <div class="file-change-card">
-    <div v-for="c in changes" :key="c.filePath" class="file-change-item" @click="toggle(c.filePath)">
+    <div
+      v-for="c in changes"
+      :key="c.filePath"
+      class="file-change-item"
+      @click="toggle(c.filePath)"
+    >
       <div class="file-change-item__row">
         <ChevronRight v-if="!expanded[c.filePath]" class="file-change-chevron" :size="12" />
         <ChevronDown v-else class="file-change-chevron" :size="12" />
         <!-- 图标规范：lucide 组件；新增 FilePlus2（绿）、修改 FilePenLine（蓝） -->
         <FilePlus2 v-if="statusFor(c) === 'added'" class="file-change-icon" :size="14" />
         <FilePenLine v-else class="file-change-icon" :size="14" />
-        <span class="file-change-path">{{ c.filePath }}</span>
+        <span class="file-change-path">{{ displayPath(c.filePath) }}</span>
         <span class="file-change-badge" :class="'file-change-badge--' + statusFor(c)">
-          {{ statusFor(c) === "added" ? $t('chat.added') : $t('chat.modified') }}
+          {{ statusFor(c) === 'added' ? $t('chat.added') : $t('chat.modified') }}
         </span>
       </div>
       <div v-if="expanded[c.filePath]" class="file-change-diff">
         <!-- edit：old→new 红绿对比；write：新内容代码块 -->
         <template v-if="c.oldString != null">
           <pre class="file-change-old">{{ c.oldString }}</pre>
-          <pre class="file-change-new">{{ c.newString ?? "" }}</pre>
+          <pre class="file-change-new">{{ c.newString ?? '' }}</pre>
         </template>
-        <pre v-else class="file-change-new">{{ c.newString ?? "" }}</pre>
+        <pre v-else class="file-change-new">{{ c.newString ?? '' }}</pre>
       </div>
     </div>
   </div>
