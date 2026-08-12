@@ -495,6 +495,14 @@ async function reloadFile(silent = false) {
     return;
   }
 
+  // pdf 与 pptx 同构：内容由 PdfPreview 组件自己 readFileBase64 加载，面板层不读文件
+  // （若落入下方文本兜底会以 utf-8 读整个 PDF 二进制，视觉正确纯属巧合，且与 pptx 不对称）
+  if (kind === "pdf") {
+    activeTab.value = "preview";
+    if (!silent) loading.value = false;
+    return;
+  }
+
   // 文本文件（html / markdown / code / text）
   activeTab.value = hasPreview.value ? "preview" : "edit";
   try {

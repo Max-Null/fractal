@@ -99,8 +99,10 @@ function zoomOut() { if (scale.value > MIN_SCALE) { scale.value = Math.round((sc
 
 watch(() => props.file.path, load);
 onMounted(load);
-// 卸载：使在途渲染全部作废（序号递增），cancel 后 promise reject 落入 catch 的静默分支
-onBeforeUnmount(() => { renderId++; if (renderTask) renderTask.cancel(); void pdfDoc?.loadingTask.destroy(); });
+// 卸载：使在途加载/渲染全部作废（序号递增）。
+// loadId 递增让加载中的 getDocument resolve 后落入丢弃分支（myId !== loadId → destroy loadingTask），
+// 否则 myId === loadId 会赋 pdfDoc 且无人 destroy，文档资源滞留；renderId 递增照旧作废在途渲染
+onBeforeUnmount(() => { loadId++; renderId++; if (renderTask) renderTask.cancel(); void pdfDoc?.loadingTask.destroy(); });
 </script>
 
 <template>
