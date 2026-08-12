@@ -21,11 +21,18 @@ const limit = computed(() => {
   return 128_000;
 });
 
-// 实际消息中携带的 token 统计（input + output）
+// 当前上下文占用 ≈ 最后一次请求的完整输入（最后一条含 tokens 的 assistant 消息）
+// serve 下发的消息级 input 是 adjusted 口径（不含缓存命中），补 cacheRead/cacheWrite 才是完整上下文。
+// 不再累加全部消息——每条消息的 input 是「该回合新增输入」，累加会把多轮请求的上下文重复相加
+// （2026-08-13 修复：原逻辑把 serve 的会话累计值二次累加，弹窗显示 110% 超估）
 const msgTokens = computed(() => {
-  let total = 0;
-  for (const m of chat.messages) total += (m.inputTokens || 0) + (m.outputTokens || 0);
-  return total;
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const m = chat.messages[i];
+    if (m.role === "assistant" && (m.inputTokens || m.cacheReadTokens || m.cacheWriteTokens)) {
+      return (m.inputTokens || 0) + (m.cacheReadTokens || 0) + (m.cacheWriteTokens || 0);
+    }
+  }
+  return 0;
 });
 
 // 固定开销估算值（单位 tokens）——基于 CC 2.1 系统提示和工具定义的实测尺寸

@@ -13,6 +13,7 @@ const questionReplyMock = vi.fn();
 const questionRejectMock = vi.fn();
 const respondPermissionMock = vi.fn();
 const sendMessageMock = vi.fn();
+const stopSessionMock = vi.fn().mockResolvedValue(undefined);
 const listMessagesMock = vi.fn();
 const loadSessionLogsMock = vi.fn();
 const readServeLogMock = vi.fn();
@@ -25,7 +26,7 @@ vi.mock("@/lib/electron-bridge", () => ({
   questionReject: (...args: unknown[]) => questionRejectMock(...args),
   forkSession: vi.fn().mockResolvedValue({ id: "ses-fork" }),
   getAutoModeStatus: vi.fn().mockResolvedValue(false),
-  stopSession: vi.fn().mockResolvedValue(undefined),
+  stopSession: (...args: unknown[]) => stopSessionMock(...args),
   listMessages: (...args: unknown[]) => listMessagesMock(...args),
   writeFile: vi.fn().mockResolvedValue(undefined),
   loadSessionLogs: (...args: unknown[]) => loadSessionLogsMock(...args),
@@ -101,12 +102,25 @@ const ModalShellStub = {
   `,
 };
 
+// ConfirmDialog stub：可触发 confirm/cancel 事件（office 附件/删除会话确认测试用）
+const ConfirmDialogStub = {
+  props: { open: Boolean, title: String, message: String, danger: Boolean },
+  emits: ["confirm", "cancel"],
+  template: `
+    <div v-if="open" class="confirm-dialog-stub">
+      <button class="confirm-dialog-stub-confirm" @click="$emit('confirm')">confirm</button>
+      <button class="confirm-dialog-stub-cancel" @click="$emit('cancel')">cancel</button>
+    </div>
+  `,
+};
+
 const mockRouter = { push: vi.fn(), currentRoute: { value: { path: "/chat" } } };
 let pinia: Pinia;
 
 // InputBar stub：声明 send 事件，供 handleSend 附件传递用例触发；渲染 #left 插槽（诊断面板开关按钮）
 const InputBarStub = {
   name: "InputBarStub",
+  props: ["chips"],
   emits: ["send"],
   template: '<div class="input-bar-stub"><slot name="left" /></div>',
 };
@@ -131,6 +145,7 @@ function mountChatPanel(): VueWrapper {
         ContextUsageModal: { props: ["open"], template: "<div />" },
         ManagePanel: { props: ["open", "initialTab"], template: "<div />" },
         ModalShell: ModalShellStub,
+        ConfirmDialog: ConfirmDialogStub,
         MarkdownRenderer: { template: "<div />" },
         ChatTimelineNav: { props: ["messages", "timeline", "scrollContainer"], template: "<div />" },
         // stub 渲染 data-todo-panel 标记：方案 A「按需显示」测试断言 TodoPanel 是否被渲染（v-if 控制存在性）
@@ -415,6 +430,150 @@ describe("ChatPanel 弹窗", () => {
     expect(sid).toBe("ses-1");
     expect(msg).toBe("看下附件");
     expect(opts.attachments).toEqual([{ name: "a.txt", path: "C:\\tmp\\a.txt" }]);
+  });
+
+  // ── office/二进制附件：chips 弱提示 + 发送前确认（模型端不支持读取）──
+
+  it("office 附件发送：弹 ConfirmDialog，取消 → 不发送（附件保留在 chips）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    sendMessageMock.mockResolvedValue({ accepted: true });
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "简历.pdf", path: "C:\\tmp\\简历.pdf" }] }));
+    await flush();
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "看下这个pdf");
+    await flush();
+
+    // 弹确认框（ConfirmDialog stub 渲染）→ 取消 → 不发送，附件保留在 chips
+    const dialog = wrapper.findComponent(ConfirmDialogStub);
+    expect(dialog.exists()).toBe(true);
+    expect(dialog.props("open")).toBe(true);
+    await dialog.vm.$emit("cancel");
+    await flush();
+
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    const chips = wrapper.findComponent(InputBarStub).props("chips") as Array<{ label: string; warn?: boolean }>;
+    expect(chips).toHaveLength(1);
+    expect(chips[0].label).toBe("简历.pdf");
+    expect(chips[0].warn).toBe(true);  // office 附件带弱提示标记
+  });
+
+  it("office 附件发送：弹 ConfirmDialog，确认 → 正常发送", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    sendMessageMock.mockResolvedValue({ accepted: true });
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "报告.docx", path: "C:\\tmp\\报告.docx" }] }));
+    await flush();
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "看下报告");
+    await flush();
+
+    // 确认框出现 → 点确认 → 发送
+    const dialog = wrapper.findComponent(ConfirmDialogStub);
+    expect(dialog.exists()).toBe(true);
+    expect(dialog.props("open")).toBe(true);
+    await dialog.vm.$emit("confirm");
+    await flush();
+
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+  });
+
+  // ── 回答中补充消息：立即上屏 + 立即发送（serve 原生支持中间补充，无需前端延迟）──
+
+  it("补充消息：回答中（isProcessing=true）发送 → 立即上屏 + 立即调 sendMessage", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;  // 模拟回答中
+    sendMessageMock.mockResolvedValue({ accepted: true });
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "补充信息A");
+    await flush();
+
+    // 立即上屏（serve 中间补充：消息入库后 runLoop 下一步带着继续）
+    expect(chat.messages.filter(m => m.role === "user")).toHaveLength(1);
+    expect(chat.messages.filter(m => m.role === "user")[0].content).toBe("补充信息A");
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+    // 无待处理队列/UI（延迟上屏机制已移除）
+    expect(chat.pendingFollowUps).toBeUndefined();
+    expect(wrapper.find(".pending-fu").exists()).toBe(false);
+  });
+
+  it("补充消息：回答中发送先打断当前回合再立即发送（Claude Code/Cursor 行为）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "补充信息B");
+    await flush();
+
+    // 消息已上屏（用户消息在时间线尾部）
+    const userMsgs = chat.messages.filter(m => m.role === "user");
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].content).toBe("补充信息B");
+    // 先打断当前回合（stopSession 调用一次），再立即发送
+    expect(stopSessionMock).toHaveBeenCalledOnce();
+    expect(stopSessionMock).toHaveBeenCalledWith("ses-1");
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+    expect(sendMessageMock).toHaveBeenCalledWith("ses-1", "补充信息B", expect.anything());
+  });
+
+  it("补充消息不切断流式文本：补充后 A 继续追加，serve 新轮 B 到达时自动开占位（回归 #8）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    sendMessageMock.mockResolvedValue({ accepted: true });
+
+    // 场景：当前轮 A 正在流式生成（已有前半段）
+    chat.startAssistantMessage();
+    chat.appendText("A 前半段：读取完成");
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    // 补充消息发送（isProcessing=true 模拟回答中）
+    chat.isProcessing = true;
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "补充信息C");
+    await flush();
+
+    // 补充消息上屏在 A 之后
+    const roles = chat.messages.map(m => m.role);
+    expect(roles.filter(r => r === "user")).toHaveLength(1);
+    // A 仍是流式中的同一条（未被切换占位切断）
+    const assistantMsgs = chat.messages.filter(m => m.role === "assistant");
+    expect(assistantMsgs).toHaveLength(1);
+    // A 的后续流式文本继续追加到 A（不偷到新占位）
+    chat.appendText("A 后半段：现在请你插入消息");
+    expect(assistantMsgs[0].content).toBe("A 前半段：读取完成A 后半段：现在请你插入消息");
+    // 未新增第二个 assistant 占位（补充消息没有强行开占位）
+    expect(chat.messages.filter(m => m.role === "assistant")).toHaveLength(1);
+
+    // A 完成 → finishAssistantMessage 清空 currentAssistantMsg
+    chat.finishAssistantMessage();
+    expect(chat.currentAssistantMsg).toBeNull();
+
+    // serve 新轮 B 的 assistant 事件到达 → appendText 兜底自动开占位，B 独立成条
+    chat.appendText("B：受影响后的新回复");
+    const msgsAfter = chat.messages.filter(m => m.role === "assistant");
+    expect(msgsAfter).toHaveLength(2);
+    expect(msgsAfter[1].content).toBe("B：受影响后的新回复");
   });
 
   // ── 滚动到顶加载更早（内存分页：从 fullHistory 切片，无网络）──

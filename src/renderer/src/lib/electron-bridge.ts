@@ -65,6 +65,10 @@ export interface StreamEvent {
   duration_ms?: number;
   input_tokens?: number;
   output_tokens?: number;
+  /** 回合缓存命中输入 tokens（消息级，events.ts session.idle 下发；弹窗「当前上下文占用」= input+cacheRead+cacheWrite） */
+  cache_read_tokens?: number;
+  /** 回合缓存写入 tokens（消息级，同上） */
+  cache_write_tokens?: number;
   cost_usd?: number;
   /** 回合人民币成本（元）——主进程本地价格表计算下发（events.ts session.idle），替代美元 cost_usd */
   cost_cny?: number;

@@ -35,13 +35,18 @@ const limit = computed(() => {
   return 128_000; // 默认保守值
 });
 
+// 当前上下文占用 ≈ 最后一次请求的完整输入（最后一条含 tokens 的 assistant 消息）
+// serve 下发的消息级 input 是 adjusted 口径（不含缓存命中），补 cacheRead/cacheWrite 才是完整上下文。
+// 不再累加全部消息——每条消息的 input 是「该回合新增输入」，累加会把多轮请求的上下文重复相加
+// （2026-08-13 修复：原逻辑把 serve 的会话累计值二次累加，指示器显示超估百分比）
 const usedTokens = computed(() => {
-  let total = 0;
-  for (const msg of chat.messages) {
-    total += msg.inputTokens || 0;
-    total += msg.outputTokens || 0;
+  for (let i = chat.messages.length - 1; i >= 0; i--) {
+    const msg = chat.messages[i];
+    if (msg.role === "assistant" && (msg.inputTokens || msg.cacheReadTokens || msg.cacheWriteTokens)) {
+      return (msg.inputTokens || 0) + (msg.cacheReadTokens || 0) + (msg.cacheWriteTokens || 0);
+    }
   }
-  return total;
+  return 0;
 });
 
 const pct = computed(() => Math.min(100, Math.round((usedTokens.value / limit.value) * 100)));

@@ -20,6 +20,10 @@ export interface Message {
   durationMs?: number;
   inputTokens?: number;
   outputTokens?: number;
+  /** 回合缓存命中输入 tokens（消息级，serve message.updated 透传；弹窗「当前上下文占用」= input+cacheRead+cacheWrite） */
+  cacheReadTokens?: number;
+  /** 回合缓存写入输入 tokens（消息级，同上） */
+  cacheWriteTokens?: number;
   costUSD?: number;
   /** 人民币成本（元）——主进程本地价格表计算（pricing.ts），替代美元 costUSD */
   costCNY?: number;
@@ -172,6 +176,17 @@ export function extractSubTaskIds(text: string): string[] {
     ids.push(m[1]);
   }
   return ids;
+}
+
+/** office/二进制附件扩展名白名单：模型端不支持直接读取（实测 pdf 报 "this model does not support pdf input"），
+ *  发送前确认 + chips 弱提示用。文本类（txt/md/csv/html/json 等）serve 原生 Read 注入，不在名单内。 */
+const OFFICE_ATTACH_EXTS = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'pptx', 'ppt', 'zip', 'rar', '7z']);
+
+/** 判断附件是否 office/二进制（按扩展名，渲染层判断不依赖主进程 MIME） */
+export function isOfficeAttachment(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  if (dot < 0) return false;
+  return OFFICE_ATTACH_EXTS.has(name.slice(dot + 1).toLowerCase());
 }
 
 /**
@@ -424,6 +439,9 @@ export const useChatStore = defineStore("chat", () => {
         last.durationMs = event.duration_ms;
         last.inputTokens = event.input_tokens ?? last.inputTokens;
         last.outputTokens = event.output_tokens ?? last.outputTokens;
+        // 消息级缓存 tokens（与活跃会话路径一致——否则切回会话弹窗缺缓存命中部分，长会话低估）
+        last.cacheReadTokens = event.cache_read_tokens ?? last.cacheReadTokens;
+        last.cacheWriteTokens = event.cache_write_tokens ?? last.cacheWriteTokens;
         // 人民币成本优先（主进程本地价格表计算）；旧美元兜底（历史事件兼容）
         last.costCNY = event.cost_cny ?? last.costCNY;
         last.costUSD = event.cost_usd ?? last.costUSD;
@@ -861,7 +879,14 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
-  function finishAssistantMessage(durationMs?: number, inputTokens?: number, outputTokens?: number, costCNY?: number) {
+  function finishAssistantMessage(
+    durationMs?: number,
+    inputTokens?: number,
+    outputTokens?: number,
+    costCNY?: number,
+    cacheReadTokens?: number,
+    cacheWriteTokens?: number,
+  ) {
     if (currentAssistantMsg.value) {
       const msg = currentAssistantMsg.value;
       // 空消息（无内容、无思考、无工具调用）→ 删除，不留残留气泡
@@ -873,6 +898,9 @@ export const useChatStore = defineStore("chat", () => {
         msg.durationMs = durationMs;
         msg.inputTokens = inputTokens;
         msg.outputTokens = outputTokens;
+        // 消息级缓存 tokens（弹窗「当前上下文占用」= input+cacheRead+cacheWrite）
+        msg.cacheReadTokens = cacheReadTokens;
+        msg.cacheWriteTokens = cacheWriteTokens;
         // 人民币成本（主进程本地价格表计算下发 cost_cny）
         msg.costCNY = costCNY;
       }
@@ -1042,6 +1070,8 @@ export const useChatStore = defineStore("chat", () => {
     let durationMs: number | undefined;
     let inputTokens: number | undefined;
     let outputTokens: number | undefined;
+    let cacheReadTokens: number | undefined;
+    let cacheWriteTokens: number | undefined;
     let costUSD: number | undefined;
     let costCNY: number | undefined;
 
@@ -1060,6 +1090,8 @@ export const useChatStore = defineStore("chat", () => {
           durationMs = parsed.durationMs;
           inputTokens = parsed.inputTokens;
           outputTokens = parsed.outputTokens;
+          cacheReadTokens = parsed.cacheReadTokens;
+          cacheWriteTokens = parsed.cacheWriteTokens;
           costUSD = parsed.costUSD;
           costCNY = parsed.costCNY;
           // 新存档已有 contentBlocks，旧存档从现有字段重建时间线
@@ -1089,6 +1121,8 @@ export const useChatStore = defineStore("chat", () => {
       durationMs,
       inputTokens,
       outputTokens,
+      cacheReadTokens,
+      cacheWriteTokens,
       costUSD,
       costCNY,
       attachments,

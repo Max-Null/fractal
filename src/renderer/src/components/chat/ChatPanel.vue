@@ -5,6 +5,7 @@ import {
   FULL_HISTORY_LIMIT,
   buildSubTaskMap,
   SUBTASK_SUMMARY_MAX,
+  isOfficeAttachment,
   type AttachedFile,
   type Message,
   type SubTask,
@@ -42,6 +43,7 @@ import ThinkingIndicator from "./ThinkingIndicator.vue";
 import ContextUsageModal from "@/components/shared/ContextUsageModal.vue";
 import ManagePanel from "@/components/shared/ManagePanel.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
+import ConfirmDialog from "@/components/shared/ConfirmDialog.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
@@ -210,6 +212,8 @@ interface ComposerChip {
   content?: string;
   /** 引用文件路径（附件——优化消息读文件作背景上下文） */
   path?: string;
+  /** office/二进制附件（模型端不支持）——chips 弱提示 + 发送前确认 */
+  warn?: boolean;
 }
 const composerChips = computed<ComposerChip[]>(() => {
   const chips: ComposerChip[] = [];
@@ -218,6 +222,7 @@ const composerChips = computed<ComposerChip[]>(() => {
     chips.push({ id: "snippet", label: textSnippet.value.label, tone: "accent", removable: true, content: textSnippet.value.content });
   }
   // 附件 chips：elevated 底 + 缩略图 + 点击打开预览；path 供优化消息读文件作背景上下文
+  // office 附件（pdf/docx 等模型端不支持）warn=true → chip 弱提示 + 发送时确认（isOfficeAttachment 白名单）
   for (const f of attachedFiles.value) {
     chips.push({
       id: `file:${f.path}`,
@@ -227,6 +232,7 @@ const composerChips = computed<ComposerChip[]>(() => {
       clickable: true,
       removable: true,
       path: f.path,
+      warn: isOfficeAttachment(f.name),
     });
   }
   return chips;
@@ -584,12 +590,9 @@ watch(() => chatCommand.value.ts, async (ts) => {
     case "delete-session": {
       const sid = session.activeSessionId;
       const active = session.sessions.find(s => s.id === sid);
-      if (active && confirm(t('session.confirmDelete', { title: active.title }))) {
-        // 先终止 CC 进程，防止后台残留
-        try { await stopSession(sid); } catch { /* 无进程 */ }
-        await session.deleteSession(sid);
-        chat.clearMessages();
-        showStatus(t('status.sessionDeleted'));
+      if (active) {
+        // 原生 confirm 替换为 ConfirmDialog：state 驱动（2026-08-13 用户反馈弹窗太丑）
+        deleteSessionTarget.value = { id: sid, title: active.title };
       }
       break;
     }
@@ -809,6 +812,45 @@ async function scrollToTimelineIndex(globalIndex: number) {
   el?.scrollIntoView({ block: "start" });
 }
 
+// ── office 附件发送确认：原生 confirm 太丑，用项目 ConfirmDialog（2026-08-13 用户反馈）──
+// 流程：handleSend 收集到 office 附件 → 挂起待发送内容（pendingSend）→ 弹 ConfirmDialog
+//      → 确认后 doSend(pendingSend)；取消则丢弃 pendingSend、附件保留在 chips（用户可移除）
+interface PendingSend {
+  fullText: string;
+  attachments?: { name: string; path: string }[];
+  isMidProcessing: boolean;
+}
+const officeConfirmOpen = ref(false);
+const pendingSend = ref<PendingSend | null>(null);
+
+/** 删除会话确认（ConfirmDialog）：目标会话 id + title（确认后执行删除） */
+const deleteSessionTarget = ref<{ id: string; title: string } | null>(null);
+async function onDeleteSessionConfirm() {
+  const tgt = deleteSessionTarget.value;
+  deleteSessionTarget.value = null;
+  if (!tgt) return;
+  try { await stopSession(tgt.id); } catch { /* 无进程 */ }
+  await session.deleteSession(tgt.id);
+  chat.clearMessages();
+  showStatus(t('status.sessionDeleted'));
+}
+function onDeleteSessionCancel() { deleteSessionTarget.value = null; }
+
+/** 真正发送一条消息（office 附件确认通过后走这里；普通消息直接调用） */
+async function doSend(fullText: string, attachments: { name: string; path: string }[] | undefined, isMidProcessing: boolean) {
+  attachedFiles.value = [];
+  textSnippet.value = null;
+
+  // 只发附件无文字：给最小占位文本（serve promptPartsAsync 需要非空 text part；上屏显示附件名更友好）
+  const effectiveText = fullText.trim() || (attachments?.length ? t("chat.attachOnly", { name: attachments[0].name }) : "");
+
+  // 回答中补充消息：直接上屏 + 立即发送——serve 原生支持中间补充
+  // （promptAsync 不查 busy，消息立即入库；runLoop while(true) 每步重取消息，
+  //  补充消息写入后 lastAssistant.parentID !== lastUser.id 退出条件不满足，下一步带着它继续）
+  // 2026-08-13 源码实证 v1.18.16：延迟上屏会等 loop 退出 → 补充消息变全新一轮，失去中间补充效果
+  await sendUserMessage(effectiveText, attachments, { isMidProcessing });
+}
+
 async function handleSend(text: string) {
   // 记录斜杠命令（仅用户主动发送的，非中途追加）
   if (text.startsWith("/")) slashCommands.recordCommand(text);
@@ -817,6 +859,46 @@ async function handleSend(text: string) {
   if (!isMidProcessing) {
     debugLog.clear();
   }
+
+  // 附件/选区片段在确认之后再清理：office 附件取消确认时保留（否则确认框一出现附件就消失，取消后无法重发）
+  const filePaths = attachedFiles.value.map(f => f.path);
+  const snippetText = textSnippet.value ? `${textSnippet.value.content}\n\n` : "";
+  const fullText = snippetText + text;
+  const attachments = filePaths.length > 0 ? filePaths.map(p => ({ name: p.split(/[/\\]/).pop() || p, path: p })) : undefined;
+
+  // office/二进制附件发送前确认：模型端不支持直接读取（pdf 实测报错），确认后仍发送（用户可自行转文本/换方式）
+  if (attachments?.some(a => isOfficeAttachment(a.name))) {
+    pendingSend.value = { fullText, attachments, isMidProcessing };
+    officeConfirmOpen.value = true;
+    return;
+  }
+
+  await doSend(fullText, attachments, isMidProcessing);
+}
+
+/** office 确认：确认 → 发送挂起内容；取消 → 丢弃挂起（附件保留在 chips，用户可移除/重发） */
+function onOfficeConfirm() {
+  const ps = pendingSend.value;
+  officeConfirmOpen.value = false;
+  pendingSend.value = null;
+  if (ps) void doSend(ps.fullText, ps.attachments, ps.isMidProcessing);
+}
+function onOfficeCancel() {
+  officeConfirmOpen.value = false;
+  pendingSend.value = null;
+}
+
+/** 发送一条用户消息：上屏 + 开 assistant 占位 + IPC 发送。
+ * 普通消息（handleSend）与补充消息共用同一路径（serve 端排队，前端无需延迟）。
+ * isMidProcessing=true（回答中补充）：不开 assistant 占位——当前 assistant 消息仍在流式，
+ * 它的后续文本应继续追加到它自己；serve 端完成当前轮后新开的下一条 assistant 消息，
+ * 由 appendText 内部兜底 startAssistantMessage 自动创建占位（2026-08-13 用户实测：提前切占位
+ * 会把流式中的文本“偷”到新占位，导致文字节点被断成两半）。 */
+async function sendUserMessage(
+  fullText: string,
+  attachments?: { name: string; path: string }[],
+  opts?: { isMidProcessing?: boolean },
+) {
   let sid: string;
   sid = session.activeSessionId;
   if (!sid) {
@@ -825,23 +907,21 @@ async function handleSend(text: string) {
     sid = await session.createSession(settings.model, settings.cwd, undefined, settings.locale);
   }
 
-  // Collect attached file paths + DOM snippet before clearing
-  const filePaths = attachedFiles.value.map(f => f.path);
-  attachedFiles.value = [];
+  // 打断当前回合：cancel 中断 LLM 流式（已产出保留），runner 变 idle → 新消息立即执行。
+  // 与 handleStop 不同：这里不清 currentAssistantMsg、不 finish——被打断的 assistant 消息
+  // 保留其已产出文本（serve 端 abort 事件后 message.updated 仍会流回，appendText 继续追加）
+  if (opts?.isMidProcessing) {
+    try { await stopSession(sid); } catch { /* 打断失败不阻断发送（serve 排队兜底） */ }
+  }
 
-  // 选区片段卡片：拼到消息文本前面（显示 + 发送都包含）
-  const snippetText = textSnippet.value ? `${textSnippet.value.content}\n\n` : "";
-  textSnippet.value = null;
-  const fullText = snippetText + text;
-
-  const attachments = filePaths.length > 0 ? filePaths.map(p => ({ name: p.split(/[/\\]/).pop() || p, path: p })) : undefined;
+  const filePaths = (attachments ?? []).map(f => f.path);
   chat.addUserMessage(fullText, attachments);
 
   // 用户消息由 Rust 后端在 send_message 中统一保存，
   // 前端不再重复保存，避免历史回显时出现双份用户消息。
 
-  // isMidProcessing 已在函数开头捕获
-  if (!isMidProcessing) {
+  // 中途补充不新开占位（见函数注释：避免把流式文本偷到新占位）；空闲发送才主动开
+  if (!opts?.isMidProcessing) {
     chat.startAssistantMessage();
   }
   chat.isProcessing = true;
@@ -1385,7 +1465,6 @@ watch(
         </button>
       </Transition>
 
-
       <!-- composer 输入区（InputBar 卡片内含 chips 行 + foot 操作行；debug 按钮走 left 插槽） -->
       <InputBar
         ref="inputBar"
@@ -1487,6 +1566,27 @@ watch(
         </div>
       </template>
     </ModalShell>
+
+    <!-- office/二进制附件发送确认（ConfirmDialog：模型端不支持读取，确认后仍发送） -->
+    <ConfirmDialog
+      :open="officeConfirmOpen"
+      :title="$t('chat.officeAttachTitle')"
+      :message="$t('chat.officeAttachConfirm')"
+      :confirm-text="$t('chat.officeAttachSend')"
+      @confirm="onOfficeConfirm"
+      @cancel="onOfficeCancel"
+    />
+
+    <!-- 删除会话确认（ConfirmDialog danger：确认后终止进程 + 删除会话） -->
+    <ConfirmDialog
+      :open="!!deleteSessionTarget"
+      :title="$t('session.confirmDeleteTitle')"
+      :message="$t('session.confirmDelete', { title: deleteSessionTarget?.title ?? '' })"
+      :confirm-text="$t('modal.confirm')"
+      :danger="true"
+      @confirm="onDeleteSessionConfirm"
+      @cancel="onDeleteSessionCancel"
+    />
 
     <!-- 关于弹窗 -->
     <ModalShell :open="showAbout" size="sm" @close="showAbout = false">

@@ -28,6 +28,11 @@
   "chat": {
     "placeholder": "输入消息…",
     "send": "发送",
+    "officeAttachConfirm": "检测到 office/压缩包附件（模型端不支持直接读取）。仍要发送吗？",
+    "officeAttachHint": "office/二进制附件，模型可能无法读取内容",
+    "officeAttachTitle": "发送附件",
+    "officeAttachSend": "仍要发送",
+    "attachOnly": "查看附件：{name}",
     "stop": "停止",
     "thinking": "思考中...",
     "thinkingDone": "思考过程",
@@ -229,6 +234,7 @@
     "rename": "重命名",
     "delete": "删除",
     "confirmDelete": "删除会话 \"{title}\"？此操作不可撤销。",
+    "confirmDeleteTitle": "删除会话",
     "switchSuccess": "已切换到: {title}",
     "forked": "已创建分叉会话",
     "forkedTitle": "分叉: {snippet}",
@@ -281,6 +287,7 @@
     "confirmDelete": "确定要删除「{name}」吗？此操作不可撤销。",
     "emptyDir": "空目录",
     "unsavedChanges": "有未保存的更改，确定关闭吗？",
+    "unsavedTitle": "未保存的更改",
     "convertSuccess": "✓ 已转换为 {path}",
     "docxSkillAvailable": "检测到 docx skill 已安装，可通过 CC 用 /docx 命令转换"
   },
@@ -455,7 +462,9 @@
     "generic": "错误: {error}"
   },
   "modal": {
-    "close": "关闭"
+    "close": "关闭",
+    "confirm": "确认",
+    "cancel": "取消"
   },
   "command": {
     "placeholder": "输入命令（支持拼音搜索）…",

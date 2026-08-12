@@ -28,6 +28,11 @@
   "chat": {
     "placeholder": "Type a message…",
     "send": "Send",
+    "officeAttachConfirm": "Detected office/archive attachment (model cannot read directly). Send anyway?",
+    "officeAttachHint": "Office/binary attachment, model may not read its content",
+    "officeAttachTitle": "Send attachment",
+    "officeAttachSend": "Send anyway",
+    "attachOnly": "View attachment: {name}",
     "stop": "Stop",
     "thinking": "Thinking...",
     "thinkingDone": "Thinking",
@@ -229,6 +234,7 @@
     "rename": "Rename",
     "delete": "Delete",
     "confirmDelete": "Delete session \"{title}\"? This cannot be undone.",
+    "confirmDeleteTitle": "Delete session",
     "switchSuccess": "Switched to: {title}",
     "forked": "Forked session created",
     "forkedTitle": "Fork: {snippet}",
@@ -281,6 +287,7 @@
     "confirmDelete": "Are you sure you want to delete \"{name}\"? This cannot be undone.",
     "emptyDir": "Empty directory",
     "unsavedChanges": "You have unsaved changes. Close anyway?",
+    "unsavedTitle": "Unsaved changes",
     "convertSuccess": "✓ Converted to {path}",
     "docxSkillAvailable": "docx skill is installed. Use /docx command via CC as fallback."
   },
@@ -456,7 +463,9 @@
     "generic": "Error: {error}"
   },
   "modal": {
-    "close": "Close"
+    "close": "Close",
+    "confirm": "Confirm",
+    "cancel": "Cancel"
   },
   "command": {
     "placeholder": "Type a command (pinyin supported)…",

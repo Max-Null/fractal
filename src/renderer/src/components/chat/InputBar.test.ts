@@ -108,6 +108,21 @@ describe("InputBar", () => {
     expect(wrapper.emitted("stop")).toBeTruthy();
   });
 
+  it("disabled 且无输入 → 显示暂停按钮（无发送按钮）", () => {
+    const wrapper = mountInputBar({ disabled: true });
+    expect(wrapper.find("button[title='Stop']").exists()).toBe(true);
+    expect(wrapper.find("button[title='Send']").exists()).toBe(false);
+  });
+
+  it("disabled 且有输入 → 显示发送按钮（无暂停按钮，发送即打断）", async () => {
+    const wrapper = mountInputBar({ disabled: true });
+    await wrapper.find("textarea").setValue("补充消息");
+    expect(wrapper.find("button[title='Stop']").exists()).toBe(false);
+    const sendBtn = wrapper.find("button[title='Send']");
+    expect(sendBtn.exists()).toBe(true);
+    expect(sendBtn.attributes("disabled")).toBeUndefined();
+  });
+
   it("does not emit when disabled", async () => {
     const wrapper = mountInputBar({ disabled: true });
 
@@ -126,6 +141,22 @@ describe("InputBar", () => {
     await wrapper.find("textarea").setValue("   ");
     await findSendBtn(wrapper).trigger("click");
     expect(wrapper.emitted("send")).toBeFalsy();
+  });
+
+  it("只发附件（无文字）：chips 有 path → 发送按钮可用，emit send", async () => {
+    const wrapper = mountInputBar({ chips: [{ id: "file:x", label: "a.pdf", path: "C:\\x\\a.pdf", removable: true }] });
+    const sendBtn = findSendBtn(wrapper);
+    expect(sendBtn.exists()).toBe(true);
+    expect(sendBtn.attributes("disabled")).toBeUndefined();
+    await sendBtn.trigger("click");
+    expect(wrapper.emitted("send")).toBeTruthy();
+  });
+
+  it("只有选区卡片（无 path）→ 发送按钮禁用（引用文本需配文字发送）", () => {
+    const wrapper = mountInputBar({ chips: [{ id: "snippet", label: "选中片段", content: "hello", removable: true }] });
+    const sendBtn = findSendBtn(wrapper);
+    expect(sendBtn.exists()).toBe(true);
+    expect(sendBtn.attributes("disabled")).toBeDefined();
   });
 
   it("disables send button when input is empty", () => {

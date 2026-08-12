@@ -371,6 +371,9 @@ export function useStreamProcessor() {
               // event 可能不含 token（如 DeepSeek result），fallback 到 message 对象上的值
               inputTokens: data.input_tokens ?? msg.inputTokens,
               outputTokens: data.output_tokens ?? msg.outputTokens,
+              // 消息级缓存 tokens（弹窗「当前上下文占用」= input+cacheRead+cacheWrite）
+              cacheReadTokens: data.cache_read_tokens ?? msg.cacheReadTokens,
+              cacheWriteTokens: data.cache_write_tokens ?? msg.cacheWriteTokens,
               // 人民币成本优先；旧存档只有美元时保留（历史会话兼容）
               costCNY: data.cost_cny ?? msg.costCNY,
               costUSD: data.cost_usd ?? msg.costUSD,
@@ -408,6 +411,8 @@ export function useStreamProcessor() {
             data.input_tokens ?? msg?.inputTokens,
             data.output_tokens ?? msg?.outputTokens,
             data.cost_cny ?? msg?.costCNY,
+            data.cache_read_tokens ?? msg?.cacheReadTokens,
+            data.cache_write_tokens ?? msg?.cacheWriteTokens,
           );
           // 持久化 debug 日志 + 刷新侧栏统计（stderr 日志槽位已移除——OC 无 --verbose 输出，CC 遗留机制废除）
           const sid = data.session_id || session.activeSessionId;

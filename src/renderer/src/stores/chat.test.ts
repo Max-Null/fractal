@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { setActivePinia, createPinia } from "pinia";
-import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, extractTodoRecords, type Message, type SubTaskChildRef, type TodoItem, type ContentBlock } from "./chat";
+import { useChatStore, SUBTASK_DELTA_MAX, SUBTASK_PARTS_MAX, extractSubTaskIds, buildSubTaskMap, extractTodoRecords, isOfficeAttachment, type Message, type SubTaskChildRef, type TodoItem, type ContentBlock } from "./chat";
 
 // mock electron-bridge：覆盖 listMessages（子任务 idle 拉摘要用），其余保留原模块
 const { listMessagesMock } = vi.hoisted(() => ({
@@ -126,12 +126,15 @@ describe("chat store", () => {
     chat.startAssistantMessage();
     chat.appendText("Done.");
 
-    chat.finishAssistantMessage(1234, 50, 30, 0.005);
+    chat.finishAssistantMessage(1234, 50, 30, 0.005, 8000, 500);
     const msg = chat.messages[1];
     expect(msg.isStreaming).toBe(false);
     expect(msg.durationMs).toBe(1234);
     expect(msg.inputTokens).toBe(50);
     expect(msg.outputTokens).toBe(30);
+    // 消息级缓存 tokens（弹窗「当前上下文占用」= input+cacheRead+cacheWrite，2026-08-13 新增）
+    expect(msg.cacheReadTokens).toBe(8000);
+    expect(msg.cacheWriteTokens).toBe(500);
     // 人民币成本（finishAssistantMessage 第 4 参为 costCNY，2026-08-12 计费迭代）
     expect(msg.costCNY).toBe(0.005);
   });
@@ -1244,6 +1247,32 @@ describe("extractSubTaskIds", () => {
   it("非 task 工具输出不误匹配（task 工具名 vs 其他标签）", () => {
     const out = '<task_result>这是结果</task_result><task id="ses_x" state="completed">';
     expect(extractSubTaskIds(out)).toEqual(["ses_x"]);
+  });
+});
+
+describe("isOfficeAttachment（office/二进制附件识别）", () => {
+  it("office/压缩包扩展名 → true", () => {
+    expect(isOfficeAttachment("简历.pdf")).toBe(true);
+    expect(isOfficeAttachment("report.docx")).toBe(true);
+    expect(isOfficeAttachment("data.xlsx")).toBe(true);
+    expect(isOfficeAttachment("deck.pptx")).toBe(true);
+    expect(isOfficeAttachment("archive.zip")).toBe(true);
+    expect(isOfficeAttachment("a.RAR")).toBe(true);  // 大小写不敏感
+  });
+
+  it("文本类扩展名 → false（serve 原生 Read 注入，不需确认）", () => {
+    expect(isOfficeAttachment("test.csv")).toBe(false);
+    expect(isOfficeAttachment("test.html")).toBe(false);
+    expect(isOfficeAttachment("README.md")).toBe(false);
+    expect(isOfficeAttachment("notes.txt")).toBe(false);
+    expect(isOfficeAttachment("script.js")).toBe(false);
+    expect(isOfficeAttachment("image.png")).toBe(false);
+  });
+
+  it("无扩展名/异常 → false", () => {
+    expect(isOfficeAttachment("noext")).toBe(false);
+    expect(isOfficeAttachment("")).toBe(false);
+    expect(isOfficeAttachment(".gitignore")).toBe(false);
   });
 });
 

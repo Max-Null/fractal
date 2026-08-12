@@ -32,6 +32,8 @@ export interface ComposerChip {
   content?: string;
   /** 引用文件路径（附件——优化消息时主进程读内容作为背景） */
   path?: string;
+  /** office/二进制附件（模型端不支持）——chip 弱提示标记 */
+  warn?: boolean;
 }
 
 const props = withDefaults(defineProps<{
@@ -77,7 +79,9 @@ const isDragOver = ref(false);
 
 function send() {
   const text = input.value.trim();
-  if (!text) return;
+  // 空文本但有待发附件 → 允许发送（只发附件场景；附件本身是发送内容）
+  const hasAttachment = props.chips.some(c => !!c.path);
+  if (!text && !hasAttachment) return;
   showSlashMenu.value = false;
   emit("send", text);
   input.value = "";
@@ -337,8 +341,9 @@ const currentEffortLabel = computed(() => {
   return e ? e.label() : settings.effort;
 });
 
-// 发送按钮启用条件：输入非空（chips 附件不计入，保持现有交互）
-const canSend = computed(() => input.value.trim().length > 0);
+// 发送按钮启用条件：输入非空 或 有附件 chips（用户可只发附件不输入文字——附件本身是发送内容）
+// 注意：选区卡片（snippet，无 path）不算——它只是引用文本，需配合文字发送
+const canSend = computed(() => input.value.trim().length > 0 || props.chips.some(c => !!c.path));
 
 // ══════════════════════════════════════════════════════════════
 // ✨ 优化输入消息（原型发送按钮左侧功能）：调引擎临时会话润色，结果替换输入框
@@ -414,7 +419,9 @@ async function polishInput() {
         >
           <img v-if="chip.imageUrl" :src="chip.imageUrl" class="chip-thumb" alt="" />
           <span v-else-if="chip.icon" class="chip-icon">{{ chip.icon }}</span>
-          <span class="chip-name" :title="chip.label">{{ chip.label }}</span>
+          <span class="chip-name" :title="chip.warn ? $t('chat.officeAttachHint') : chip.label">{{ chip.label }}</span>
+          <!-- office/二进制附件弱提示（模型端不支持读取，title 提示细节；发送时另有确认） -->
+          <span v-if="chip.warn" class="chip-warn" :title="$t('chat.officeAttachHint')">⚠</span>
           <span
             v-if="chip.removable"
             class="chip-x"
@@ -467,18 +474,20 @@ async function polishInput() {
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5zM19 15l-1.25 2.75L15 19l2.75 1.25L19 23l1.25-2.75L23 19l-2.75-1.25L19 15z"/></svg>
           </button>
-          <!-- Stop button（处理中显示红色方块，替代发送——Lucide Square，用户反馈③） -->
+          <!-- Stop button（处理中显示红色方块，替代发送——Lucide Square，用户反馈③）
+               仅在【处理中且无输入】时显示；有输入时由发送按钮替代（补充消息=打断+发送） -->
           <button
-            v-if="disabled"
+            v-if="disabled && !canSend"
             class="send send--stop"
             :title="$t('chat.stop')"
             @click="emit('stop')"
           >
             <Square :size="12" fill="currentColor" stroke-width="0" />
           </button>
-          <!-- Send button（Lucide Send，30x30 正方形与优化按钮一致；title 保留 Send——测试定位依赖） -->
+          <!-- Send button（Lucide Send，30x30 正方形与优化按钮一致；title 保留 Send——测试定位依赖）
+               处理中（disabled）有输入时也显示：补充消息 = 打断当前回合 + 立即发送（Claude Code/Cursor 行为） -->
           <button
-            v-else
+            v-if="!disabled || canSend"
             class="send"
             :disabled="!canSend"
             :title="$t('chat.send')"
@@ -727,6 +736,13 @@ async function polishInput() {
   padding: 0 2px;
 }
 .chip-x:hover { color: var(--coral); }
+/* office/二进制附件弱提示：黄色 ⚠ 不占位置（flex 内 shrink-0），title 已带说明 */
+.chip-warn {
+  margin-left: 2px;
+  font-size: 11px;
+  color: #d97706;
+  flex-shrink: 0;
+}
 
 /* ── ② textarea（14px / 1.7 / min 42 max 160，对齐原型 .composer-input）── */
 .composer-input {

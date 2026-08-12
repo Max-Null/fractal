@@ -92,6 +92,9 @@ describe("useStreamProcessor", () => {
       duration_ms: 1200,
       input_tokens: 10,
       output_tokens: 20,
+      // 消息级缓存 tokens（2026-08-13：透传到消息供弹窗算「当前上下文占用」）
+      cache_read_tokens: 8000,
+      cache_write_tokens: 500,
       cost_usd: 0.001,
     });
 
@@ -103,6 +106,10 @@ describe("useStreamProcessor", () => {
       expect.any(String),
       "{}",
     );
+
+    // 消息级缓存 tokens 落到消息对象（finishAssistantMessage 透传）
+    expect(chat.messages[1].cacheReadTokens).toBe(8000);
+    expect(chat.messages[1].cacheWriteTokens).toBe(500);
 
     // 回合完成记录（诊断按钮「有日志」保底入口）：✅ 前缀 + 耗时/token 统计
     expect(debugLogAddMock).toHaveBeenCalledWith(
