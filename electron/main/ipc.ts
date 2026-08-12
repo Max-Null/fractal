@@ -694,6 +694,8 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   // ── HTML 转 PDF（渲染进程导出按钮 → 保存对话框 → 隐藏窗口 loadFile → printToPDF(A4) → 写盘）──
 
   ipcMain.handle('pdf:htmlToPdf', async (_e, args: { path: string }) => {
+    // 入参校验（同其他文件操作通道）：非法路径让 basename 抛错冒泡，渲染层拿到未处理 rejection
+    assertValidFsPath(args.path)
     // 父窗口保底（同 dialog:openDialog）：焦点不在 app 时回退主窗口；无窗口走无父对话框重载
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
     // 默认导出名：去掉 .html/.htm 后缀再补 .pdf（report.html → report.pdf），落在对话框当前目录

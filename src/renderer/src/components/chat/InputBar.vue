@@ -4,7 +4,7 @@
  *  ③ 输入行（textarea + hint/发送 同一行，用户反馈布局）
  *  原独立 InputBarToolbar 的模式/effort/命令逻辑已并入（组件删除，见 ChatPanel 重构记录）。 */
 import { ref, computed, nextTick, onMounted, onUnmounted } from "vue";
-import { Send, Square } from "lucide-vue-next";
+import { Send, Square, AlertTriangle } from "lucide-vue-next";
 import { useI18n } from "vue-i18n";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore, type Effort } from "@/stores/settings";
@@ -421,7 +421,7 @@ async function polishInput() {
           <span v-else-if="chip.icon" class="chip-icon">{{ chip.icon }}</span>
           <span class="chip-name" :title="chip.warn ? $t('chat.officeAttachHint') : chip.label">{{ chip.label }}</span>
           <!-- office/二进制附件弱提示（模型端不支持读取，title 提示细节；发送时另有确认） -->
-          <span v-if="chip.warn" class="chip-warn" :title="$t('chat.officeAttachHint')">⚠</span>
+          <span v-if="chip.warn" class="chip-warn" :title="$t('chat.officeAttachHint')"><AlertTriangle :size="12" /></span>
           <span
             v-if="chip.removable"
             class="chip-x"
@@ -736,11 +736,11 @@ async function polishInput() {
   padding: 0 2px;
 }
 .chip-x:hover { color: var(--coral); }
-/* office/二进制附件弱提示：黄色 ⚠ 不占位置（flex 内 shrink-0），title 已带说明 */
+/* office/二进制附件弱提示：amber 警告三角不占位置（flex 内 shrink-0），title 已带说明 */
 .chip-warn {
   margin-left: 2px;
   font-size: 11px;
-  color: #d97706;
+  color: var(--amber);
   flex-shrink: 0;
 }
 
