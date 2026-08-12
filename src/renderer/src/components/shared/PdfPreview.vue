@@ -21,6 +21,8 @@ const scale = ref(1);
 
 let pdfDoc: pdfjsLib.PDFDocumentProxy | null = null;
 let renderTask: pdfjsLib.RenderTask | null = null;
+// 渲染序号：快速翻页/缩放时旧渲染请求作废，防止旧页覆盖新页
+let renderId = 0;
 // 缩放上下限：过大渲染开销高，过小失去可读性
 const MAX_SCALE = 3, MIN_SCALE = 0.5;
 
@@ -32,23 +34,34 @@ function base64ToUint8Array(b64: string): Uint8Array {
   return bytes;
 }
 
-// 渲染当前页：DPR 缩放保清晰，翻页前取消旧任务防竞态
+// 渲染当前页：DPR 缩放保清晰；renderId 序号防竞态，取消异常（cancel 使 promise reject）静默处理
 async function renderPage() {
   if (!pdfDoc || !canvasRef.value) return;
+  const myId = ++renderId;
   // 快速翻页时取消上一次渲染，避免旧页覆盖新页
   if (renderTask) { renderTask.cancel(); renderTask = null; }
-  const page = await pdfDoc.getPage(pageNum.value);
-  const viewport = page.getViewport({ scale: scale.value });
-  const dpr = window.devicePixelRatio || 1;
-  const canvas = canvasRef.value;
-  canvas.width = Math.floor(viewport.width * dpr);
-  canvas.height = Math.floor(viewport.height * dpr);
-  canvas.style.width = viewport.width + "px";
-  canvas.style.height = viewport.height + "px";
-  // v6 推荐传 canvas 本体（canvasContext 仅向后兼容），DPR 缩放由 transform 处理
-  renderTask = page.render({ canvas, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined });
-  await renderTask.promise;
-  page.cleanup();
+  try {
+    const page = await pdfDoc.getPage(pageNum.value);
+    // await getPage 期间已有更新的渲染请求，放弃本次
+    if (myId !== renderId) return;
+    const viewport = page.getViewport({ scale: scale.value });
+    const dpr = window.devicePixelRatio || 1;
+    const canvas = canvasRef.value;
+    canvas.width = Math.floor(viewport.width * dpr);
+    canvas.height = Math.floor(viewport.height * dpr);
+    canvas.style.width = viewport.width + "px";
+    canvas.style.height = viewport.height + "px";
+    // v6 推荐传 canvas 本体（canvasContext 仅向后兼容），DPR 缩放由 transform 处理
+    renderTask = page.render({ canvas, viewport, transform: dpr !== 1 ? [dpr, 0, 0, dpr, 0, 0] : undefined });
+    await renderTask.promise;
+    // 渲染期间被新调用取代（cancel 导致 reject 走 catch），此处序号校验兜底
+    if (myId !== renderId) return;
+    page.cleanup();
+  } catch {
+    // 被取消或已被新调用取代：静默忽略；真实失败（非取消）才置 error
+    if (myId !== renderId) return;
+    error.value = t("preview.pdfLoadFailed");
+  }
 }
 
 async function load() {
@@ -72,7 +85,8 @@ function zoomOut() { if (scale.value > MIN_SCALE) { scale.value = Math.round((sc
 
 watch(() => props.file.path, load);
 onMounted(load);
-onBeforeUnmount(() => { if (renderTask) renderTask.cancel(); void pdfDoc?.loadingTask.destroy(); });
+// 卸载：使在途渲染全部作废（序号递增），cancel 后 promise reject 落入 catch 的静默分支
+onBeforeUnmount(() => { renderId++; if (renderTask) renderTask.cancel(); void pdfDoc?.loadingTask.destroy(); });
 </script>
 
 <template>
