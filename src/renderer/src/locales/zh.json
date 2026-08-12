@@ -324,7 +324,11 @@
     "prevPage": "上一页",
     "nextPage": "下一页",
     "zoomIn": "放大",
-    "zoomOut": "缩小"
+    "zoomOut": "缩小",
+    "exportPdf": "导出 PDF",
+    "exporting": "导出中…",
+    "pdfExportSuccess": "PDF 已导出",
+    "pdfExportFailed": "导出失败："
   },
   "toolbar": {
     "attach": "附件",

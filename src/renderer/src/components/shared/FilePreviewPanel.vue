@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, shallowRef, nextTick, inject } from "vue";
 
-import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged } from "@/lib/electron-bridge";
+import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged, htmlToPdf } from "@/lib/electron-bridge";
 import { isImageFile, mimeType } from "@/composables/useFilePreview";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
@@ -12,7 +12,7 @@ import DOMPurify from "dompurify";
 import { useI18n } from "vue-i18n";
 import { PANEL_LAYOUT_KEY } from "@/composables/usePanelLayout";
 import { useSelectionTip } from "@/composables/useSelectionTip";
-import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2, MousePointerClick } from "lucide-vue-next";
+import { RefreshCw, ExternalLink, PanelLeft, X, Pencil, Send, Loader2, MousePointerClick, FileDown } from "lucide-vue-next";
 import PptxPreview from "./PptxPreview.vue";
 import PdfPreview from "./PdfPreview.vue";
 import * as XLSX from "xlsx";
@@ -182,6 +182,36 @@ onUnmounted(() => document.removeEventListener("click", onClickOutside));
 
 const { t } = useI18n();
 const converting = ref(false);
+
+// ── HTML 导出 PDF（htmlToPdf IPC：ok=false 且无 error = 用户取消保存对话框，静默不提示）──
+const exporting = ref(false);
+const exportMsg = ref<{ type: "ok" | "err"; text: string } | null>(null);
+let exportMsgTimer: ReturnType<typeof setTimeout> | null = null;
+function showExportMsg(type: "ok" | "err", text: string) {
+  exportMsg.value = { type, text };
+  if (exportMsgTimer) clearTimeout(exportMsgTimer);
+  exportMsgTimer = setTimeout(() => {
+    exportMsg.value = null;
+  }, 5000);
+}
+async function exportPdf() {
+  if (!props.file || exporting.value) return;
+  exporting.value = true;
+  try {
+    const r = await htmlToPdf(props.file.path);
+    if (r.ok) {
+      showExportMsg("ok", t("preview.pdfExportSuccess"));
+    } else if (r.error) {
+      showExportMsg("err", `${t("preview.pdfExportFailed")}${r.error}`);
+    }
+    // ok=false 且无 error = 用户取消，静默
+  } catch (e) {
+    console.error("[FilePreviewPanel] PDF export failed:", e);
+    showExportMsg("err", `${t("preview.pdfExportFailed")}${String(e)}`);
+  } finally {
+    exporting.value = false;
+  }
+}
 
 /** MD → docx：检测 docx skill → 安装或直接发送给 CC */
 async function sendConvertDocx() {
@@ -948,7 +978,13 @@ function handleClose() {
         <div v-else-if="fileKind === 'image'" class="flex-1 flex items-center justify-center p-4 overflow-auto">
           <img v-if="imageSrc" :src="imageSrc" :alt="file.name" class="max-w-full max-h-full object-contain rounded" />
         </div>
-        <div v-else-if="fileKind === 'html'" class="flex-1 flex flex-col" style="min-height: 0">
+        <div v-else-if="fileKind === 'html'" class="flex-1 flex flex-col relative" style="min-height: 0">
+          <!-- 导出 PDF 反馈浮层（复用全局 status-toast 定位；ok=accent / err=coral） -->
+          <Transition name="status-float">
+            <div v-if="exportMsg" class="status-toast">
+              <span class="status-pill" :style="exportMsg.type === 'ok' ? { background: 'var(--accent-glow)', color: 'var(--accent)' } : { background: 'var(--coral-glow)', color: 'var(--coral)' }">{{ exportMsg.text }}</span>
+            </div>
+          </Transition>
           <!-- 宽度预设工具栏 + 检查模式开关（2026-08-12：关闭后页面可交互，动态元素可操作） -->
           <div class="flex items-center gap-1 px-2 h-7 text-[10px] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
             <button
@@ -975,6 +1011,21 @@ function handleClose() {
                 border: htmlWidth === w ? 'none' : '1px solid var(--border-dim)',
               }"
             >{{ w === 0 ? $t('preview.htmlFit') : w }}</button>
+            <span class="w-px h-3 shrink-0" style="background: var(--border-dim)"></span>
+            <button
+              :disabled="exporting"
+              :title="t('preview.exportPdf')"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-medium shrink-0"
+              :style="{
+                color: 'var(--text-muted)',
+                border: '1px solid var(--border-dim)',
+                opacity: exporting ? 0.6 : 1,
+              }"
+              @click="exportPdf"
+            >
+              <FileDown :size="11" />
+              {{ exporting ? t('preview.exporting') : t('preview.exportPdf') }}
+            </button>
           </div>
           <div class="flex-1" :style="{ minHeight: 0, overflow: htmlWidth > 0 ? 'auto' : 'hidden' }">
             <div :class="htmlWidth === 0 ? 'relative' : ''" :style="htmlWidth > 0 ? { width: htmlWidth + 'px', height: '100%' } : { height: '100%' }">

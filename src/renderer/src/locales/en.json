@@ -324,7 +324,11 @@
     "prevPage": "Previous page",
     "nextPage": "Next page",
     "zoomIn": "Zoom in",
-    "zoomOut": "Zoom out"
+    "zoomOut": "Zoom out",
+    "exportPdf": "Export PDF",
+    "exporting": "Exporting…",
+    "pdfExportSuccess": "PDF exported",
+    "pdfExportFailed": "Export failed: "
   },
   "toolbar": {
     "attach": "Attach",
