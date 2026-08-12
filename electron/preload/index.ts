@@ -6,7 +6,7 @@ const api = {}
 
 /**
  * electronBridge：渲染进程访问主进程能力的唯一通道。
- * - invoke: 请求-响应式 IPC（fs/git/settings/logs/dialog/chat/session/message/permission 等）
+ * - invoke: 请求-响应式 IPC（fs/git/settings/logs/dialog/pdf/chat/session/message/permission 等）
  * - on: 主进程 → 渲染进程事件订阅（引擎事件流等），返回取消订阅函数
  *
  * 安全：invoke/on 通道白名单——渲染进程只能调已注册的本地能力通道，

@@ -58,6 +58,8 @@ async function renderPage() {
     await renderTask.promise;
     // 渲染期间被新调用取代（cancel 导致 reject 走 catch），此处序号校验兜底
     if (myId !== renderId) return;
+    // 渲染成功即恢复可渲染状态：清除此前真实渲染失败残留的 error（翻页/缩放成功后不应停留在错误界面）
+    if (error.value) error.value = "";
     page.cleanup();
   } catch {
     // 被取消或已被新调用取代：静默忽略；真实失败（非取消）才置 error

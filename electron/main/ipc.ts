@@ -1,5 +1,5 @@
 ﻿// IPC 通道注册：renderer 桥（electronBridge）的本地能力实现
-// 通道前缀约定：fs: / git: / settings: / logs: / dialog:
+// 通道前缀约定：fs: / git: / settings: / logs: / dialog: / pdf:
 // 引擎通道（chat: / session: / message: / permission:）阶段 4 接入 serve
 import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fsp } from 'node:fs'
@@ -809,8 +809,9 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     assertValidFsPath(args.path)
     // 父窗口保底（同 dialog:openDialog）：焦点不在 app 时回退主窗口；无窗口走无父对话框重载
     const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0] ?? undefined
-    // 默认导出名：去掉 .html/.htm 后缀再补 .pdf（report.html → report.pdf），落在对话框当前目录
-    const defName = basename(args.path).replace(/\.html?$/i, '') + '.pdf'
+    // 默认导出名：去掉 .html/.htm 后缀再补 .pdf（report.html → report.pdf），
+    // 拼接源文件所在目录（defaultPath 只传 basename 会落在对话框上次目录，不兑现注释承诺）
+    const defName = join(dirname(args.path), basename(args.path).replace(/\.html?$/i, '') + '.pdf')
     const result = win
       ? await dialog.showSaveDialog(win, {
           title: '导出 PDF',

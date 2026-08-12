@@ -48,6 +48,10 @@ const layout = inject(PANEL_LAYOUT_KEY)!;
 const HTML_PRESETS = [0, 375, 768, 1024, 1440, 1920] as const
 const htmlWidth = ref(0)
 
+// PDF 预览重建计数：PdfPreview 仅 watch props.file.path，刷新/文件变更不换 path 时
+// 靠递增此 key 强制重建组件（reloadFile 的 pdf 分支递增，见下方）
+const pdfRefreshKey = ref(0)
+
 // ── MD 大纲 ──
 const showMdOutline = ref(false);
 
@@ -531,6 +535,9 @@ async function reloadFile(silent = false) {
   if (kind === "pdf") {
     activeTab.value = "preview";
     if (!silent) loading.value = false;
+    // 手动刷新（silent=false）与自动刷新（silent=true）都走此分支：递增 key 强制 PdfPreview 重建
+    // （PdfPreview 仅 watch props.file.path，同文件刷新时引用不变不会触发重载）
+    pdfRefreshKey.value++;
     return;
   }
 
@@ -1015,7 +1022,7 @@ function handleClose() {
             <button
               :disabled="exporting"
               :title="t('preview.exportPdf')"
-              class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-medium shrink-0"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors font-medium shrink-0 cursor-not-allowed"
               :style="{
                 color: 'var(--text-muted)',
                 border: '1px solid var(--border-dim)',
@@ -1070,7 +1077,8 @@ function handleClose() {
           <PptxPreview :file="{ name: props.file!.name, path: props.file!.path }" />
         </div>
         <div v-else-if="fileKind === 'pdf'" class="flex-1 flex flex-col" style="min-height:0">
-          <PdfPreview :file="{ name: props.file!.name, path: props.file!.path }" />
+          <!-- key 绑定 pdfRefreshKey：刷新时强制重建 PdfPreview（组件仅 watch path，同文件刷新不触发） -->
+          <PdfPreview :key="pdfRefreshKey" :file="{ name: props.file!.name, path: props.file!.path }" />
         </div>
         <div v-else-if="fileKind === 'markdown'" class="flex-1 flex" style="min-height:0">
           <!-- 大纲侧边栏 -->
