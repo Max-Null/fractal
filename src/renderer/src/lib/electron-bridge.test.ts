@@ -15,6 +15,10 @@ import {
   polishMessage,
   readServeLog,
   getAppInfo,
+  pickAvatar,
+  clearAvatar,
+  getAvatarPath,
+  showNotification,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -263,6 +267,42 @@ describe("readServeLog / getAppInfo（诊断面板引擎日志数据源，方案
     const r = await getAppInfo();
     expect(invokeMock).toHaveBeenCalledWith("app:getInfo", undefined);
     expect(r).toEqual({ name: "分形", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+  });
+});
+
+describe("pickAvatar / clearAvatar / getAvatarPath / showNotification（设置页头像与系统通知）", () => {
+  it("pickAvatar → avatar:pick 通道，成功返回 filename（avatar.{ext} 统一命名）", async () => {
+    invokeMock.mockResolvedValue({ ok: true, filename: "avatar.png" });
+    const r = await pickAvatar();
+    expect(invokeMock).toHaveBeenCalledWith("avatar:pick", undefined);
+    expect(r).toEqual({ ok: true, filename: "avatar.png" });
+  });
+
+  it("pickAvatar 用户取消 → ok=false 无 filename", async () => {
+    invokeMock.mockResolvedValue({ ok: false });
+    const r = await pickAvatar();
+    expect(r).toEqual({ ok: false });
+    expect(r.filename).toBeUndefined();
+  });
+
+  it("clearAvatar → avatar:clear 通道（删除头像目录，回退 emoji）", async () => {
+    invokeMock.mockResolvedValue({ ok: true });
+    const r = await clearAvatar();
+    expect(invokeMock).toHaveBeenCalledWith("avatar:clear", undefined);
+    expect(r).toEqual({ ok: true });
+  });
+
+  it("getAvatarPath → avatar:getPath 返回头像存储目录（渲染拼 file:// 前缀用）", async () => {
+    invokeMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+    const r = await getAvatarPath();
+    expect(invokeMock).toHaveBeenCalledWith("avatar:getPath", undefined);
+    expect(r).toContain("avatar");
+  });
+
+  it("showNotification → notification:show 通道带 title/body", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await showNotification("AI 回答完成", "对话已生成");
+    expect(invokeMock).toHaveBeenCalledWith("notification:show", { title: "AI 回答完成", body: "对话已生成" });
   });
 });
 

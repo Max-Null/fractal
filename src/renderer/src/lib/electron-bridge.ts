@@ -414,6 +414,28 @@ export async function htmlToPdf(path: string): Promise<{ ok: boolean; path?: str
   return invoke("pdf:htmlToPdf", { path });
 }
 
+// ── 头像图片（avatar:pick/clear/getPath；图片存 <userData>/avatar/avatar.{ext}，统一命名覆盖旧图）──
+
+/** 选择头像图片（主进程弹系统对话框，仅接受 png/jpg/jpeg/webp）；ok=false=取消或扩展名非法，filename=avatar.{ext} */
+export async function pickAvatar(): Promise<{ ok: boolean; filename?: string }> {
+  return invoke<{ ok: boolean; filename?: string }>("avatar:pick");
+}
+
+/** 清除已选头像（主进程删除 avatar 目录；前端随后清空 avatarImage 回退 emoji 兜底） */
+export async function clearAvatar(): Promise<{ ok: boolean }> {
+  return invoke<{ ok: boolean }>("avatar:clear");
+}
+
+/** 头像存储目录（<userData>/avatar；渲染 avatarImage 时拼 file:// 前缀的路径来源） */
+export async function getAvatarPath(): Promise<string> {
+  return invoke<string>("avatar:getPath");
+}
+
+/** 系统通知（主进程 Notification；异常由主进程吞掉，不阻断渲染主流程） */
+export async function showNotification(title: string, body: string): Promise<void> {
+  return invoke<void>("notification:show", { title, body });
+}
+
 // ══════════════════════════════════════════════════════════════════
 // B 类：引擎相关 → 主进程 IPC 真实实现（阶段 4 接入 serve）
 // ══════════════════════════════════════════════════════════════════
