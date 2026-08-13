@@ -6,6 +6,13 @@ import type { Pinia } from "pinia";
 import { useSettingsStore } from "@/stores/settings";
 import SettingsPanel from "./SettingsPanel.vue";
 
+// Mock vue-router：useRouter() 用 vue-router 的 Symbol 注入 key，
+// provide: { router }（字符串键）无效——必须 mock useRouter 本身（2026-08-10 实测）
+const { mockRouter } = vi.hoisted(() => ({
+  mockRouter: { push: vi.fn(), currentRoute: { value: { path: "/settings" } } },
+}));
+vi.mock("vue-router", () => ({ useRouter: () => mockRouter }));
+
 const i18n = createI18n({
   legacy: false,
   locale: "en",
@@ -86,15 +93,12 @@ const i18n = createI18n({
   },
 });
 
-const mockRouter = { push: () => {}, currentRoute: { value: { path: "/settings" } } };
-
 let pinia: Pinia;
 
 function mountPanel() {
   return mount(SettingsPanel, {
     global: {
       plugins: [pinia, i18n],
-      provide: { router: mockRouter },
     },
   });
 }
@@ -123,348 +127,68 @@ describe("SettingsPanel", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
-  // ── activeMode computed (bridges planMode / autoMode / permissionMode) ──
+  // ── 布局骨架：左侧导航 6 tab ──
 
-  it("shows plan label when planMode=true", () => {
-    const settings = useSettingsStore();
-    settings.planMode = true;
-    settings.autoMode = false;
+  it("renders header with title and back button", () => {
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Plan mode");
+    expect(wrapper.text()).toContain("Settings");
+    // 返回按钮（aria-label）点击 → router.push('/chat')
+    const back = wrapper.find("button[aria-label='返回聊天']");
+    expect(back.exists()).toBe(true);
   });
 
-  // auto/dontAsk 已从权限选项移除（CC 遗留模式，全自动语义由 bypassPermissions 承担）——
-  // 旧配置兼容：autoMode=true 仍应显示「完全放行」（activeMode 映射 bypassPermissions 分支）
-  it("shows bypass label when autoMode=true (legacy auto 兼容)", () => {
-    const settings = useSettingsStore();
-    settings.autoMode = true;
-    settings.planMode = false;
-    settings.permissionMode = "bypassPermissions";
+  it("renders 6 nav tabs with lucide icons", () => {
     const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Bypass");
-  });
-
-  it("shows bypass when permissionMode=bypassPermissions", () => {
-    const settings = useSettingsStore();
-    settings.permissionMode = "bypassPermissions";
-    settings.autoMode = false;
-    settings.planMode = false;
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Bypass");
-  });
-
-  // dontAsk 已移除：dontAsk 旧值兼容归入 bypass（activeMode 映射）
-  it("shows bypass when permissionMode=dontAsk (legacy 兼容)", () => {
-    const settings = useSettingsStore();
-    settings.permissionMode = "dontAsk";
-    settings.autoMode = false;
-    settings.planMode = false;
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Bypass");
-  });
-
-  it("shows editAuto when permissionMode=acceptEdits", () => {
-    const settings = useSettingsStore();
-    settings.permissionMode = "acceptEdits";
-    settings.autoMode = false;
-    settings.planMode = false;
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Edit auto");
-  });
-
-  it("shows askBefore when permissionMode=default", () => {
-    const settings = useSettingsStore();
-    settings.permissionMode = "default";
-    settings.autoMode = false;
-    settings.planMode = false;
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Ask before edits");
-  });
-
-  // ── Effort ──
-
-  it("shows current effort level", () => {
-    const settings = useSettingsStore();
-    settings.effort = "max";
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Max");
-  });
-
-  // ── Dropdown triggers ──
-
-  it("has settings dropdown triggers", async () => {
-    const wrapper = mountPanel();
-    // 折叠态：主设置区 7 个下拉（model + lang + theme + font + perm + effort + layout）
-    expect(wrapper.findAll(".settings-dropdown").length).toBe(7);
-    // 展开高级设置：+ 轻量模型 + 引擎日志级别（smallModel + logLevel）
-    await expandAdvanced(wrapper);
-    expect(wrapper.findAll(".settings-dropdown").length).toBe(9);
-  });
-
-  // ── Layout ──
-
-  it("renders both sections", () => {
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Engine Settings");
-    expect(wrapper.text()).toContain("Interface Settings");
-  });
-
-  it("renders about footer with three version lines", async () => {
-    const wrapper = mountPanel();
-    // flush onMounted 的异步 getAppInfo（invoke mock 返回三版本）
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(wrapper.text()).toContain("Fractal");
-    // 版本号来自 vitest define __APP_VERSION__（package.json version），不写死具体版本
-    expect(wrapper.text()).toContain(`v${__APP_VERSION__}`);
-    // v1.1.0 新增：OC 引擎版本 + 预置包版本（标签 + 值）
-    expect(wrapper.text()).toContain("OC Engine 1.18.15");
-    expect(wrapper.text()).toContain("Preset 1.1.0");
-  });
-
-  // ── Connection test ──
-
-  it("shows test connection button", () => {
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Test Connection");
-  });
-
-  it("contextLimit input accepts 128K shorthand", async () => {
-    const settings = useSettingsStore();
-    const wrapper = mountPanel();
-    const input = wrapper.find("input[type=\"text\"]");
-    // 找到 contextLimit 输入框（placeholder 匹配）
-    const allInputs = wrapper.findAll("input[type=\"text\"]");
-    const clInput = allInputs.find(el => (el.element as HTMLInputElement).placeholder.includes("128K"));
-    expect(clInput).toBeTruthy();
-    if (clInput) {
-      await clInput.setValue("128K");
-      await clInput.trigger("blur");
-      expect(settings.contextLimit).toBe(128000);
+    const items = wrapper.findAll(".f-settings-nav-item");
+    expect(items.length).toBe(6);
+    // 顺序固定：通用/模型与API/AI行为/通知/高级/关于
+    expect(items[0].text()).toContain("通用");
+    expect(items[1].text()).toContain("模型与API");
+    expect(items[2].text()).toContain("AI行为");
+    expect(items[3].text()).toContain("通知");
+    expect(items[4].text()).toContain("高级");
+    expect(items[5].text()).toContain("关于");
+    // 每个导航项包含一个 svg（lucide 图标，禁 emoji 图标）
+    for (const item of items) {
+      expect(item.find("svg").exists()).toBe(true);
     }
   });
 
-  it("contextLimit defaults to 0", () => {
+  it("defaults to general tab", () => {
+    const wrapper = mountPanel();
+    // 默认 activeTab = general：v-if/v-else-if 链只渲染当前 section
+    expect(wrapper.find("[data-tab='general']").exists()).toBe(true);
+    expect(wrapper.find("[data-tab='model']").exists()).toBe(false);
+  });
+
+  it("switching tab renders correct content section", async () => {
+    const wrapper = mountPanel();
+    const items = wrapper.findAll(".f-settings-nav-item");
+    // 依次点每个 tab → 对应 data-tab section 变为可见
+    const targets = ["general", "model", "behavior", "notify", "advanced", "about"] as const;
+    for (let i = 0; i < targets.length; i++) {
+      await items[i].trigger("click");
+      expect(wrapper.find(`[data-tab='${targets[i]}']`).exists()).toBe(true);
+      // 其余 tab 隐藏（v-if/v-else-if 结构：只有当前 section 渲染内容，占位 text 只出现在当前）
+      expect(wrapper.find(".f-settings-tab-placeholder").text()).toContain(
+        i === 0 ? "通用" : i === 1 ? "模型与 API" : i === 2 ? "AI 行为" : i === 3 ? "通知" : i === 4 ? "高级" : "关于",
+      );
+    }
+  });
+
+  it("active nav item gets active class", async () => {
+    const wrapper = mountPanel();
+    const items = wrapper.findAll(".f-settings-nav-item");
+    expect(items[0].classes()).toContain("f-settings-nav-item--active");
+    await items[2].trigger("click");
+    expect(items[2].classes()).toContain("f-settings-nav-item--active");
+    expect(items[0].classes()).not.toContain("f-settings-nav-item--active");
+  });
+
+  it("keeps balance/effort/mode logic wired (settings store loaded)", () => {
+    // 骨架阶段 store 逻辑仍可用：modelVariants 已拉取（effort 下拉在 AI行为 tab 填充后展示）
     const settings = useSettingsStore();
-    expect(settings.contextLimit).toBe(0);
-  });
-
-  // ── 数据模式开关（高级设置区，方案 D1-D9）──
-
-  function expandAdvanced(wrapper: ReturnType<typeof mountPanel>) {
-    const advBtn = wrapper.findAll("button").find((b) => b.text().includes("Advanced Settings"));
-    expect(advBtn).toBeTruthy();
-    return advBtn!.trigger("click");
-  }
-
-  it("renders data mode switch with label and description in advanced section", async () => {
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    expect(wrapper.text()).toContain("Isolated session data");
-    expect(wrapper.text()).toContain("When enabled, sessions are stored only in this app's data directory");
-    expect(wrapper.find(".data-mode-switch").exists()).toBe(true);
-  });
-
-  it("toggling switch calls setDataMode and switches dataMode to shared", async () => {
-    const settings = useSettingsStore();
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    const sw = wrapper.find(".data-mode-switch");
-    // 初始 isolated（2026-08-12 起默认独立会话数据，开关开启态）
-    expect(sw.classes()).toContain("data-mode-switch--on");
-    await sw.trigger("click");
-    // flush setDataMode 异步链（saveSettings → refreshEngine → loadSessions）
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(settings.dataMode).toBe("shared");
-    expect(settings.isRestarting).toBe(false);
-    // 开关反映关闭态
-    expect(wrapper.find(".data-mode-switch").classes()).not.toContain("data-mode-switch--on");
-  });
-
-  it("switch disabled while isRestarting (防连点)", async () => {
-    const settings = useSettingsStore();
-    settings.isRestarting = true;
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    const sw = wrapper.find(".data-mode-switch");
-    expect((sw.element as HTMLButtonElement).disabled).toBe(true);
-    // 禁用态半透明（视觉反馈，opacity 由 data-mode-row--disabled 控制）
-    expect(wrapper.find(".data-mode-row").classes()).toContain("data-mode-row--disabled");
-  });
-
-  it("shows failure message with restored mode text when setDataMode rolls back", async () => {
-    const settings = useSettingsStore();
-    // 默认 isolated：切 shared 失败 → 回滚 isolated
-    const wrapper = mountPanel();
-    // 覆盖 bridge：engine:refresh 全部失败（回滚后仍失败 → 报错文案）
-    (window as unknown as { electronBridge: { invoke: (c: string) => Promise<unknown> } }).electronBridge.invoke = (channel: string) => {
-      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
-      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
-      if (channel === "engine:refresh") return Promise.resolve({ ok: false, error: "serve 连续 3 次启动失败" });
-      if (channel === "session:list") return Promise.resolve([]);
-      return Promise.resolve({});
-    };
-    await expandAdvanced(wrapper);
-    await wrapper.find(".data-mode-switch").trigger("click");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(wrapper.text()).toContain("Engine restart failed, restored original mode");
-    expect(settings.dataMode).toBe("isolated");
-  });
-
-  // ── 轻量模型下拉（高级设置区，LOW 槽位）──
-
-  it("renders small model dropdown with label, default option and description in advanced section", async () => {
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    expect(wrapper.text()).toContain("Lightweight Model");
-    expect(wrapper.text()).toContain("Follow main model (default)");
-    expect(wrapper.text()).toContain("Used for lightweight tasks");
-  });
-
-  it("selecting a small model option updates store and saves via settings.json", async () => {
-    const settings = useSettingsStore();
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    // 用 vi.fn 捕获 invoke（persistSmallModel → getSettingsConfig + saveSettingsJson）
-    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
-    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
-      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
-      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
-      if (channel === "settings:getConfig") return Promise.resolve({ config: {} });
-      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
-      if (channel === "engine:refresh") return Promise.resolve({ ok: true });
-      if (channel === "session:list") return Promise.resolve([]);
-      return Promise.resolve({});
-    });
-    // 打开轻量模型下拉（当前值「Follow main model」）
-    const smallModelTrigger = wrapper.findAll(".settings-dropdown").find((t) => t.text().includes("Follow main model"));
-    expect(smallModelTrigger).toBeTruthy();
-    await smallModelTrigger!.trigger("click");
-    // 三个选项渲染 + 选择 flash
-    const flashBtn = wrapper.findAll("button").find((b) => b.text().includes("deepseek-v4-flash"));
-    expect(flashBtn).toBeTruthy();
-    await flashBtn!.trigger("click");
-    // flush persistSmallModel 异步链（getSettingsConfig → saveSettingsJson）
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(settings.smallModel).toBe("deepseek/deepseek-v4-flash");
-    // settings.json 写入断言（jsoncText.smallModel = 模型全名）
-    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
-    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
-    expect(jsonc.smallModel).toBe("deepseek/deepseek-v4-flash");
-  });
-
-  // ── 多模态模型（制图师 kimi-k3）API Key 输入（设置页 LLM 区）──
-
-  it("renders kimi key input with label, description and save button", () => {
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Multimodal Model (Cartographer) API Key");
-    expect(wrapper.text()).toContain("cartographer unavailable if empty");
-    // 密码输入框 + 明文切换眼睛 + 保存按钮
-    const inputs = wrapper.findAll("input");
-    const kimiInput = inputs.find((i) => i.attributes("placeholder") === "kimi-k3…");
-    expect(kimiInput).toBeTruthy();
-    expect(kimiInput!.attributes("type")).toBe("password");
-    const eye = wrapper.findAll("button").find((b) => b.attributes("title") === "Show API Key");
-    expect(eye).toBeTruthy();
-    expect(wrapper.text()).toContain("Save");
-  });
-
-  it("kimi key save button: writes provider-configs via saveProviderConfig(restart=true)", async () => {
-    const settings = useSettingsStore();
-    const wrapper = mountPanel();
-    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
-    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
-      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
-      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
-      return Promise.resolve({});
-    });
-    const kimiInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "kimi-k3…");
-    await kimiInput!.setValue("sk-kimi-123");
-    // 保存按钮：kimi 区第二个「Save」之外的 button（用 disabled 状态定位——key 为空时禁用）
-    const saveBtn = wrapper.findAll("button").find((b) => b.text() === "Save" && !(b.element as HTMLButtonElement).disabled);
-    expect(saveBtn).toBeTruthy();
-    await saveBtn!.trigger("click");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(settings.kimiApiKey).toBe("sk-kimi-123");
-    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
-    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-    const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
-    expect(arg.providerId).toBe("moonshotai-cn");
-    expect(arg.apiKey).toBe("sk-kimi-123");
-    expect(arg.restart).toBe(true);
-  });
-
-  it("kimi key eye toggles password to text (明文切换)", async () => {
-    const wrapper = mountPanel();
-    const eye = wrapper.findAll("button").find((b) => b.attributes("title") === "Show API Key");
-    expect(eye).toBeTruthy();
-    await eye!.trigger("click");
-    const kimiInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "kimi-k3…");
-    expect(kimiInput!.attributes("type")).toBe("text");
-  });
-
-  // ── B1：消息排布 / 昵称 / 头像（界面设置区）──
-
-  it("shows current message layout (split 默认) and switches to left via dropdown", async () => {
-    const wrapper = mountPanel();
-    expect(wrapper.text()).toContain("Split (me right · AI left)");
-    // 打开排布下拉 → 选 All left
-    const layoutDropdown = wrapper.findAll(".settings-dropdown")[6]; // model/lang/theme/font/perm/effort 后第 7 个
-    await layoutDropdown.trigger("click");
-    await wrapper.findAll("button").find((b) => b.text() === "All left")!.trigger("click");
-    expect(useSettingsStore().messageLayout).toBe("left");
-    expect(wrapper.text()).toContain("All left");
-  });
-
-  it("nickname input binds to settings.nickname", async () => {
-    const wrapper = mountPanel();
-    const input = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "Empty = show \"Me\"");
-    expect(input).toBeTruthy();
-    await input!.setValue("小明");
-    expect(useSettingsStore().nickname).toBe("小明");
-  });
-
-  it("avatar emoji quick bar renders and picks emoji", async () => {
-    const wrapper = mountPanel();
-    const emojiBtns = wrapper.findAll("button").filter((b) => b.text() === "🐱");
-    expect(emojiBtns.length).toBe(1);
-    await emojiBtns[0].trigger("click");
-    expect(useSettingsStore().avatar).toBe("🐱");
-  });
-
-  // ── B1：OC 路径 / 日志级别 / 预置技能包（高级设置区）──
-
-  it("advanced section renders opencodePath input + logLevel dropdown + preset switch", async () => {
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    // OC 路径输入（placeholder 英文）
-    const pathInput = wrapper.findAll("input").find((i) => i.attributes("placeholder") === "Empty = bundled engine");
-    expect(pathInput).toBeTruthy();
-    // 日志级别下拉显示当前值 INFO
-    expect(wrapper.text()).toContain("INFO");
-    // 预置技能包开关存在（aria-pressed 初始 true；preset-switch 为独立测试锚，区别于 dataMode 开关）
-    const presetSwitch = wrapper.findAll("button").find((b) => b.attributes("aria-pressed") === "true" && b.classes().includes("preset-switch"));
-    expect(presetSwitch).toBeTruthy();
-  });
-
-  it("preset switch toggles settings.presetSkillsEnabled", async () => {
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    const settings = useSettingsStore();
-    expect(settings.presetSkillsEnabled).toBe(true);
-    const presetSwitch = wrapper.findAll("button").find((b) => b.classes().includes("preset-switch") && b.attributes("aria-pressed") === "true");
-    await presetSwitch!.trigger("click");
-    expect(settings.presetSkillsEnabled).toBe(false);
-  });
-
-  it("logLevel dropdown select updates settings.logLevel", async () => {
-    const wrapper = mountPanel();
-    await expandAdvanced(wrapper);
-    // 展开日志级别下拉（最后两个下拉之一：smallModel + logLevel）
-    const dropdowns = wrapper.findAll(".settings-dropdown");
-    const logLevelDropdown = dropdowns[dropdowns.length - 1];
-    await logLevelDropdown.trigger("click");
-    await wrapper.findAll("button").find((b) => b.text() === "DEBUG")!.trigger("click");
-    expect(useSettingsStore().logLevel).toBe("DEBUG");
+    expect(settings.modelVariants).toEqual(["low", "high", "max"]);
+    expect(settings.currentAgent).toBe("双星");
   });
 });
