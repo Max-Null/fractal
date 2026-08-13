@@ -88,6 +88,53 @@ const i18n = createI18n({
         logLevelDesc: "Verbosity of serve output",
         presetSkills: "Preset Skills Pack",
         presetSkillsDesc: "When off, preset skills are not loaded on next start",
+        tabs: {
+          general: "General",
+          model: "Model & API",
+          behavior: "AI Behavior",
+          notify: "Notifications",
+          advanced: "Advanced",
+          about: "About",
+        },
+        section: {
+          profile: "Profile",
+          session: "Session",
+          agent: "Agent",
+          subagentModels: "Sub-agent Models",
+          configFile: "Config File (settings.json)",
+          onboarding: "Onboarding",
+        },
+        backToChat: "Back to chat",
+        keyPlaceholder: "sk-...",
+        workspacePickTitle: "Select workspace directory",
+        testConnectionOk: "✓ serve connected",
+        balance: "Account Balance",
+        balanceQueryFailed: "Failed to query balance",
+        balanceQueryFailedShort: "Query failed",
+        refreshBalance: "Refresh balance",
+        upload: "Upload",
+        clearAvatar: "Clear",
+        avatarEmojiLabel: "Avatar (emoji)",
+        avatarImageSet: "Image avatar: {path}",
+        avatarImageEmpty: "No image avatar ({value})",
+        defaultMe: "Me",
+        langZh: "中文",
+        langEn: "English",
+        defaultMainAgent: "Default Main Agent",
+        followDefault: "Follow default ({model})",
+        subagentModelLabel: "{name} ({slot})",
+        thinkingNode: "Thinking Nodes",
+        thinkingNodeDesc: "Show AI thinking process nodes in the timeline",
+        notifyGlobal: "Global Notification Switch",
+        notifyGlobalDesc: "When off, no system notifications are sent",
+        notifyReplyDone: "AI Reply Complete",
+        notifyReplyDoneDesc: "Send a notification when the AI finishes replying",
+        notifyEngineError: "Engine Error",
+        notifyEngineErrorDesc: "Send a notification when the serve engine fails",
+        notifyPermissionPending: "Pending Permission Request",
+        notifyPermissionPendingDesc: "Send a notification when a tool call awaits approval",
+        notifySubtaskDone: "Subtask Complete",
+        notifySubtaskDoneDesc: "Send a notification when a subtask/phase completes",
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -147,7 +194,7 @@ describe("SettingsPanel", () => {
     const wrapper = mountPanel();
     expect(wrapper.text()).toContain("Settings");
     // 返回按钮（aria-label）点击 → router.push('/chat')
-    const back = wrapper.find("button[aria-label='返回聊天']");
+    const back = wrapper.find("button[aria-label='Back to chat']");
     expect(back.exists()).toBe(true);
   });
 
@@ -155,13 +202,13 @@ describe("SettingsPanel", () => {
     const wrapper = mountPanel();
     const items = wrapper.findAll(".f-settings-nav-item");
     expect(items.length).toBe(6);
-    // 顺序固定：通用/模型与API/AI行为/通知/高级/关于
-    expect(items[0].text()).toContain("通用");
-    expect(items[1].text()).toContain("模型与API");
-    expect(items[2].text()).toContain("AI行为");
-    expect(items[3].text()).toContain("通知");
-    expect(items[4].text()).toContain("高级");
-    expect(items[5].text()).toContain("关于");
+    // 顺序固定：通用/模型与API/AI行为/通知/高级/关于（i18n en）
+    expect(items[0].text()).toContain("General");
+    expect(items[1].text()).toContain("Model & API");
+    expect(items[2].text()).toContain("AI Behavior");
+    expect(items[3].text()).toContain("Notifications");
+    expect(items[4].text()).toContain("Advanced");
+    expect(items[5].text()).toContain("About");
     // 每个导航项包含一个 svg（lucide 图标，禁 emoji 图标）
     for (const item of items) {
       expect(item.find("svg").exists()).toBe(true);
@@ -239,15 +286,15 @@ describe("SettingsPanel", () => {
     // spy store.pickAvatar：确认按钮绑定 store 方法（TDD：上传按钮触发 pickAvatar）
     const pickSpy = vi.spyOn(settings, "pickAvatar").mockResolvedValue({ ok: true, filename: "avatar.png" });
     const pickBtn = wrapper.find("[data-tab='general'] button.f-settings-btn");
-    expect(pickBtn.text()).toContain("上传");
+    expect(pickBtn.text()).toContain("Upload");
     await pickBtn.trigger("click");
     expect(pickSpy).toHaveBeenCalledTimes(1);
     // avatarImage 状态展示：初始无图片显示空态提示
-    expect(wrapper.find(".avatar-image-status").text()).toContain("未设置图片头像");
+    expect(wrapper.find(".avatar-image-status").text()).toContain("No image avatar");
     // spy 后手动模拟成功写入 avatarImage → 状态变为文件名 + 清除按钮出现
     settings.avatarImage = "avatar.png";
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".avatar-image-status").text()).toContain("图片头像：avatar.png");
+    expect(wrapper.find(".avatar-image-status").text()).toContain("Image avatar: avatar.png");
     expect(wrapper.find("button.f-settings-btn--danger").exists()).toBe(true);
   });
 
@@ -300,7 +347,7 @@ describe("SettingsPanel", () => {
     expect(tab.text()).toContain("API Base URL");
     expect(tab.text()).toContain("Model");
     expect(tab.text()).toContain("Test Connection");
-    expect(tab.text()).toContain("账户余额");
+    expect(tab.text()).toContain("Account Balance");
   });
 
   it("model tab main model select switches settings.model", async () => {
@@ -390,29 +437,29 @@ describe("SettingsPanel", () => {
   it("behavior tab renders agent, subagent, permission, effort, thinking, small model controls", async () => {
     const wrapper = mountPanel();
     const tab = await switchToBehaviorTab(wrapper);
-    expect(tab.text()).toContain("默认主 Agent");
-    // 7 个子 agent 模型行（label 含 agent 名 + 槽位）
-    expect(tab.text()).toContain("双星（high）");
-    expect(tab.text()).toContain("侦查兵（anthropic）");
-    expect(tab.text()).toContain("制图师（vision）");
+    expect(tab.text()).toContain("Default Main Agent");
+    // 7 个子 agent 模型行（label 含 agent 名 + 槽位；agent 名为契约数据不翻译）
+    expect(tab.text()).toContain("双星 (high)");
+    expect(tab.text()).toContain("侦查兵 (anthropic)");
+    expect(tab.text()).toContain("制图师 (vision)");
     expect(tab.text()).toContain("Permission Mode");
     expect(tab.text()).toContain("Effort Level");
-    expect(tab.text()).toContain("思考节点");
+    expect(tab.text()).toContain("Thinking Nodes");
     expect(tab.text()).toContain("Lightweight Model");
     // 子 agent 行数 = 7
     const subagentSelects = tab.findAll(".settings-select__trigger");
     expect(subagentSelects.length).toBeGreaterThanOrEqual(7);
   });
 
-  it("subagent model default select shows 跟随默认（当前值） with slot-aligned value", async () => {
+  it("subagent model default select shows Follow default（当前值） with slot-aligned value", async () => {
     const wrapper = mountPanel();
     await switchToBehaviorTab(wrapper);
     const settings = useSettingsStore();
-    // 双星（high）→ 跟随默认显示主模型名
+    // 双星（high）→ 跟随默认显示主模型名（i18n en：Follow default）
     const tab = wrapper.find("[data-tab='behavior']");
     const fields = tab.findAll(".settings-field");
-    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
-    expect(twinField.text()).toContain(`跟随默认（${settings.model}）`);
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星 (high)")!;
+    expect(twinField.text()).toContain(`Follow default (${settings.model})`);
   });
 
   it("subagent model select 跟随默认 → setAgentModelOverride(name, null)", async () => {
@@ -425,9 +472,9 @@ describe("SettingsPanel", () => {
     const spy = vi.spyOn(settings, "setAgentModelOverride");
     const tab = wrapper.find("[data-tab='behavior']");
     const fields = tab.findAll(".settings-field");
-    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星 (high)")!;
     await twinField.find(".settings-select__trigger").trigger("click");
-    const followItem = wrapper.findAll(".settings-select__item").find((i) => i.text().startsWith("跟随默认"))!;
+    const followItem = wrapper.findAll(".settings-select__item").find((i) => i.text().startsWith("Follow default"))!;
     await followItem.trigger("click");
     expect(spy).toHaveBeenCalledWith("双星", null);
     expect(settings.agentModelOverrides["双星"]).toBeUndefined();
@@ -440,7 +487,7 @@ describe("SettingsPanel", () => {
     const spy = vi.spyOn(settings, "setAgentModelOverride");
     const tab = wrapper.find("[data-tab='behavior']");
     const fields = tab.findAll(".settings-field");
-    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星 (high)")!;
     await twinField.find(".settings-select__trigger").trigger("click");
     const proItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "deepseek-v4-pro")!;
     await proItem.trigger("click");
@@ -453,7 +500,7 @@ describe("SettingsPanel", () => {
     await switchToBehaviorTab(wrapper);
     const tab = wrapper.find("[data-tab='behavior']");
     const fields = tab.findAll(".settings-field");
-    const scoutField = fields.find((f) => f.find(".settings-field__label").text() === "侦查兵（anthropic）")!;
+    const scoutField = fields.find((f) => f.find(".settings-field__label").text() === "侦查兵 (anthropic)")!;
     await scoutField.find(".settings-select__trigger").trigger("click");
     const items = wrapper.findAll(".settings-select__item").map((i) => i.text());
     // 侦查兵白名单：ds-anthropic flash/pro（不含 deepseek 前缀）
@@ -472,7 +519,7 @@ describe("SettingsPanel", () => {
     settings.smallModel = "deepseek/deepseek-v4-pro";
     await wrapper.vm.$nextTick();
     const fields = tab.findAll(".settings-field");
-    const artisanField = fields.find((f) => f.find(".settings-field__label").text() === "工匠（low）")!;
+    const artisanField = fields.find((f) => f.find(".settings-field__label").text() === "工匠 (low)")!;
     expect(artisanField.text()).toContain("deepseek/deepseek-v4-pro");
   });
 
@@ -491,7 +538,7 @@ describe("SettingsPanel", () => {
     await switchToBehaviorTab(wrapper);
     const settings = useSettingsStore();
     const fields = wrapper.find("[data-tab='behavior']").findAll(".settings-field");
-    const agentField = fields.find((f) => f.find(".settings-field__label").text() === "默认主 Agent")!;
+    const agentField = fields.find((f) => f.find(".settings-field__label").text() === "Default Main Agent")!;
     await agentField.find(".settings-select__trigger").trigger("click");
     const scoutItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "侦查兵")!;
     await scoutItem.trigger("click");
@@ -504,11 +551,11 @@ describe("SettingsPanel", () => {
     const wrapper = mountPanel();
     await wrapper.findAll(".f-settings-nav-item")[3].trigger("click");
     const tab = wrapper.find("[data-tab='notify']");
-    expect(tab.text()).toContain("全局通知开关");
-    expect(tab.text()).toContain("AI 回答完成");
-    expect(tab.text()).toContain("引擎异常");
-    expect(tab.text()).toContain("权限请求待处理");
-    expect(tab.text()).toContain("子任务完成");
+    expect(tab.text()).toContain("Global Notification Switch");
+    expect(tab.text()).toContain("AI Reply Complete");
+    expect(tab.text()).toContain("Engine Error");
+    expect(tab.text()).toContain("Pending Permission Request");
+    expect(tab.text()).toContain("Subtask Complete");
     // 全局关时场景开关禁用（D15：opt-in）；全局开关自身不禁用
     const switches = tab.findAll(".settings-toggle__switch");
     expect(switches.length).toBe(5);

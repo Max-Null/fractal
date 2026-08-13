@@ -713,7 +713,7 @@ describe("useStreamProcessor", () => {
     });
     await flushPromises();
 
-    expect(showNotificationMock).toHaveBeenCalledWith("回答已完成", expect.stringContaining("1.2s"));
+    expect(showNotificationMock).toHaveBeenCalledWith("settings.notificationReplyDoneTitle", "settings.notificationReplyDoneBodyDuration");
     stopListening();
   });
 
@@ -770,7 +770,7 @@ describe("useStreamProcessor", () => {
     });
     await flushPromises();
 
-    expect(showNotificationMock).toHaveBeenCalledWith("权限请求", expect.any(String));
+    expect(showNotificationMock).toHaveBeenCalledWith("settings.notificationPermissionTitle", "settings.notificationPermissionBody");
     stopListening();
   });
 
@@ -814,7 +814,7 @@ describe("useStreamProcessor", () => {
     });
     await flushPromises();
 
-    expect(showNotificationMock).toHaveBeenCalledWith("子任务完成", expect.any(String));
+    expect(showNotificationMock).toHaveBeenCalledWith("settings.notificationSubtaskTitle", "settings.notificationSubtaskBody");
     stopListening();
   });
 

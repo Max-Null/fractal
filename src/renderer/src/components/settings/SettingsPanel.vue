@@ -38,14 +38,14 @@ const activeTab = ref<TabId>("general");
 watch(() => router.currentRoute.value.path, (p) => {
   if (p !== "/settings") activeTab.value = "general";
 });
-// tab 文案阶段 6 统一补 i18n；图标一律 lucide（Settings/Palette/Bot/Bell/Wrench/Info）
-const TABS: Array<{ id: TabId; label: string; icon: Component }> = [
-  { id: "general", label: "通用", icon: SettingsIcon },
-  { id: "model", label: "模型与API", icon: Palette },
-  { id: "behavior", label: "AI行为", icon: Bot },
-  { id: "notify", label: "通知", icon: Bell },
-  { id: "advanced", label: "高级", icon: Wrench },
-  { id: "about", label: "关于", icon: Info },
+// tab 文案经 i18n（settings.tabs.*）；图标一律 lucide（Settings/Palette/Bot/Bell/Wrench/Info）
+const TABS: Array<{ id: TabId; labelKey: string; icon: Component }> = [
+  { id: "general", labelKey: "settings.tabs.general", icon: SettingsIcon },
+  { id: "model", labelKey: "settings.tabs.model", icon: Palette },
+  { id: "behavior", labelKey: "settings.tabs.behavior", icon: Bot },
+  { id: "notify", labelKey: "settings.tabs.notify", icon: Bell },
+  { id: "advanced", labelKey: "settings.tabs.advanced", icon: Wrench },
+  { id: "about", labelKey: "settings.tabs.about", icon: Info },
 ];
 
 // ── 上下文窗口输入（支持 128K / 1M 简写）──
@@ -62,7 +62,7 @@ function formatTokens(n: number): string {
 
 // 选择工作目录：写 store + 通知会话侧收面板；serve 侧目录切换待阶段 6 配置体系
 async function handleWorkspacePick() {
-  const selected = await openDialog({ directory: true, title: "选择工作目录" });
+  const selected = await openDialog({ directory: true, title: t("settings.workspacePickTitle") });
   if (!selected) return;
   const p = Array.isArray(selected) ? selected[0] : selected;
   settings.cwd = p;
@@ -90,7 +90,7 @@ function parseContextLimit() {
 const isLookingUpUrl = ref(false);
 
 async function startLookupUrl() {
-  const prompt = `请联网查询 DeepSeek 服务商的模型 ${settings.model} 的 OpenAI 兼容 chat completions API 完整端点 URL，只输出 URL 不要任何解释`;
+  const prompt = t("settings.urlLookupPrompt", { model: settings.model });
   isLookingUpUrl.value = true;
   let sid = sessionStore.activeSessionId;
   if (!sid) {
@@ -214,9 +214,10 @@ async function handleSmallModelSelect(v: string) {
 const agentOptions = computed(() => SUBAGENT_ORDER.map((name) => ({ value: name, label: name })));
 
 // ── 语言 / 主题 / 字号 / 排布选项（SettingsSelect 直接消费 {value,label}；i18n key 即时翻译）──
+// 语言名显示原生名（zh 界面也是"中文"），与语言选择器惯例一致
 const langOptions = computed(() => [
-  { value: "zh", label: "中文" },
-  { value: "en", label: "English" },
+  { value: "zh", label: t("settings.langZh") },
+  { value: "en", label: t("settings.langEn") },
 ]);
 const themeOptions = computed(() => [
   { value: "dark", label: t("settings.themeDark") },
@@ -311,7 +312,7 @@ function agentSlotDefault(name: string): string {
 /** 子 agent 模型下拉选项：「跟随默认（当前值）」 + 白名单候选（label 用短名，value 用全名） */
 function subagentModelOptions(name: string): Array<{ value: string; label: string }> {
   return [
-    { value: "", label: `跟随默认（${agentSlotDefault(name)}）` },
+    { value: "", label: t("settings.followDefault", { model: agentSlotDefault(name) }) },
     ...AGENT_MODEL_WHITELIST[name].map((m) => ({
       value: m,
       label: m.replace(/^[^/]+\//, ""),  // 去 provider 前缀：deepseek-v4-flash / kimi-k3
@@ -346,7 +347,7 @@ async function handleTest() {
     const r = await testConnection(settings.apiKey);
     if (r.ok) {
       // 模板按 ✓ 前缀判定绿色（成功）；chat 字段展示写入详情
-      testResult.value = { cc: "✓ serve 连接成功", chat: "✓ " + r.message };
+      testResult.value = { cc: t("settings.testConnectionOk"), chat: "✓ " + r.message };
       // 用户主动换 key：重启 serve 使新 key 对运行实例生效（主进程对相同 key 跳过重启）
       try { await settings.saveCurrentConfig(true); } catch { /* 后台静默，防抖 watch 兜底 */ }
     } else {
@@ -368,7 +369,7 @@ async function refreshBalance() {
   try {
     balance.value = await getBalance();
   } catch {
-    balance.value = { ok: false, message: "余额查询失败" };
+    balance.value = { ok: false, message: t("settings.balanceQueryFailed") };
   } finally {
     balanceLoading.value = false;
   }
@@ -377,7 +378,7 @@ async function refreshBalance() {
 /** 余额展示文本：CNY 总余额；失败/未配置时显示原因 */
 const balanceText = computed(() => {
   if (!balance.value) return "";
-  if (!balance.value.ok) return balance.value.message ?? "查询失败";
+  if (!balance.value.ok) return balance.value.message ?? t("settings.balanceQueryFailedShort");
   const cny = balance.value.balanceInfos?.find((b) => b.currency === "CNY")
     ?? balance.value.balanceInfos?.[0];
   return cny ? `¥${Number(cny.totalBalance).toFixed(2)}` : "--";
@@ -450,7 +451,7 @@ onMounted(async () => {
       <header class="f-settings-header">
         <button
           class="f-settings-back"
-          aria-label="返回聊天"
+          :aria-label="$t('settings.backToChat')"
           @click="router.push('/chat')"
         >
           <ArrowLeft :size="16" />
@@ -471,14 +472,14 @@ onMounted(async () => {
             @click="activeTab = tab.id"
           >
             <component :is="tab.icon" :size="16" />
-            <span>{{ tab.label }}</span>
+            <span>{{ $t(tab.labelKey) }}</span>
           </button>
         </nav>
 
         <main class="f-settings-content">
           <!-- 通用：语言/主题/字号/消息排布/昵称/头像/工作目录 -->
           <section v-if="activeTab === 'general'" data-tab="general" class="f-settings-tab">
-            <SettingsSection title="通用">
+            <SettingsSection :title="$t('settings.tabs.general')">
               <div class="f-settings-fields">
                 <SettingsSelect v-model="settings.locale" :label="$t('settings.language')" :options="langOptions" />
                 <SettingsSelect v-model="settings.theme" :label="$t('settings.theme')" :options="themeOptions" />
@@ -487,7 +488,7 @@ onMounted(async () => {
               </div>
             </SettingsSection>
 
-            <SettingsSection title="个人资料">
+            <SettingsSection :title="$t('settings.section.profile')">
               <div class="f-settings-fields">
                 <SettingsInput
                   v-model="settings.nickname"
@@ -511,18 +512,18 @@ onMounted(async () => {
                   </div>
                   <SettingsInput
                     v-model="settings.avatar"
-                    :label="$t('settings.avatar') + ' (emoji)'"
+                    :label="$t('settings.avatarEmojiLabel')"
                     :placeholder="$t('settings.avatarPlaceholder')"
                   />
                   <div class="avatar-image-row">
                     <span v-if="settings.avatarImage" class="avatar-image-status">
-                      图片头像：{{ settings.avatarImage }}
+                      {{ $t('settings.avatarImageSet', { path: settings.avatarImage }) }}
                     </span>
                     <span v-else class="avatar-image-status avatar-image-status--empty">
-                      未设置图片头像（{{ settings.avatar.trim() || '我' }}）
+                      {{ $t('settings.avatarImageEmpty', { value: settings.avatar.trim() || $t('settings.defaultMe') }) }}
                     </span>
                     <button type="button" class="f-settings-btn" @click="handleAvatarPick">
-                      <ImagePlus :size="14" /> 上传
+                      <ImagePlus :size="14" /> {{ $t('settings.upload') }}
                     </button>
                     <button
                       v-if="settings.avatarImage"
@@ -530,7 +531,7 @@ onMounted(async () => {
                       class="f-settings-btn f-settings-btn--danger"
                       @click="settings.clearAvatar()"
                     >
-                      <Trash2 :size="14" /> 清除
+                      <Trash2 :size="14" /> {{ $t('settings.clearAvatar') }}
                     </button>
                   </div>
                 </div>
@@ -565,14 +566,14 @@ onMounted(async () => {
                   v-model="settings.apiKey"
                   :label="$t('settings.apiKey')"
                   type="password"
-                  placeholder="sk-..."
+                  :placeholder="$t('settings.keyPlaceholder')"
                 >
                   <template #suffix>
                     <button
                       type="button"
                       class="f-settings-btn f-settings-btn--suffix"
                       :disabled="balanceLoading"
-                      aria-label="刷新余额"
+                      :aria-label="$t('settings.refreshBalance')"
                       @click="refreshBalance"
                     >
                       <RefreshCw :size="14" />
@@ -581,7 +582,7 @@ onMounted(async () => {
                 </SettingsInput>
                 <!-- 余额展示：CNY 总余额或失败原因；无 key 时显示 -- -->
                 <div class="balance-row">
-                  <span class="balance-label">账户余额</span>
+                  <span class="balance-label">{{ $t('settings.balance') }}</span>
                   <span class="balance-value">{{ balanceText }}</span>
                 </div>
 
@@ -590,7 +591,7 @@ onMounted(async () => {
                   v-model="settings.kimiApiKey"
                   :label="$t('settings.kimiApiKey')"
                   :type="showKimiKey ? 'text' : 'password'"
-                  placeholder="sk-..."
+                  :placeholder="$t('settings.keyPlaceholder')"
                 >
                   <template #suffix>
                     <button
@@ -632,7 +633,7 @@ onMounted(async () => {
               </div>
             </SettingsSection>
 
-            <SettingsSection title="会话">
+            <SettingsSection :title="$t('settings.section.session')">
               <div class="f-settings-fields">
                 <!-- 聊天 API 地址：optimizeApiUrl 语义（旧 llmApiUrl）；🔍 按钮自动查询 URL（阶段 3 已有逻辑） -->
                 <SettingsInput
@@ -666,21 +667,21 @@ onMounted(async () => {
 
           <!-- AI行为：默认主 Agent/子 agent 模型/权限模式/思考深度/思考节点/轻量模型 -->
           <section v-else-if="activeTab === 'behavior'" data-tab="behavior" class="f-settings-tab">
-            <SettingsSection title="Agent">
+            <SettingsSection :title="$t('settings.section.agent')">
               <div class="f-settings-fields">
                 <!-- 默认主 Agent：7 agent 选择，写 store.currentAgent -->
-                <SettingsSelect v-model="settings.currentAgent" :label="'默认主 Agent'" :options="agentOptions" />
+                <SettingsSelect v-model="settings.currentAgent" :label="$t('settings.defaultMainAgent')" :options="agentOptions" />
               </div>
             </SettingsSection>
 
             <!-- 子 agent 模型：7 行，每行「跟随默认（当前值）」+ 白名单候选（与后端 applyModelAliases 对齐） -->
-            <SettingsSection title="子 agent 模型">
+            <SettingsSection :title="$t('settings.section.subagentModels')">
               <div class="f-settings-fields">
                 <SettingsSelect
                   v-for="name in SUBAGENT_ORDER"
                   :key="name"
                   :model-value="subagentModelValue(name)"
-                  :label="`${name}（${AGENT_SLOTS[name]}）`"
+                  :label="$t('settings.subagentModelLabel', { name, slot: AGENT_SLOTS[name] })"
                   :options="subagentModelOptions(name)"
                   @update:model-value="(v: string) => handleSubagentModelChange(name, v)"
                 />
@@ -701,8 +702,8 @@ onMounted(async () => {
                 <!-- 思考节点开关：控制时间线节点显隐（v-show，数据不删） -->
                 <SettingsToggle
                   v-model="settings.showThinking"
-                  label="思考节点"
-                  desc="在时间线中显示 AI 思考过程节点（仅隐藏，不删除数据）"
+                  :label="$t('settings.thinkingNode')"
+                  :desc="$t('settings.thinkingNodeDesc')"
                 />
                 <!-- 轻量模型：LOW 槽位默认值来源（标题/摘要/润色等轻任务），选完立即写 settings.json -->
                 <SettingsSelect
@@ -717,36 +718,36 @@ onMounted(async () => {
 
           <!-- 通知：全局开关 + 4 场景（全局关时场景禁用；D15 默认关，开全局后 replyDone 默认开） -->
           <section v-else-if="activeTab === 'notify'" data-tab="notify" class="f-settings-tab">
-            <SettingsSection title="通知">
+            <SettingsSection :title="$t('settings.tabs.notify')">
               <div class="f-settings-fields">
                 <SettingsToggle
                   v-model="settings.notifications.enabled"
-                  label="全局通知开关"
-                  desc="关闭后所有系统通知都不发送（开启时 AI 回答完成默认开，其余默认关）"
+                  :label="$t('settings.notifyGlobal')"
+                  :desc="$t('settings.notifyGlobalDesc')"
                 />
                 <div class="f-settings-divider" />
                 <SettingsToggle
                   v-model="settings.notifications.replyDone"
-                  label="AI 回答完成"
-                  desc="AI 生成完回复时发送通知"
+                  :label="$t('settings.notifyReplyDone')"
+                  :desc="$t('settings.notifyReplyDoneDesc')"
                   :disabled="!settings.notifications.enabled"
                 />
                 <SettingsToggle
                   v-model="settings.notifications.engineError"
-                  label="引擎异常"
-                  desc="serve 引擎启动失败或崩溃时发送通知"
+                  :label="$t('settings.notifyEngineError')"
+                  :desc="$t('settings.notifyEngineErrorDesc')"
                   :disabled="!settings.notifications.enabled"
                 />
                 <SettingsToggle
                   v-model="settings.notifications.permissionPending"
-                  label="权限请求待处理"
-                  desc="工具调用等待权限批准时发送通知"
+                  :label="$t('settings.notifyPermissionPending')"
+                  :desc="$t('settings.notifyPermissionPendingDesc')"
                   :disabled="!settings.notifications.enabled"
                 />
                 <SettingsToggle
                   v-model="settings.notifications.subtaskDone"
-                  label="子任务完成"
-                  desc="子任务/阶段完成时发送通知"
+                  :label="$t('settings.notifySubtaskDone')"
+                  :desc="$t('settings.notifySubtaskDoneDesc')"
                   :disabled="!settings.notifications.enabled"
                 />
               </div>
@@ -801,12 +802,12 @@ onMounted(async () => {
             </SettingsSection>
 
             <!-- JSON 编辑器：VSCode 风格 JSONC 配置（高级来源，B1 兜底） -->
-            <SettingsSection :title="'配置文件（settings.json）'">
+            <SettingsSection :title="$t('settings.section.configFile')">
               <SettingsJsonEditor />
             </SettingsSection>
 
             <!-- 重开引导：清除 onboardingDismissed，下次启动重新显示引导页 -->
-            <SettingsSection :title="'引导'">
+            <SettingsSection :title="$t('settings.section.onboarding')">
               <div class="f-settings-fields">
                 <button type="button" class="f-settings-btn" @click="settings.resetOnboarding()">
                   {{ $t('settings.reopenOnboarding') }}
@@ -817,7 +818,7 @@ onMounted(async () => {
 
           <!-- 关于：版本/引擎版本/预置版本/变更记录（迁移自旧 footer 关于栏） -->
           <section v-else data-tab="about" class="f-settings-tab">
-            <SettingsSection :title="'关于'">
+            <SettingsSection :title="$t('settings.tabs.about')">
               <div class="about-row">
                 <span class="about-label">{{ $t('app.title') }}</span>
                 <span class="about-value">by MaxNull · v{{ appVersion }}</span>

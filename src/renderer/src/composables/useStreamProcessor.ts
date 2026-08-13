@@ -130,7 +130,12 @@ export function useStreamProcessor() {
   async function notifyReplyDone(durationMs?: number) {
     if (!shouldNotify("replyDone")) return;
     try {
-      await showNotification("回答已完成", durationMs != null ? `用时 ${(durationMs / 1000).toFixed(1)}s` : "AI 已生成回答");
+      await showNotification(
+        t("settings.notificationReplyDoneTitle"),
+        durationMs != null
+          ? t("settings.notificationReplyDoneBodyDuration", { duration: (durationMs / 1000).toFixed(1) })
+          : t("settings.notificationReplyDoneBody"),
+      );
     } catch {
       // 通知失败静默（主进程异常已吞，此处仅防 IPC 自身异常）
     }
@@ -140,7 +145,7 @@ export function useStreamProcessor() {
   async function notifyPermissionPending() {
     if (!shouldNotify("permissionPending")) return;
     try {
-      await showNotification("权限请求", "有新的权限请求待处理");
+      await showNotification(t("settings.notificationPermissionTitle"), t("settings.notificationPermissionBody"));
     } catch {
       /* 通知失败静默 */
     }
@@ -150,7 +155,7 @@ export function useStreamProcessor() {
   async function notifySubtaskDone() {
     if (!shouldNotify("subtaskDone")) return;
     try {
-      await showNotification("子任务完成", "子任务已完成");
+      await showNotification(t("settings.notificationSubtaskTitle"), t("settings.notificationSubtaskBody"));
     } catch {
       /* 通知失败静默 */
     }
