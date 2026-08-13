@@ -308,6 +308,14 @@ describe('loadSettings / saveSettings / getConfig（文件读写）', () => {
     const oc = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as { small_model?: string }
     expect(oc.small_model).toBeUndefined()
   })
+
+  it('saveSettings 引擎联动：agentModelOverrides 变化 → 触发引擎同步（opencode.json 被写）', async () => {
+    // 设置页「子 agent 模型覆盖」变更 → 引擎快照（ENGINE_KEYS）变化 → ensureConfig 重跑
+    // （applyModelAliases 的联动由 ipc 层触发，见 2026-08-13 设置页重构方案——settings/preset 互相 import 会循环）
+    await saveSettings(dir, '{ "agentModelOverrides": { "双星": "deepseek/deepseek-v4-pro" } }')
+    const oc = JSON.parse(await fsp.readFile(getConfigPath(dir), 'utf-8')) as { permission: Record<string, unknown> }
+    expect(oc.permission).toBeDefined()
+  })
 })
 
 describe('watchSettingsFile（文件监听 → config-changed）', () => {

@@ -42,8 +42,10 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
 }
 
 /** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置）
- * smallModel 含引擎联动：设置页选择 → saveSettings 引擎快照变化 → ensureConfig 重写 small_model（见 oc-config.resolveSmallModel） */
-const ENGINE_KEYS = ['deepseek.model', 'agent.permissionMode', 'agent.effort', 'smallModel'] as const
+ * smallModel 含引擎联动：设置页选择 → saveSettings 引擎快照变化 → ensureConfig 重写 small_model（见 oc-config.resolveSmallModel）
+ * agentModelOverrides 含引擎联动：子 agent 模型覆盖变更 → 快照变化 → ensureConfig 重跑；applyModelAliases 的实际调用在
+ * ipc 层（settings/preset 互相 import 会循环依赖，见 2026-08-13 设置页重构阶段 1 报告） */
+const ENGINE_KEYS = ['deepseek.model', 'agent.permissionMode', 'agent.effort', 'smallModel', 'agentModelOverrides'] as const
 
 // ── 内存状态（getConfig 直接返回；load/save/watch 时更新）──
 let currentJsoncText = JSON.stringify(DEFAULT_SETTINGS, null, 2)
