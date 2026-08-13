@@ -9,6 +9,7 @@ import icon from '../../resources/icon.png?asset'
 // 窗口图标回退源文件绝对路径；打包后 ?asset 返回 asar.unpacked 内路径，继续生效
 const windowIcon = app.isPackaged ? icon : join(app.getAppPath(), 'resources', 'icon.png')
 import { registerIpcHandlers, startEngineEvents, isDebugMode } from './ipc'
+import { registerUpdaterIpc } from './updater'
 import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
 import { migrateUserDataIfNeeded } from './migrate-userdata'
@@ -255,6 +256,9 @@ app.whenReady().then(async () => {
 
   // 注册 IPC 通道（引擎通道注入 serverManager）
   registerIpcHandlers(serverManager)
+
+  // 自动更新（打包环境才生效；getWindow 取主窗口推送 updater:status，多窗口下设置页在主窗口）
+  registerUpdaterIpc(() => BrowserWindow.getAllWindows()[0] ?? null)
 
   // 多窗口支持：渲染进程点最近工作区非当前项 → 新开窗口并切到目标工作区（交互模式变更，用户需求）
   // 校验 path 非空字符串——脏参数直接忽略，避免创建无意义窗口
