@@ -65,10 +65,19 @@ export function translateError(err: unknown): string {
 
 /**
  * 注册更新相关 IPC 与事件推送。getWindow 用于定位推送目标窗口（多窗口下推送焦点窗口即可）。
- * 非打包环境直接跳过（autoUpdater 在 dev 无发布配置会抛错）。
+ * 非打包环境：注册占位 handler 抛「开发模式不可用」（D9）——若不注册，渲染层 invoke 报
+ * "No handler registered for 'updater:check'"（2026-08-14 实测），体验更差。
  */
 export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void {
-  if (!app.isPackaged) return
+  if (!app.isPackaged) {
+    const devUnavailable = (): never => {
+      throw new Error("DEV_MODE_UPDATER_UNAVAILABLE")
+    }
+    ipcMain.handle("updater:check", devUnavailable)
+    ipcMain.handle("updater:download", devUnavailable)
+    ipcMain.handle("updater:quit-and-install", devUnavailable)
+    return
+  }
 
   // 先提示再下载：available 后由用户点「立即更新」才下载，避免静默占用带宽
   autoUpdater.autoDownload = false

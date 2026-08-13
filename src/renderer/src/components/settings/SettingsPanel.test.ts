@@ -877,6 +877,22 @@ describe("SettingsPanel", () => {
     expect(bridge.invoke.mock.calls.some((c) => c[0] === "updater:check")).toBe(true);
   });
 
+  it("dev 模式 updater:check 抛错 → 状态区显示「开发模式不可用」", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "updater:check") return Promise.reject(new Error("DEV_MODE_UPDATER_UNAVAILABLE"));
+      return Promise.resolve({});
+    });
+    await wrapper.find("[data-tab='about'] .about-updater-check").trigger("click");
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find("[data-tab='about'] .about-updater-status").text()).toContain("Unavailable in dev mode");
+  });
+
   it("updater status available opens confirm dialog and download works", async () => {
     const wrapper = mountPanel();
     await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");

@@ -121,4 +121,23 @@ describe("registerUpdaterIpc", () => {
     vi.advanceTimersByTime(10_000)
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
   })
+
+  it("dev 模式：注册占位 handler 抛 DEV_MODE（渲染层显示「开发模式不可用」而非 No handler registered）", () => {
+    // mock 共享对象：临时切到 dev 模式，测试后恢复（避免影响其他用例）
+    ;(mockElectron.app as { isPackaged: boolean }).isPackaged = false
+    try {
+      const getWindow = () => null as never
+      registerUpdaterIpc(getWindow)
+      // dev 不订阅事件、不静默检查
+      expect(autoUpdaterMock.on).not.toHaveBeenCalled()
+      expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+      // 3 个 handler 仍注册（占位），调用抛 DEV_MODE_UPDATER_UNAVAILABLE
+      const channels = mockElectron.ipcMain.handle.mock.calls.map((c: string[]) => c[0])
+      expect(channels).toEqual(["updater:check", "updater:download", "updater:quit-and-install"])
+      const devHandler = mockElectron.ipcMain.handle.mock.calls[0][1] as () => never
+      expect(() => devHandler()).toThrow("DEV_MODE_UPDATER_UNAVAILABLE")
+    } finally {
+      ;(mockElectron.app as { isPackaged: boolean }).isPackaged = true
+    }
+  })
 })

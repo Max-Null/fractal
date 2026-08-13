@@ -6,7 +6,7 @@ import { useI18n } from "vue-i18n";
 import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, checkForUpdates, downloadUpdate, quitAndInstall, onUpdaterStatus, type UpdaterStatus, type DeepSeekBalanceResult } from "@/lib/electron-bridge";
 import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
-import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-vue-next";
+import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff, ScrollText } from "lucide-vue-next";
 
 const appVersion = __APP_VERSION__;
 
@@ -490,12 +490,14 @@ onUnmounted(() => {
   updaterOff?.();
 });
 
-// 手动检查：busy 期间禁点防重复触发；dev 模式主进程不注册 handler（invoke 无响应），状态区由主进程 error 兜底
+// 手动检查：busy 期间禁点防重复触发；dev 模式主进程抛 DEV_MODE（占位 handler），catch 显示「开发模式不可用」
 async function handleCheckUpdates(): Promise<void> {
   if (updaterBusy.value) return;
   updaterBusy.value = true;
   try {
     await checkForUpdates();
+  } catch {
+    updaterState.value = { type: "error", message: t("settings.update.devMode") };
   } finally {
     updaterBusy.value = false;
   }
@@ -859,6 +861,7 @@ async function handleCheckUpdates(): Promise<void> {
               <div class="about-updater">
                 <div class="about-updater-actions">
                   <button type="button" class="f-settings-btn" @click="showChangelog = true">
+                    <ScrollText :size="14" />
                     {{ $t('settings.changelog') }}
                   </button>
                   <button
