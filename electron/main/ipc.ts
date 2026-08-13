@@ -3,7 +3,7 @@
 // 引擎通道（chat: / session: / message: / permission:）阶段 4 接入 serve
 import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
 import { promises as fsp } from 'node:fs'
-import { join, dirname, basename, isAbsolute } from 'node:path'
+import { join, dirname, basename, extname, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
 import {
@@ -806,6 +806,29 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       return result.filePath
     }
   )
+
+  // ── 图片头像（设置页头像上传/清除）──
+  // 图片统一存 <userData>/avatar/avatar.{ext>（固定文件名，重复上传覆盖旧图）；
+  // 扩展名白名单 png/jpg/jpeg/webp——dialog 过滤器只防手选，不防脚本注入，此处二次校验
+  const AVATAR_EXTS = ['png', 'jpg', 'jpeg', 'webp']
+  ipcMain.handle('avatar:pick', async () => {
+    const picked = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: '图片', extensions: AVATAR_EXTS }] })
+    const src = picked.filePaths?.[0]
+    if (!src) return { ok: false }
+    const ext = extname(src).slice(1).toLowerCase()
+    if (!AVATAR_EXTS.includes(ext)) return { ok: false }
+    const dir = join(app.getPath('userData'), 'avatar')
+    await fsp.mkdir(dir, { recursive: true })
+    const dst = join(dir, `avatar.${ext}`)
+    await fsp.copyFile(src, dst)
+    return { ok: true, filename: `avatar.${ext}` }
+  })
+  ipcMain.handle('avatar:clear', async () => {
+    // 整个 avatar 目录删除（含历史残留文件），force 保证目录不存在时不抛错
+    await fsp.rm(join(app.getPath('userData'), 'avatar'), { recursive: true, force: true })
+    return { ok: true }
+  })
+  ipcMain.handle('avatar:getPath', () => join(app.getPath('userData'), 'avatar'))
 
   // ── HTML 转 PDF（渲染进程导出按钮 → 保存对话框 → 隐藏窗口 loadFile → printToPDF(A4) → 写盘）──
 

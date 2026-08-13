@@ -19,7 +19,7 @@ const electronMock = vi.hoisted(() => ({
   handleCalls: [] as Array<{ channel: string; handler: (...a: unknown[]) => unknown }>,
   // pdf:htmlToPdf 通道 mock 群：对话框返回值 + 隐藏窗口实例捕获 + printToPDF 共享 mock
   // sharedPdfFn 用同一个引用注入每个 BrowserWindow 实例的 printToPDF——用例粒度 mockRejectedValueOnce 即可按用例控制失败
-  dialog: { showSaveDialog: vi.fn() },
+  dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
   sharedPdfFn: vi.fn(() => Promise.resolve(Buffer.from('pdf'))),
   browserWindowInstances: [] as Array<{
     loadFile: ReturnType<typeof vi.fn>
@@ -1101,5 +1101,95 @@ describe('settings:saveSettings handler（保存设置联动 applyModelAliases�
     // applyModelAliases 联动生效：双星.md 的 model 行更新为覆盖值（不再停留在部署产物旧值）
     const md = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
     expect(md).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+})
+
+describe('avatar IPC（图片头像 pick/clear/getPath）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    // 每个用例独立 userData 目录（avatar 图片真实落盘，防跨用例串扰）
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-avatar-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+    electronMock.dialog.showOpenDialog.mockReset()
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  const getHandler = (channel: string) => {
+    const call = electronMock.handleCalls.find((c) => c.channel === channel)
+    if (!call) throw new Error(`${channel} handler 未注册`)
+    return call.handler
+  }
+
+  it('pick：选择 png → 复制到 <userData>/avatar/avatar.png，返回 {ok, filename}', async () => {
+    const src = join(userDataDir, 'pick.png')
+    await fsp.writeFile(src, 'fake-png-bytes')
+    electronMock.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [src] })
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:pick')()) as { ok: boolean; filename?: string }
+    expect(r).toEqual({ ok: true, filename: 'avatar.png' })
+    expect(await fsp.readFile(join(userDataDir, 'avatar', 'avatar.png'), 'utf-8')).toBe('fake-png-bytes')
+  })
+
+  it('pick：用户取消 → {ok:false} 且不建目录不复制', async () => {
+    electronMock.dialog.showOpenDialog.mockResolvedValue({ canceled: true, filePaths: [] })
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:pick')()) as { ok: boolean }
+    expect(r).toEqual({ ok: false })
+    await expect(fsp.access(join(userDataDir, 'avatar'))).rejects.toThrow()
+  })
+
+  it('pick：扩展名白名单外（.gif）→ {ok:false} 且不复制', async () => {
+    const src = join(userDataDir, 'anim.gif')
+    await fsp.writeFile(src, 'gif')
+    electronMock.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [src] })
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:pick')()) as { ok: boolean }
+    expect(r).toEqual({ ok: false })
+    await expect(fsp.access(join(userDataDir, 'avatar'))).rejects.toThrow()
+  })
+
+  it('pick：大写扩展名（.PNG）→ 归一化为小写 avatar.png', async () => {
+    const src = join(userDataDir, 'up.PNG')
+    await fsp.writeFile(src, 'png')
+    electronMock.dialog.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [src] })
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:pick')()) as { ok: boolean; filename?: string }
+    expect(r).toEqual({ ok: true, filename: 'avatar.png' })
+    expect(await fsp.readFile(join(userDataDir, 'avatar', 'avatar.png'), 'utf-8')).toBe('png')
+  })
+
+  it('pick：重复选择 → 统一文件名覆盖旧图（avatar 目录仅一个文件）', async () => {
+    const src1 = join(userDataDir, 'a.png')
+    const src2 = join(userDataDir, 'b.png')
+    await fsp.writeFile(src1, 'first')
+    await fsp.writeFile(src2, 'second')
+    electronMock.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [src1] })
+    electronMock.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [src2] })
+    registerIpcHandlers()
+    await getHandler('avatar:pick')()
+    await getHandler('avatar:pick')()
+    expect(await fsp.readdir(join(userDataDir, 'avatar'))).toEqual(['avatar.png'])
+    expect(await fsp.readFile(join(userDataDir, 'avatar', 'avatar.png'), 'utf-8')).toBe('second')
+  })
+
+  it('clear：删除 avatar 目录 → {ok:true}', async () => {
+    await fsp.mkdir(join(userDataDir, 'avatar'), { recursive: true })
+    await fsp.writeFile(join(userDataDir, 'avatar', 'avatar.png'), 'x')
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:clear')()) as { ok: boolean }
+    expect(r).toEqual({ ok: true })
+    await expect(fsp.access(join(userDataDir, 'avatar'))).rejects.toThrow()
+  })
+
+  it('getPath：返回 <userData>/avatar', async () => {
+    registerIpcHandlers()
+    const r = (await getHandler('avatar:getPath')()) as string
+    expect(r).toBe(join(userDataDir, 'avatar'))
   })
 })
