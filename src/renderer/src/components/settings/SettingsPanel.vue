@@ -252,7 +252,8 @@ async function handleOpencodePathPick() {
 }
 
 // ── 模型预设（DeepSeek 专属，store 已固定）──
-const modelPresets = computed(() => settings.models);
+// SettingsSelect 消费 {value,label}；label 直接显示模型名（store 的 models 是显示名数组）
+const modelPresets = computed(() => settings.models.map((m) => ({ value: m, label: m })));
 
 // ── 连接测试 ──
 const testResult = ref<ConnectionTestResult | null>(null);
@@ -481,9 +482,112 @@ onMounted(async () => {
             </SettingsSection>
           </section>
 
-          <!-- 模型与API（4.3 填充） -->
+          <!-- 模型与API：API Key 含余额/kimi Key/baseUrl/主模型/测试连接/聊天 API 地址/上下文窗口 -->
           <section v-else-if="activeTab === 'model'" data-tab="model" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">模型与 API 设置</p>
+            <SettingsSection :title="$t('settings.engineTitle')">
+              <div class="f-settings-fields">
+                <!-- API Key：password 输入 + 余额状态行（刷新按钮旁路调用） -->
+                <SettingsInput
+                  v-model="settings.apiKey"
+                  :label="$t('settings.apiKey')"
+                  type="password"
+                  placeholder="sk-..."
+                >
+                  <template #suffix>
+                    <button
+                      type="button"
+                      class="f-settings-btn f-settings-btn--suffix"
+                      :disabled="balanceLoading"
+                      aria-label="刷新余额"
+                      @click="refreshBalance"
+                    >
+                      <RefreshCw :size="14" />
+                    </button>
+                  </template>
+                </SettingsInput>
+                <!-- 余额展示：CNY 总余额或失败原因；无 key 时显示 -- -->
+                <div class="balance-row">
+                  <span class="balance-label">账户余额</span>
+                  <span class="balance-value">{{ balanceText }}</span>
+                </div>
+
+                <!-- kimi Key：多模态模型专用，独立明文切换 + 保存按钮（saveKimiKey 重启 serve） -->
+                <SettingsInput
+                  v-model="settings.kimiApiKey"
+                  :label="$t('settings.kimiApiKey')"
+                  :type="showKimiKey ? 'text' : 'password'"
+                  placeholder="sk-..."
+                >
+                  <template #suffix>
+                    <button
+                      type="button"
+                      class="f-settings-btn f-settings-btn--suffix"
+                      :aria-label="showKimiKey ? $t('settings.hideKey') : $t('settings.showKey')"
+                      @click="showKimiKey = !showKimiKey"
+                    >
+                      <Eye v-if="!showKimiKey" :size="14" />
+                      <EyeOff v-else :size="14" />
+                    </button>
+                    <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleKimiKeySave">
+                      {{ $t('settings.save') }}
+                    </button>
+                  </template>
+                </SettingsInput>
+                <p v-if="kimiSaveMsg" class="f-settings-hint">{{ kimiSaveMsg }}</p>
+
+                <SettingsInput
+                  v-model="settings.baseUrl"
+                  :label="$t('settings.baseUrl')"
+                  placeholder="https://api.deepseek.com"
+                />
+
+                <SettingsSelect v-model="settings.model" :label="$t('settings.model')" :options="modelPresets" />
+
+                <!-- 测试连接：调 engine:testConnection；成功显示 ✓ + chat 详情，失败显示 translateError -->
+                <button
+                  type="button"
+                  class="f-settings-btn f-settings-btn--test"
+                  :disabled="isTesting"
+                  @click="handleTest"
+                >
+                  <span v-if="!isTesting">{{ $t('settings.test') }}</span>
+                  <span v-else>{{ $t('settings.testing') }}</span>
+                </button>
+                <div v-if="testResult" class="test-result test-result--ok">{{ testResult.chat }}</div>
+                <div v-else-if="translatedTestError" class="test-result test-result--err">{{ translatedTestError }}</div>
+              </div>
+            </SettingsSection>
+
+            <SettingsSection title="会话">
+              <div class="f-settings-fields">
+                <!-- 聊天 API 地址：optimizeApiUrl 语义（旧 llmApiUrl）；🔍 按钮自动查询 URL（阶段 3 已有逻辑） -->
+                <SettingsInput
+                  v-model="settings.optimizeApiUrl"
+                  :label="$t('settings.llmApiUrl')"
+                  :placeholder="$t('settings.llmApiUrlPlaceholder')"
+                >
+                  <template #suffix>
+                    <button
+                      type="button"
+                      class="f-settings-btn f-settings-btn--suffix"
+                      :disabled="isLookingUpUrl"
+                      :aria-label="$t('settings.llmApiUrlLookup')"
+                      @click="startLookupUrl"
+                    >
+                      <Search :size="14" />
+                    </button>
+                  </template>
+                </SettingsInput>
+
+                <!-- 上下文窗口：blur 时解析简写（128K/1M），输入由本地 ref 缓冲 -->
+                <SettingsInput
+                  v-model="contextLimitInput"
+                  :label="$t('settings.contextLimit')"
+                  :placeholder="$t('settings.contextLimitPlaceholder')"
+                  @blur="parseContextLimit"
+                />
+              </div>
+            </SettingsSection>
           </section>
 
           <!-- AI行为（4.4 填充） -->
@@ -703,5 +807,53 @@ onMounted(async () => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--text-muted);
+}
+
+/* ── 模型与API tab ── */
+/* 余额行：label 12px 次级 + 值 14px 加粗；与 API Key 输入框间距由 fields 容器控制 */
+.balance-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+.balance-label {
+  color: var(--text-secondary);
+}
+.balance-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+/* 测试连接按钮：accent 描边，突出主操作（与输入框旁 suffix 按钮区分） */
+.f-settings-btn--test {
+  align-self: flex-start;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-glow);
+}
+.f-settings-btn--test:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* 测试结果：成功 accent 绿 / 失败红色（迁移自旧 inline style + class 判定） */
+.test-result {
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.test-result--ok {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.08);
+}
+.test-result--err {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.08);
 }
 </style>

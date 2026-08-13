@@ -276,4 +276,99 @@ describe("SettingsPanel", () => {
     expect(tab.find("input[readonly]").exists()).toBe(true);
     expect(tab.find(".f-settings-btn--suffix svg").exists()).toBe(true);
   });
+
+  // ── 模型与API tab ──
+
+  /** 切到模型与API tab（索引 1）并返回该 tab 容器 */
+  async function switchToModelTab(wrapper: ReturnType<typeof mountPanel>) {
+    await wrapper.findAll(".f-settings-nav-item")[1].trigger("click");
+    return wrapper.find("[data-tab='model']");
+  }
+
+  it("model tab renders api key, kimi key, baseUrl, model select and test button", async () => {
+    const wrapper = mountPanel();
+    const tab = await switchToModelTab(wrapper);
+    expect(tab.text()).toContain("API Key");
+    expect(tab.text()).toContain("Multimodal Model (Cartographer) API Key");
+    expect(tab.text()).toContain("API Base URL");
+    expect(tab.text()).toContain("Model");
+    expect(tab.text()).toContain("Test Connection");
+    expect(tab.text()).toContain("账户余额");
+  });
+
+  it("model tab main model select switches settings.model", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const settings = useSettingsStore();
+    // 找到 label=Model 的字段 → 触发器 → 选 deepseek-v4-flash
+    const fields = wrapper.findAll(".settings-field");
+    const modelField = fields.find((f) => f.find(".settings-field__label").text() === "Model")!;
+    await modelField.find(".settings-select__trigger").trigger("click");
+    const flashItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "deepseek-v4-flash")!;
+    await flashItem.trigger("click");
+    expect(settings.model).toBe("deepseek-v4-flash");
+  });
+
+  it("contextLimit input accepts 128K shorthand on blur", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const settings = useSettingsStore();
+    const clInput = wrapper
+      .findAll("input")
+      .find((el) => (el.element as HTMLInputElement).placeholder.includes("128K"));
+    expect(clInput).toBeTruthy();
+    if (clInput) {
+      await clInput.setValue("128K");
+      await clInput.trigger("blur");
+      expect(settings.contextLimit).toBe(128000);
+    }
+  });
+
+  it("kimi key eye toggles password to text (明文切换)", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    // kimi key 明文切换按钮（aria-label = Show API Key）
+    const eye = wrapper.find("button[aria-label='Show API Key']");
+    expect(eye.exists()).toBe(true);
+    await eye.trigger("click");
+    const kimiInput = wrapper
+      .findAll("input")
+      .find((i) => i.attributes("placeholder") === "sk-..." && i.attributes("type") === "text");
+    expect(kimiInput).toBeTruthy();
+  });
+
+  it("kimi key save button writes provider-configs with restart=true", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "settings:saveProviderConfig") return Promise.resolve({ ok: true });
+      return Promise.resolve({});
+    });
+    // 填入 kimi key：密码输入框有两个（API Key / kimi Key，均 sk-...），取第二个（模型 tab 顺序固定）
+    const passwordInputs = wrapper.findAll("input").filter((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
+    expect(passwordInputs.length).toBe(2);
+    await passwordInputs[1].setValue("sk-kimi-123");
+    // 保存按钮：kimi 区保存（文案 Save，非禁用）
+    const saveBtn = wrapper.findAll("button").find((b) => b.text() === "Save" && !(b.element as HTMLButtonElement).disabled);
+    expect(saveBtn).toBeTruthy();
+    await saveBtn!.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
+    expect(arg.providerId).toBe("moonshotai-cn");
+    expect(arg.apiKey).toBe("sk-kimi-123");
+    expect(arg.restart).toBe(true);
+  });
+
+  it("test connection button exists", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const testBtn = wrapper.findAll("button").find((b) => b.text().includes("Test Connection"));
+    expect(testBtn).toBeTruthy();
+    expect(testBtn!.attributes("disabled")).toBeUndefined();
+  });
 });

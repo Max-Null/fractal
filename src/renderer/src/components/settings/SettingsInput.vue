@@ -9,10 +9,18 @@ defineProps<{
   readonly?: boolean;
 }>();
 
-const emit = defineEmits<{ (e: "update:modelValue", v: string): void }>();
+const emit = defineEmits<{
+  (e: "update:modelValue", v: string): void;
+  // blur 透传：上下文窗口 blur 解析简写（128K/1M）等场景需要原生 blur
+  (e: "blur"): void;
+}>();
 
 function onInput(e: Event) {
   emit("update:modelValue", (e.target as HTMLInputElement).value);
+}
+
+function onBlur() {
+  emit("blur");
 }
 </script>
 
@@ -27,6 +35,7 @@ function onInput(e: Event) {
         :placeholder="placeholder"
         :readonly="readonly"
         @input="onInput"
+        @blur="onBlur"
       />
       <slot name="suffix" />
     </div>
