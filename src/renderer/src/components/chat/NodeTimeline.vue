@@ -3,6 +3,7 @@
 // 数据源：turn（user + 多条 assistant 消息聚合）；节点序列 computed 缓存（D17 流式性能）
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
+import { useSettingsStore } from "@/stores/settings";
 import type { Message, SubTask, TodoItem, FileChangeItem } from "@/stores/chat";
 import { buildTurnNodes, type TimelineNode } from "@/lib/node-timeline";
 import { formatNum } from "@/lib/utils";
@@ -12,6 +13,9 @@ import TodoRecordCard from "./TodoRecordCard.vue";
 import FileChangeCard from "./FileChangeCard.vue";
 
 const { t } = useI18n();
+// 思考节点开关（设置页 5.1）：v-show 控制 thinking 节点显隐——数据不删（切回即恢复），
+// 只隐藏节点项（圆点/竖线/卡片一体），非 thinking 节点不受影响
+const settings = useSettingsStore();
 
 const props = defineProps<{
   turn: { user: Message; assistants: Message[] };
@@ -129,6 +133,7 @@ const tokenLabel = computed(() => {
         // 末节点截断（D1）：最后一项竖线不延伸；有 todo 记录节点时最后节点竖线需延伸到 todo 节点，不截断
         'node-timeline-item--last': i === nodes.length - 1 && !props.todoRecord,
       }"
+      v-show="node.kind !== 'thinking' || settings.showThinking"
     >
       <!-- 时间线圆点（类型色；busy 时琥珀呼吸 D8）；todowrite 更新节点用主题色（待办语义） -->
       <div

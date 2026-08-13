@@ -2,7 +2,9 @@
 import { describe, it, expect } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createI18n } from "vue-i18n";
+import { createPinia, setActivePinia, type Pinia } from "pinia";
 import NodeTimeline from "./NodeTimeline.vue";
+import { useSettingsStore } from "@/stores/settings";
 import type { Message, ContentBlock, SubTask, TodoItem } from "@/stores/chat";
 
 const i18n = createI18n({
@@ -41,7 +43,9 @@ const FileChangeCardStub = {
   template: '<div class="file-change-card-stub">changes={{ changes.length }}</div>',
 };
 
-function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: Message[] }; subtaskState: Record<string, SubTask>; historySubtasks: Record<string, SubTask>; completedAt: number; todoRecord: { endedAt: number; todos: TodoItem[] } }>) {
+function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: Message[] }; subtaskState: Record<string, SubTask>; historySubtasks: Record<string, SubTask>; completedAt: number; todoRecord: { endedAt: number; todos: TodoItem[] } }>, pinia?: Pinia) {
+  const p = pinia ?? createPinia();
+  setActivePinia(p);
   const user: Message = {
     id: "u1", role: "user", content: "你好", thinking: "", toolUses: [], timestamp: 0, isStreaming: false,
   };
@@ -53,7 +57,7 @@ function mountTimeline(overrides: Partial<{ turn: { user: Message; assistants: M
       completedAt: overrides.completedAt,
       todoRecord: overrides.todoRecord,
     },
-    global: { plugins: [i18n], stubs: { NodeCard: NodeCardStub, TodoRecordCard: TodoRecordCardStub, FileChangeCard: FileChangeCardStub } },
+    global: { plugins: [i18n, p], stubs: { NodeCard: NodeCardStub, TodoRecordCard: TodoRecordCardStub, FileChangeCard: FileChangeCardStub } },
   });
 }
 
@@ -329,5 +333,38 @@ describe("NodeTimeline", () => {
     });
     const keys = cards(w).map((c) => c.attributes("data-key"));
     expect(keys).toEqual(["t1", "t2"]);
+  });
+
+  // ═══ 思考节点开关（设置页 5.1）：showThinking=false → thinking 节点项 v-show display:none（数据不删，切回即恢复）═══
+  describe("thinking 节点开关（5.1）", () => {
+    function timelineWithThinking(pinia: Pinia) {
+      return mountTimeline({
+        turn: { user: { id: "u1", role: "user", content: "q", thinking: "", toolUses: [], timestamp: 0, isStreaming: false }, assistants: [asst({ contentBlocks: [thinkingBlock("思考"), textBlock("回答")] })] },
+      }, pinia);
+    }
+
+    it("showThinking=false → thinking 节点项 display:none，text 节点不受影响", () => {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+      useSettingsStore(pinia).showThinking = false;
+      const w = timelineWithThinking(pinia);
+      const items = w.findAll(".node-timeline-item");
+      expect(items).toHaveLength(2);
+      // thinking 节点项隐藏（v-show 保留 DOM）；text 节点项正常
+      expect(items[0].attributes("style")).toContain("display: none");
+      expect(items[1].attributes("style")).toBeUndefined();
+      // 数据仍在：NodeCard 仍渲染 thinking 变体
+      expect(cards(w)[0].attributes("data-kind")).toBe("thinking");
+    });
+
+    it("showThinking=true（默认）→ thinking 节点项可见", () => {
+      const pinia = createPinia();
+      setActivePinia(pinia);
+      useSettingsStore(pinia).showThinking = true;
+      const w = timelineWithThinking(pinia);
+      const items = w.findAll(".node-timeline-item");
+      expect(items).toHaveLength(2);
+      expect(items[0].attributes("style")).toBeUndefined();
+    });
   });
 });
