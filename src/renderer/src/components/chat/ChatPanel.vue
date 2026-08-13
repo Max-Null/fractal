@@ -26,9 +26,6 @@ import {
   listMessages,
   writeFile,
   loadSessionLogs,
-  readServeLog,
-  readRendererLog,
-  getAppInfo,
   openDialog,
   saveDialog,
   compactSession,
@@ -46,6 +43,7 @@ import ModalShell from "@/components/shared/ModalShell.vue";
 import ConfirmDialog from "@/components/shared/ConfirmDialog.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import ChatTimelineNav from "./ChatTimelineNav.vue";
+import DiagnosticsModal from "./DiagnosticsModal.vue";
 import { useCommandPaletteBus, useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import TodoPanel from "./TodoPanel.vue";
 import NodeTimeline from "./NodeTimeline.vue";
@@ -96,90 +94,6 @@ const activeToolName = computed(() => {
   // executionDurationMs 在下一段思考/文本开始时由 markThinkingStart 赋值
   return last.executionDurationMs === undefined ? toolLabel(last.name) : undefined;
 });
-
-// ── 诊断面板（方案 D7：调试面板 → 用户反馈通道「诊断信息」）──
-
-// 复制文本到剪贴板（textarea 兼容法，无 navigator.clipboard 权限问题）
-function copyText(text: string) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  document.body.appendChild(ta);
-  ta.select();
-  document.execCommand('copy');
-  document.body.removeChild(ta);
-}
-
-// 复制当前标签页内容（事件日志=会话 debug 行；引擎日志=serve.log 尾部；控制台=renderer.log 尾部）
-function copyDebugLog() {
-  const text = debugTab.value === 'events' ? debugLog.lines.value.join('\n')
-    : debugTab.value === 'serve' ? serveLogLines.value.join('\n')
-    : rendererLogLines.value.join('\n');
-  copyText(text);
-  showStatus(t('chat.copied'));
-}
-
-// 复制诊断信息：应用名 + 版本 + serve.log 尾部（用户反馈通道；提示隐私——日志含本地路径）
-async function copyDiagnostics() {
-  try {
-    const [info, lines] = await Promise.all([getAppInfo(), readServeLog(500)]);
-    const body = [`${info.name} v${info.version}`, '', ...lines].join('\n');
-    copyText(body);
-    showStatus(`${t('chat.copied')} — ${t('chat.debugPrivacyHint')}`);
-  } catch (e) {
-    showStatus(t('status.exportFail', { error: String(e) }));
-  }
-}
-
-// ── 诊断面板标签页（事件日志 debugLog / 引擎日志 serve.log / 控制台日志 renderer.log）──
-const debugTab = ref<'events' | 'serve' | 'renderer'>('events');
-const serveLogLines = ref<string[]>([]);
-const serveLogLoading = ref(false);
-const serveLogError = ref('');
-const serveLogPre = ref<HTMLElement | null>(null);
-const rendererLogLines = ref<string[]>([]);
-const rendererLogLoading = ref(false);
-const rendererLogError = ref('');
-const rendererLogPre = ref<HTMLElement | null>(null);
-
-async function switchDebugTab(tab: 'events' | 'serve' | 'renderer') {
-  debugTab.value = tab;
-  // 进入引擎日志页即拉取尾部 500 行（面板不自动轮询，刷新按钮重读——原型 4.3）
-  if (tab === 'serve') await loadServeLog();
-  // 控制台日志页同理（renderer.log 仅调试模式有内容——主进程 debug:console 落盘）
-  if (tab === 'renderer') await loadRendererLog();
-}
-
-async function loadServeLog() {
-  serveLogLoading.value = true;
-  try {
-    serveLogLines.value = await readServeLog(500);
-    serveLogError.value = '';
-  } catch (e) {
-    // 读取失败 → 提示错误 + 保留旧内容 + 可再点刷新（原型 4.3）
-    serveLogError.value = String(e);
-  } finally {
-    serveLogLoading.value = false;
-    // 超长自动滚到底（原型 3.2：只读代码块超长自动滚动到底部）
-    nextTick().then(() => {
-      if (serveLogPre.value) serveLogPre.value.scrollTop = serveLogPre.value.scrollHeight;
-    });
-  }
-}
-
-async function loadRendererLog() {
-  rendererLogLoading.value = true;
-  try {
-    rendererLogLines.value = await readRendererLog(500);
-    rendererLogError.value = '';
-  } catch (e) {
-    rendererLogError.value = String(e);
-  } finally {
-    rendererLogLoading.value = false;
-    nextTick().then(() => {
-      if (rendererLogPre.value) rendererLogPre.value.scrollTop = rendererLogPre.value.scrollHeight;
-    });
-  }
-}
 
 // ── Attached files ──
 const attachedFiles = ref<AttachedFile[]>([]);
@@ -1337,77 +1251,11 @@ watch(
     />
     </div>
 
-    <!-- 诊断面板（方案 D7：调试 → 用户反馈通道「诊断信息」；两标签页 事件日志/引擎日志，绝对定位弹出 + 点击外部关闭） -->
-    <Teleport to="body">
-      <div
-        v-if="debugLog.visible.value"
-        class="fixed inset-0 z-40"
-        @click="debugLog.visible.value = false"
-      >
-        <div
-          @click.stop
-          class="attach-bar"
-        >
-          <div class="system-msg-bar" style="background: var(--bg-surface); border: 1px solid var(--border-dim); box-shadow: 0 2px 6px rgba(0,0,0,0.15)">
-            <span class="text-[0.786rem]" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
-            <span class="flex-1"></span>
-            <!-- 复制诊断信息：应用名 + 版本 + serve.log 尾部打包（用户反馈通道，含隐私提示） -->
-            <!-- icon-btn-sm 固定 14×14px，不适用于文本按钮（汉字塞入窄容器 → 逐字竖排，2026-08-11 修复） -->
-            <button @click="copyDiagnostics" class="cursor-pointer px-1.5 py-0.5 rounded text-[0.786rem] transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugCopyDiag')">
-              {{ $t('chat.debugCopyDiag') }}
-            </button>
-            <!-- 复制当前标签页内容 -->
-            <button @click="copyDebugLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.copy')">
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-            </button>
-            <button @click="debugLog.visible.value = false" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.close')">✕</button>
-          </div>
-          <!-- 标签页：事件日志（当前会话）/ 引擎日志（全局 serve.log） -->
-          <div class="flex items-center gap-1 px-3 pt-2" style="border-bottom: 1px solid var(--border-dim)">
-            <button
-              @click="switchDebugTab('events')"
-              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
-              :style="debugTab === 'events' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
-            >{{ $t('chat.debugLabel') }}</button>
-            <button
-              @click="switchDebugTab('serve')"
-              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
-              :style="debugTab === 'serve' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
-            >{{ $t('chat.debugServeTab') }}</button>
-            <button
-              @click="switchDebugTab('renderer')"
-              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
-              :style="debugTab === 'renderer' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
-            >{{ $t('chat.debugRendererTab') }}</button>
-            <span class="flex-1"></span>
-            <!-- 引擎日志页：刷新重读 serve.log 尾部（面板不自动轮询，原型 4.3）；控制台页同（renderer.log） -->
-            <button v-if="debugTab === 'serve'" @click="loadServeLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugRefresh')">🔄</button>
-            <button v-else-if="debugTab === 'renderer'" @click="loadRendererLog" class="icon-btn-sm cursor-pointer" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugRefresh')">🔄</button>
-          </div>
-          <!-- 内容区：事件日志 = debugLog 行；引擎日志 = serve.log 尾部只读（超长自动滚到底） -->
-          <pre v-if="debugTab === 'events'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); color:var(--text-muted); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">{{ debugLog.lines.value.join('\n') }}</pre>
-          <div v-else-if="debugTab === 'serve'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
-            <pre v-if="serveLogLines.length > 0" ref="serveLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ serveLogLines.join('\n') }}</pre>
-            <div v-else class="px-3 py-3 text-[0.786rem]" style="color:var(--text-muted)">
-              <span v-if="serveLogLoading">{{ $t('chat.loading') }}</span>
-              <span v-else-if="serveLogError">{{ serveLogError }}</span>
-              <span v-else>{{ $t('chat.debugNoServeLog') }}</span>
-            </div>
-          </div>
-          <!-- 控制台日志：渲染层 console 桥落盘（仅调试模式有内容——--debug 启动后 renderer.log） -->
-          <div v-else-if="debugTab === 'renderer'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
-            <pre v-if="rendererLogLines.length > 0" ref="rendererLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ rendererLogLines.join('\n') }}</pre>
-            <div v-else class="px-3 py-3 text-[0.786rem]" style="color:var(--text-muted)">
-              <span v-if="rendererLogLoading">{{ $t('chat.loading') }}</span>
-              <span v-else-if="rendererLogError">{{ rendererLogError }}</span>
-              <span v-else>{{ $t('chat.debugNoRendererLog') }}</span>
-            </div>
-          </div>
-          <!-- 底部提示：日志用于排查，可复制发给开发者 -->
-          <div class="px-3 py-1.5 text-[0.714rem]" style="color:var(--text-muted)">{{ $t('chat.debugFooter') }}</div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 诊断信息弹窗：独立组件（重构后方案——原 Teleport+attach-bar 借用样式移除，组件内部自包含） -->
+    <DiagnosticsModal
+      :open="debugLog.visible.value"
+      @close="debugLog.visible.value = false"
+    />
 
     <!-- ═══ 底部通知区：审批条 + 工作清单 ═══ -->
     <div class="bottom-notices">

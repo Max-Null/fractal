@@ -844,9 +844,9 @@ describe("ChatPanel 弹窗", () => {
       await vi.advanceTimersByTimeAsync(0);
       await vi.advanceTimersByTimeAsync(35_000);
 
-      // 诊断面板自动打开（Teleport stub 渲染进组件树：visible=true → .attach-bar 出现；
+      // 诊断面板自动打开（ModalShell stub v-if=open 渲染进组件树：visible=true → .diag-tabs 出现；
       // useDebugLog 是工厂函数，visible 为实例私有——只能通过组件 DOM 断言）
-      expect(wrapper.find(".attach-bar").exists()).toBe(true);
+      expect(wrapper.find(".diag-tabs").exists()).toBe(true);
       // 警告行写入共享 store（按会话分桶；exportLines 直接读共享 store）
       const { useDebugLog } = await import("@/composables/useDebugLog");
       const lines = useDebugLog().exportLines("ses-1");
