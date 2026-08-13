@@ -6,6 +6,7 @@ import { useChatStore } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
 import { testConnection, sendMessage, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
+import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { useSessionStore } from "@/stores/session";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
 import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff, Search } from "lucide-vue-next";
@@ -31,6 +32,8 @@ const { t } = useI18n();
 const settings = useSettingsStore();
 const chat = useChatStore();
 const sessionStore = useSessionStore();
+/** 图片头像预览 URL（与消息区共用 composable）；空 = 未设置/路径获取失败 → 不渲染预览 */
+const { avatarImageUrl } = useAvatarImageUrl();
 
 // ── 布局：左侧导航 tab（6 项，lucide 图标）──
 // 路由离开设置页 → 重置到第一个 tab（下次进入从通用开始）
@@ -510,6 +513,7 @@ onMounted(async () => {
                     </button>
                   </div>
                   <div class="avatar-image-row">
+                    <img v-if="avatarImageUrl" class="avatar-preview" :src="avatarImageUrl" alt="" />
                     <span v-if="settings.avatarImage" class="avatar-image-status">
                       {{ $t('settings.avatarImageSet', { path: settings.avatarImage }) }}
                     </span>
@@ -877,7 +881,7 @@ onMounted(async () => {
 }
 
 .f-settings-title {
-  font-size: 18px;
+  font-size: 1.286rem;
   font-weight: 600;
   letter-spacing: -0.01em;
   color: var(--text-bright);
@@ -907,7 +911,7 @@ onMounted(async () => {
   gap: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-secondary);
   cursor: pointer;
   transition: background 150ms, color 150ms;
@@ -939,7 +943,7 @@ onMounted(async () => {
 
 /* tab 占位（后续任务填充，阶段 4 骨架期展示） */
 .f-settings-tab-placeholder {
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
 }
 
@@ -961,7 +965,7 @@ onMounted(async () => {
   border: 1px solid var(--border-default);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 0.857rem;
   cursor: pointer;
   transition: border-color 150ms, color 150ms;
 }
@@ -1011,10 +1015,19 @@ onMounted(async () => {
   gap: 8px;
   margin-top: 10px;
 }
+/* 头像图片预览：圆形 40px 缩略图，object-fit 裁剪适配方形原图 */
+.avatar-preview {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border-dim);
+  flex-shrink: 0;
+}
 .avatar-image-status {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -1026,7 +1039,7 @@ onMounted(async () => {
 
 /* 提示文案（工作目录说明等）：12px 次级色 */
 .f-settings-hint {
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -1037,13 +1050,13 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 .balance-label {
   color: var(--text-secondary);
 }
 .balance-value {
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 600;
   color: var(--text-bright);
 }
@@ -1052,7 +1065,7 @@ onMounted(async () => {
 .f-settings-btn--test {
   align-self: flex-start;
   padding: 8px 18px;
-  font-size: 13px;
+  font-size: 0.929rem;
   font-weight: 500;
   color: var(--accent);
   border-color: var(--accent);
@@ -1067,7 +1080,7 @@ onMounted(async () => {
 .test-result {
   padding: 8px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.5;
 }
 .test-result--ok {
@@ -1105,11 +1118,11 @@ onMounted(async () => {
   padding: 6px 0;
 }
 .about-label {
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
 }
 .about-value {
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
   color: var(--text-bright);
 }

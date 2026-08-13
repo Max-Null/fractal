@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import type { Message } from "@/stores/chat";
-import { ref, computed, nextTick, watch } from "vue";
+import { ref, computed, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { isImageFile, useFilePreview } from "@/composables/useFilePreview";
 import { useSlashCommands } from "@/composables/useSlashCommands";
+import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { useSettingsStore } from "@/stores/settings";
-import { getAvatarPath } from "@/lib/electron-bridge";
 import { avatarIconMap } from "@/lib/avatar-icons";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 
@@ -21,32 +21,8 @@ const userDisplayName = computed(() => settings.nickname.trim() || "我");
 const userAvatar = computed(() => settings.avatar.trim() || "我");
 /** 图标头像：ui.avatar 是 lucide 图标 id 时解析为组件；否则 null（旧 emoji 字符走字符兜底） */
 const avatarIcon = computed(() => avatarIconMap[settings.avatar.trim()] ?? null);
-/** 图片头像 file:// URL（异步取 getAvatarPath 后拼接）；空 = 未设置/路径获取失败 → 回退 emoji 文字头像 */
-const avatarImageUrl = ref("");
-watch(
-  () => settings.avatarImage,
-  async () => {
-    if (!settings.avatarImage) {
-      avatarImageUrl.value = "";
-      return;
-    }
-    try {
-      // 文件名白名单校验：avatarImage 只能由后端 avatar:pick 写成 avatar.{png|jpg|jpeg|webp}，
-      // 防止 settings.json 被 JSON 编辑器/agent 手改注入 ../../ 路径遍历加载 userData 任意文件（军师审查 2026-08-13）
-      if (!/^avatar\.(png|jpg|jpeg|webp)$/.test(settings.avatarImage)) {
-        avatarImageUrl.value = "";
-        return;
-      }
-      // Windows 路径 → file:/// URL：反斜杠转正斜杠 + encodeURI 编码空格/中文（冒号/斜杠保留，供 file 协议解析）
-      const dir = await getAvatarPath();
-      avatarImageUrl.value = "file:///" + encodeURI(dir.replace(/\\/g, "/") + "/" + settings.avatarImage);
-    } catch {
-      // 路径 IPC 失败（开发/测试环境）→ 回退 emoji，不显示破图
-      avatarImageUrl.value = "";
-    }
-  },
-  { immediate: true },
-);
+/** 图片头像 file:// URL（异步取 getAvatarPath 后拼接）；空 = 未设置/路径获取失败 → 回退 emoji 文字/图标头像 */
+const { avatarImageUrl } = useAvatarImageUrl();
 /** 用户名标签：昵称非空时「昵称 · 时间」，空则只显示时间（避免「我 · 时间」冗余前缀） */
 const userNameLabel = computed(() =>
   settings.nickname.trim() ? `${userDisplayName.value} · ${timeLabel.value}` : timeLabel.value,
@@ -170,7 +146,7 @@ const badgeVariant = computed(() => {
     <div :class="['flex-1 min-w-0 space-y-2', message.role === 'user' ? userBodyClass : '']">
       <!-- Name + actions：用户消息显示昵称（设置后）+ 发送时间（HH:mm），assistant 固定 '分形' -->
       <div class="flex items-center gap-1.5 px-0.5">
-        <span class="text-[11px] font-medium" style="color:var(--text-muted)">
+        <span class="text-[0.786rem] font-medium" style="color:var(--text-muted)">
           {{ message.role === 'user' ? userNameLabel : '分形' }}
         </span>
         <!-- Copy -->
@@ -284,7 +260,7 @@ const badgeVariant = computed(() => {
             <div
               v-for="att in message.attachments"
               :key="att.path"
-              class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] cursor-pointer transition-colors hover:brightness-110 shrink-0"
+              class="flex items-center gap-1 px-1.5 py-0.5 rounded text-[0.714rem] cursor-pointer transition-colors hover:brightness-110 shrink-0"
               style="background: rgba(59,130,246,0.12); color: var(--text-secondary)"
               @click="emit('previewFile', att)"
             >
@@ -333,7 +309,7 @@ const badgeVariant = computed(() => {
 .msg-badge {
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   line-height: 1.5;
   user-select: none;
@@ -370,7 +346,7 @@ const badgeVariant = computed(() => {
   width: 2rem; height: 2rem;
   flex-shrink: 0; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 600;
+  font-size: 0.786rem; font-weight: 600;
 }
 .msg-avatar--user {
   /* 与 .assistant-col__avatar 同款（样式统一反馈）：accent 渐变圆 + 白字，尺寸 2rem 一致 */
@@ -383,7 +359,7 @@ const badgeVariant = computed(() => {
 }
 /* emoji 头像：2rem 圆内 11px 太小，放大到 16px 并去掉字重（emoji 无字体粗细概念） */
 .msg-avatar--emoji {
-  font-size: 16px;
+  font-size: 1.143rem;
   font-weight: 400;
 }
 /* 图片头像（5.2）：img 填满 2rem 圆 + 圆形裁切；父容器渐变背景被覆盖（object-fit: cover） */

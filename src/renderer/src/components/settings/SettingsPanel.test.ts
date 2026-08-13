@@ -13,6 +13,16 @@ const { mockRouter } = vi.hoisted(() => ({
 }));
 vi.mock("vue-router", () => ({ useRouter: () => mockRouter }));
 
+// 头像图片预览（5.3）：mock getAvatarPath——useAvatarImageUrl 内部经该模块拼 file:// URL；
+// 保留其余实际实现（testConnection 等仍走 window.electronBridge，见 beforeEach）
+const { getAvatarPathMock } = vi.hoisted(() => ({
+  getAvatarPathMock: vi.fn(),
+}));
+vi.mock("@/lib/electron-bridge", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/electron-bridge")>("@/lib/electron-bridge");
+  return { ...actual, getAvatarPath: getAvatarPathMock };
+});
+
 const i18n = createI18n({
   legacy: false,
   locale: "en",
@@ -162,6 +172,7 @@ function mountPanel() {
 describe("SettingsPanel", () => {
   beforeEach(async () => {
     localStorage.clear();
+    getAvatarPathMock.mockReset();
     // mock electronBridge：默认模型（flash）variants 返回 3 档——
     // store 的 watch(model, immediate) 经此拉取，effort 下拉显示、触发器计数保持 6；
     // app:getInfo 返回三版本（关于区 onMounted 异步拉取）
@@ -308,15 +319,37 @@ describe("SettingsPanel", () => {
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 
+  // ── 5.3 头像图片预览（avatarImage 非空 → .avatar-preview img；空 → 不渲染）──
+
+  it("avatarImage 非空且 getAvatarPath 成功 → 渲染 .avatar-preview 预览图（file:// + 文件名）", async () => {
+    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    settings.avatarImage = "avatar.png";
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const preview = wrapper.find(".avatar-preview");
+    expect(preview.exists()).toBe(true);
+    expect(preview.attributes("src")).toContain("file:///");
+    expect(preview.attributes("src")).toContain("avatar.png");
+  });
+
+  it("avatarImage 为空 → 不渲染 .avatar-preview 预览图", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    settings.avatarImage = "";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".avatar-preview").exists()).toBe(false);
+  });
+
   it("avatar icon click sets avatar and clears avatarImage", async () => {
     const wrapper = mountPanel();
     const settings = useSettingsStore();
     settings.avatarImage = "avatar.png";
     const clearSpy = vi.spyOn(settings, "clearAvatar").mockResolvedValue({ ok: true });
     await wrapper.vm.$nextTick();
-    // 点击第一个 lucide 图标（cat → ui.avatar 存图标 id）
+    // 点击第一个 lucide 图标（bot → ui.avatar 存图标 id）
     await wrapper.find(".avatar-icon-item").trigger("click");
-    expect(settings.avatar).toBe("cat");
+    expect(settings.avatar).toBe("bot");
     // 选图标时图片头像被清除（图片优先于图标，避免显示歧义）
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
