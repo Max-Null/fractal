@@ -755,6 +755,54 @@ describe('applyModelAliases', () => {
     const shuang = await fsp.readFile(join(getPresetTarget(userData), 'agents', '双星.md'), 'utf-8')
     expect(shuang).toContain('model: "deepseek/deepseek-v4-pro"')
   })
+
+  it('inherit 覆盖后删除覆盖 → 恢复继承（删除此前写入的白名单 model 行）', async () => {
+    const file = join(getPresetTarget(userData), 'agents', '军师.md')
+    await fsp.writeFile(
+      file,
+      '---\ndescription: 战略远见\nmode: subagent\ntemperature: 0.3\npermission:\n  read: allow\n---\n',
+      'utf-8'
+    )
+    // 第一次：覆盖军师为 pro → 在 mode 行后插入 model 行
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      JSON.stringify({ agentModelOverrides: { '军师': 'deepseek/deepseek-v4-pro' } }),
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    expect(await fsp.readFile(file, 'utf-8')).toContain('model: "deepseek/deepseek-v4-pro"')
+    // 第二次：删除覆盖（空表）→ model 行被删除，恢复继承；不留多余空行
+    await fsp.writeFile(join(userData, 'settings.json'), '{}', 'utf-8')
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const after = await fsp.readFile(file, 'utf-8')
+    expect(after).not.toContain('model:')
+    expect(after).toContain('mode: subagent\ntemperature: 0.3')
+  })
+
+  it('inherit 无覆盖但 model 行是白名单值 → 删除（applyModelAliases 此前写入的残留）', async () => {
+    const file = join(getPresetTarget(userData), 'agents', '军师.md')
+    await fsp.writeFile(
+      file,
+      '---\ndescription: 战略远见\nmode: subagent\nmodel: "deepseek/deepseek-v4-pro"\ntemperature: 0.3\n---\n',
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const after = await fsp.readFile(file, 'utf-8')
+    expect(after).not.toContain('model:')
+    expect(after).toContain('mode: subagent\ntemperature: 0.3')
+  })
+
+  it('inherit 无覆盖但 model 行是用户手动写的非白名单值 → 保留不删', async () => {
+    const file = join(getPresetTarget(userData), 'agents', '军师.md')
+    await fsp.writeFile(
+      file,
+      '---\ndescription: 战略远见\nmode: subagent\nmodel: "gpt-4o"\ntemperature: 0.3\n---\n',
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const after = await fsp.readFile(file, 'utf-8')
+    expect(after).toContain('model: "gpt-4o"')
+  })
 })
 
 // 契约清单（agents-manifest.json）驱动：oc-plus sync-to-fractal.mjs 生成，fractal 只消费

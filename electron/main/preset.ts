@@ -513,14 +513,23 @@ export async function applyModelAliases(
     // 覆盖命中白名单才生效；白名单外 → 回退槽位逻辑
     const overrideOk =
       typeof override === 'string' && !!override && AGENT_MODEL_WHITELIST[agentName]?.includes(override) === true
-    // inherit 槽位且无有效覆盖 → 无 model 行继承主模型，跳过不写盘
-    if (!overrideOk && rule.slot === 'inherit') continue
     const file = join(agentsDir, rule.file)
     let raw: string
     try {
       raw = await fsp.readFile(file, 'utf-8')
     } catch {
       // agent 文件不存在（用户删除预置 agent）→ 跳过
+      continue
+    }
+    // inherit 槽位且无有效覆盖 → 恢复继承：删除此前 applyModelAliases 写入的白名单 model 行
+    // （值非白名单 = 用户手动写，保留不删）；无 model 行 → 无操作
+    if (!overrideOk && rule.slot === 'inherit') {
+      const m = raw.match(/^model: "(.*)"\s*$/m)
+      if (m && AGENT_MODEL_WHITELIST[agentName]?.includes(m[1]) === true) {
+        // 整行删除（含行尾换行，不留空行）；幂等：无残留时 cleaned === raw 不写盘
+        const cleaned = raw.replace(/^model: ".*"\n?/m, '')
+        if (cleaned !== raw) await fsp.writeFile(file, cleaned, 'utf-8')
+      }
       continue
     }
     const value = overrideOk ? override : slotValues[rule.slot]
