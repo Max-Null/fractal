@@ -7,7 +7,7 @@ import { useI18n } from "vue-i18n";
 import { testConnection, sendMessage, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { useSessionStore } from "@/stores/session";
-import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info } from "lucide-vue-next";
+import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff, Search } from "lucide-vue-next";
 
 const appVersion = __APP_VERSION__;
 import { translateError } from "@/lib/utils";
@@ -16,6 +16,10 @@ import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import SettingsJsonEditor from "./SettingsJsonEditor.vue";
+import SettingsSelect from "./SettingsSelect.vue";
+import SettingsInput from "./SettingsInput.vue";
+import SettingsToggle from "./SettingsToggle.vue";
+import SettingsSection from "./SettingsSection.vue";
 import changelogRaw from "../../../docs/变更记录.md?raw";
 
 // Windows CRLF → LF 归一化，防止 MarkdownRenderer 解析失败
@@ -198,35 +202,46 @@ async function handleSmallModelSelect(v: string) {
   }
 }
 
-// ── 语言 / 主题选项 ──
-interface SimpleOption<V extends string> { value: V; labelKey: string }
-const langOptions: SimpleOption<"zh" | "en">[] = [
-  { value: "zh", labelKey: "中文" },
-  { value: "en", labelKey: "English" },
-];
-const themeOptions: SimpleOption<"dark" | "light" | "system">[] = [
-  { value: "dark", labelKey: "settings.themeDark" },
-  { value: "light", labelKey: "settings.themeLight" },
-  { value: "system", labelKey: "settings.themeSystem" },
-];
-const currentLang = computed(() => langOptions.find(o => o.value === settings.locale)!);
-const currentTheme = computed(() => themeOptions.find(o => o.value === settings.theme)!);
-const fontSizeOptions: SimpleOption<"small" | "medium" | "large">[] = [
-  { value: "small", labelKey: "settings.fontSizeSmall" },
-  { value: "medium", labelKey: "settings.fontSizeMedium" },
-  { value: "large", labelKey: "settings.fontSizeLarge" },
-];
-const currentFontSize = computed(() => fontSizeOptions.find(o => o.value === settings.fontSize)!);
+// ── 语言 / 主题 / 字号 / 排布选项（SettingsSelect 直接消费 {value,label}；i18n key 即时翻译）──
+const langOptions = computed(() => [
+  { value: "zh", label: "中文" },
+  { value: "en", label: "English" },
+]);
+const themeOptions = computed(() => [
+  { value: "dark", label: t("settings.themeDark") },
+  { value: "light", label: t("settings.themeLight") },
+  { value: "system", label: t("settings.themeSystem") },
+]);
+const currentLang = computed(() => langOptions.value.find(o => o.value === settings.locale)!);
+const currentTheme = computed(() => themeOptions.value.find(o => o.value === settings.theme)!);
+const fontSizeOptions = computed(() => [
+  { value: "small", label: t("settings.fontSizeSmall") },
+  { value: "medium", label: t("settings.fontSizeMedium") },
+  { value: "large", label: t("settings.fontSizeLarge") },
+]);
+const currentFontSize = computed(() => fontSizeOptions.value.find(o => o.value === settings.fontSize)!);
 
 // ── 消息排布选项（B1：ui.messageLayout，原型 v0.4 文案；split=现状默认）──
-const layoutOptions: SimpleOption<"left" | "split">[] = [
-  { value: "left", labelKey: "settings.layoutLeft" },
-  { value: "split", labelKey: "settings.layoutSplit" },
-];
-const currentLayout = computed(() => layoutOptions.find(o => o.value === settings.messageLayout)!);
+const layoutOptions = computed(() => [
+  { value: "left", label: t("settings.layoutLeft") },
+  { value: "split", label: t("settings.layoutSplit") },
+]);
+const currentLayout = computed(() => layoutOptions.value.find(o => o.value === settings.messageLayout)!);
 
 // ── 头像 emoji 快捷选择（B1：ui.avatar，原型 v0.15 avatar-picker 简化版：常用 emoji 点选 + 手动输入）──
 const AVATAR_EMOJIS = ["🐱", "🐶", "🦊", "🐼", "🐸", "🐙", "🦋", "🌻", "🚀", "⭐", "🌈", "🍀"];
+
+// 选择 emoji 头像：写入 store（图片头像优先于 emoji——选择 emoji 时同时清除已存图片，避免显示歧义）
+async function handleAvatarEmoji(e: string) {
+  settings.avatar = e;
+  if (settings.avatarImage) await settings.clearAvatar();
+}
+
+// 上传图片头像：调 store.pickAvatar（bridge 弹系统文件选择框，成功写 avatarImage）
+async function handleAvatarPick() {
+  const r = await settings.pickAvatar();
+  if (!r.ok) console.error("[settings] 头像图片选择失败", r);
+}
 
 // ── OC 可执行文件路径浏览（B1：engine.opencodePath；空=内置 sidecar/系统自动解析）──
 async function handleOpencodePathPick() {
@@ -386,9 +401,84 @@ onMounted(async () => {
         </nav>
 
         <main class="f-settings-content">
-          <!-- 通用（4.2 填充） -->
+          <!-- 通用：语言/主题/字号/消息排布/昵称/头像/工作目录 -->
           <section v-if="activeTab === 'general'" data-tab="general" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">通用设置</p>
+            <SettingsSection title="通用">
+              <div class="f-settings-fields">
+                <SettingsSelect v-model="settings.locale" :label="$t('settings.language')" :options="langOptions" />
+                <SettingsSelect v-model="settings.theme" :label="$t('settings.theme')" :options="themeOptions" />
+                <SettingsSelect v-model="settings.fontSize" :label="$t('settings.fontSize')" :options="fontSizeOptions" />
+                <SettingsSelect v-model="settings.messageLayout" :label="$t('settings.messageLayout')" :options="layoutOptions" />
+              </div>
+            </SettingsSection>
+
+            <SettingsSection title="个人资料">
+              <div class="f-settings-fields">
+                <SettingsInput
+                  v-model="settings.nickname"
+                  :label="$t('settings.nickname')"
+                  :placeholder="$t('settings.nicknamePlaceholder')"
+                />
+                <!-- 头像：emoji 快捷选择 + 手动输入 + 图片上传/清除（avatarImage 图片优先于 emoji 显示） -->
+                <div class="settings-field">
+                  <label class="settings-field__label">{{ $t('settings.avatar') }}</label>
+                  <div class="avatar-emoji-grid">
+                    <button
+                      v-for="e in AVATAR_EMOJIS"
+                      :key="e"
+                      type="button"
+                      class="avatar-emoji-item"
+                      :class="{ 'avatar-emoji-item--active': settings.avatar === e && !settings.avatarImage }"
+                      @click="handleAvatarEmoji(e)"
+                    >
+                      {{ e }}
+                    </button>
+                  </div>
+                  <SettingsInput
+                    v-model="settings.avatar"
+                    :label="$t('settings.avatar') + ' (emoji)'"
+                    :placeholder="$t('settings.avatarPlaceholder')"
+                  />
+                  <div class="avatar-image-row">
+                    <span v-if="settings.avatarImage" class="avatar-image-status">
+                      图片头像：{{ settings.avatarImage }}
+                    </span>
+                    <span v-else class="avatar-image-status avatar-image-status--empty">
+                      未设置图片头像（{{ settings.avatar.trim() || '我' }}）
+                    </span>
+                    <button type="button" class="f-settings-btn" @click="handleAvatarPick">
+                      <ImagePlus :size="14" /> 上传
+                    </button>
+                    <button
+                      v-if="settings.avatarImage"
+                      type="button"
+                      class="f-settings-btn f-settings-btn--danger"
+                      @click="settings.clearAvatar()"
+                    >
+                      <Trash2 :size="14" /> 清除
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </SettingsSection>
+
+            <SettingsSection :title="$t('settings.workspaceTitle')">
+              <div class="f-settings-fields">
+                <SettingsInput
+                  :model-value="settings.cwd"
+                  :label="$t('settings.workspaceLabel')"
+                  :placeholder="$t('settings.workspacePlaceholder')"
+                  readonly
+                >
+                  <template #suffix>
+                    <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleWorkspacePick">
+                      <FolderOpen :size="14" />
+                    </button>
+                  </template>
+                </SettingsInput>
+                <p class="f-settings-hint">{{ $t('settings.workspaceHint') }}</p>
+              </div>
+            </SettingsSection>
           </section>
 
           <!-- 模型与API（4.3 填充） -->
@@ -525,6 +615,93 @@ onMounted(async () => {
 /* tab 占位（后续任务填充，阶段 4 骨架期展示） */
 .f-settings-tab-placeholder {
   font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* ── 通用 tab 字段 ── */
+/* 字段容器：统一纵向排布（SettingsSelect/Input 根部 .settings-field 已自带 label） */
+.f-settings-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* 通用按钮：lucide 图标 + 文字（上传/清除/后缀按钮共用） */
+.f-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 150ms, color 150ms;
+}
+.f-settings-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* 危险操作（清除头像）：hover 红色提示 */
+.f-settings-btn--danger:hover {
+  border-color: var(--danger, #ef4444);
+  color: var(--danger, #ef4444);
+}
+
+/* 头像 emoji 快捷选择：12 宫格，选中项 accent-glow 高亮 */
+.avatar-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  margin-bottom: 12px;
+}
+.avatar-emoji-item {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1px solid var(--border-dim);
+  background: transparent;
+  font-size: 16px;
+  cursor: pointer;
+  transition: border-color 150ms, background 150ms;
+}
+.avatar-emoji-item:hover {
+  border-color: var(--border-default);
+  background: var(--bg-hover);
+}
+.avatar-emoji-item--active {
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+
+/* 图片头像状态行：文件名 + 上传/清除按钮 */
+.avatar-image-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.avatar-image-status {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avatar-image-status--empty {
+  color: var(--text-muted);
+}
+
+/* 提示文案（工作目录说明等）：12px 次级色 */
+.f-settings-hint {
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--text-muted);
 }
 </style>

@@ -77,6 +77,10 @@ const i18n = createI18n({
         opencodePathDesc: "Full path to opencode.exe; empty = auto-resolve",
         opencodePathPick: "Select opencode executable",
         browseFile: "Browse…",
+        workspaceTitle: "Workspace",
+        workspaceLabel: "Current workspace",
+        workspacePlaceholder: "Not selected (defaults to user home)",
+        workspaceHint: "The AI assistant works in this directory; new sessions take effect after switching",
         logLevel: "Engine Log Level",
         logLevelDesc: "Verbosity of serve output",
         presetSkills: "Preset Skills Pack",
@@ -116,6 +120,9 @@ describe("SettingsPanel", () => {
         // 数据模式切换链路：engine:refresh 成功 + session:list 数组（setDataMode 内部重拉列表）
         if (channel === "engine:refresh") return Promise.resolve({ ok: true });
         if (channel === "session:list") return Promise.resolve([]);
+        // 头像图片：pick 成功返回文件名（avatarImage 状态写入）；clear 成功返回 ok
+        if (channel === "avatar:pick") return Promise.resolve({ ok: true, filename: "avatar.png" });
+        if (channel === "avatar:clear") return Promise.resolve({ ok: true });
         return Promise.resolve({});
       },
       on: () => () => {},
@@ -169,10 +176,11 @@ describe("SettingsPanel", () => {
     for (let i = 0; i < targets.length; i++) {
       await items[i].trigger("click");
       expect(wrapper.find(`[data-tab='${targets[i]}']`).exists()).toBe(true);
-      // 其余 tab 隐藏（v-if/v-else-if 结构：只有当前 section 渲染内容，占位 text 只出现在当前）
-      expect(wrapper.find(".f-settings-tab-placeholder").text()).toContain(
-        i === 0 ? "通用" : i === 1 ? "模型与 API" : i === 2 ? "AI 行为" : i === 3 ? "通知" : i === 4 ? "高级" : "关于",
-      );
+      // 当前 section 渲染内容（占位 text 或真实字段），其余 tab section 不渲染
+      for (let j = 0; j < targets.length; j++) {
+        if (j === i) continue;
+        expect(wrapper.find(`[data-tab='${targets[j]}']`).exists()).toBe(false);
+      }
     }
   });
 
@@ -190,5 +198,82 @@ describe("SettingsPanel", () => {
     const settings = useSettingsStore();
     expect(settings.modelVariants).toEqual(["low", "high", "max"]);
     expect(settings.currentAgent).toBe("双星");
+  });
+
+  // ── 通用 tab：语言/主题/字号/排布/昵称/头像/工作目录 ──
+
+  it("general tab renders language/theme/font/layout selects and nickname input", () => {
+    const wrapper = mountPanel();
+    // 默认就在通用 tab
+    const tab = wrapper.find("[data-tab='general']");
+    expect(tab.text()).toContain("Language");
+    expect(tab.text()).toContain("Theme");
+    expect(tab.text()).toContain("Font Size");
+    expect(tab.text()).toContain("Message Layout");
+    expect(tab.text()).toContain("Nickname");
+  });
+
+  it("general tab language select switches locale in store", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    // 找到语言下拉：settings-field label 为 Language 的触发器
+    const fields = wrapper.findAll(".settings-field");
+    const langField = fields.find((f) => f.find(".settings-field__label").text() === "Language")!;
+    await langField.find(".settings-select__trigger").trigger("click");
+    const items = wrapper.findAll(".settings-select__item");
+    const enItem = items.find((i) => i.text().includes("English"))!;
+    await enItem.trigger("click");
+    expect(settings.locale).toBe("en");
+  });
+
+  it("avatar pick button calls store pickAvatar and shows avatarImage status", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    // spy store.pickAvatar：确认按钮绑定 store 方法（TDD：上传按钮触发 pickAvatar）
+    const pickSpy = vi.spyOn(settings, "pickAvatar").mockResolvedValue({ ok: true, filename: "avatar.png" });
+    const pickBtn = wrapper.find("[data-tab='general'] button.f-settings-btn");
+    expect(pickBtn.text()).toContain("上传");
+    await pickBtn.trigger("click");
+    expect(pickSpy).toHaveBeenCalledTimes(1);
+    // avatarImage 状态展示：初始无图片显示空态提示
+    expect(wrapper.find(".avatar-image-status").text()).toContain("未设置图片头像");
+    // spy 后手动模拟成功写入 avatarImage → 状态变为文件名 + 清除按钮出现
+    settings.avatarImage = "avatar.png";
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find(".avatar-image-status").text()).toContain("图片头像：avatar.png");
+    expect(wrapper.find("button.f-settings-btn--danger").exists()).toBe(true);
+  });
+
+  it("avatar clear button calls store clearAvatar", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    settings.avatarImage = "avatar.png";
+    await wrapper.vm.$nextTick();
+    const clearSpy = vi.spyOn(settings, "clearAvatar").mockResolvedValue({ ok: true });
+    const clearBtn = wrapper.find("button.f-settings-btn--danger");
+    expect(clearBtn.exists()).toBe(true);
+    await clearBtn.trigger("click");
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("avatar emoji click sets avatar and clears avatarImage", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    settings.avatarImage = "avatar.png";
+    const clearSpy = vi.spyOn(settings, "clearAvatar").mockResolvedValue({ ok: true });
+    await wrapper.vm.$nextTick();
+    // 点击第一个 emoji（🐱）
+    await wrapper.find(".avatar-emoji-item").trigger("click");
+    expect(settings.avatar).toBe("🐱");
+    // 选 emoji 时图片头像被清除（图片优先于 emoji，避免显示歧义）
+    expect(clearSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("workspace pick button is wired", async () => {
+    const wrapper = mountPanel();
+    // 工作目录输入框 readonly + 后缀选择按钮（lucide FolderOpen）
+    const tab = wrapper.find("[data-tab='general']");
+    expect(tab.find("input[readonly]").exists()).toBe(true);
+    expect(tab.find(".f-settings-btn--suffix svg").exists()).toBe(true);
   });
 });
