@@ -317,12 +317,14 @@ export async function ensurePresetConfig(
   void installVectorDeps(getPresetTarget(userDataDir)).catch(() => {})
 }
 
-/** 模型槽位：agent 文件 → 对应槽位（HIGH=主模型 / LOW=轻量 / VISION=多模态）；无 model 行的 agent 继承主模型（天然 HIGH）不处理 */
+/** 模型槽位回退规则：agent 文件 → 槽位（HIGH=主模型 / LOW=轻量 / VISION=多模态 / ANTHROPIC=兼容链路 / INHERIT=继承主模型）。
+ * 仅当 agents-manifest.json 缺失/损坏时使用（正常走 manifest 契约）；必须与 manifest 契约槽位一致（2026-08-13 军师审查修正：参谋/军师=inherit，此前误归 low/缺失）。 */
 const MODEL_SLOT_RULES: Array<{ agents: string[]; slot: ModelSlot }> = [
   { agents: ['双星.md'], slot: 'high' },
-  { agents: ['工匠.md', '参谋.md', '助理.md'], slot: 'low' },
+  { agents: ['工匠.md', '助理.md'], slot: 'low' },
   { agents: ['制图师.md'], slot: 'vision' },
-  { agents: ['侦查兵.md'], slot: 'anthropic' }
+  { agents: ['侦查兵.md'], slot: 'anthropic' },
+  { agents: ['军师.md', '参谋.md'], slot: 'inherit' }
 ]
 
 // ── guardian 语义向量依赖按需安装（2026-08-12 定案：安装环境可联网则装，不可用降级 BM25）──

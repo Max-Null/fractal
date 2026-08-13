@@ -857,6 +857,19 @@ describe('readAgentsManifest + 契约驱动槽位替换', () => {
     expect(await readAgentsManifest(presetRoot)).toBeNull()
   })
 
+  it('manifest 缺失 → MODEL_SLOT_RULES 回退：参谋/军师为 inherit 不写 model 行', async () => {
+    // 不写 manifest（presetRoot 下无 agents-manifest.json）→ readAgentsManifest 返回 null 走 MODEL_SLOT_RULES 回退
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash', presetRoot)
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    // inherit 槽位：军师/参谋保持无 model 行（继承主模型，不写盘）
+    expect(await fsp.readFile(join(agentsDir, '军师.md'), 'utf-8')).not.toContain('model:')
+    expect(await fsp.readFile(join(agentsDir, '参谋.md'), 'utf-8')).not.toContain('model:')
+    // low 槽位：工匠写轻量模型
+    expect(await fsp.readFile(join(agentsDir, '工匠.md'), 'utf-8')).toContain('model: "deepseek/deepseek-v4-flash"')
+    // vision 槽位：制图师写视觉模型
+    expect(await fsp.readFile(join(agentsDir, '制图师.md'), 'utf-8')).toContain('model: "moonshotai-cn/kimi-k3"')
+  })
+
   it('契约驱动：anthropic 槽位替换为 ds-anthropic 模型、inherit 槽位不写 model 行', async () => {
     await writeManifest([
       { file: '双星.md', slot: 'high' },
