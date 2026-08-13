@@ -414,6 +414,19 @@ describe("MessageBubble", () => {
     expect(wrapper.find(".msg-avatar-img").exists()).toBe(false);
     expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
   });
+
+  it("avatarImage 非法值（路径遍历）→ 回退 emoji 不构造 file:// URL", async () => {
+    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+    const settings = useSettingsStore();
+    settings.avatarImage = "../../provider-configs.json";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(wrapper.find(".msg-avatar-img").exists()).toBe(false);
+    expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
+  });
 });
 
 /** 等待异步 getAvatarPath IPC 返回（mockResolvedValue 链） */
