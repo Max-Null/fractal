@@ -725,8 +725,13 @@ export const useChatStore = defineStore("chat", () => {
     // startsWith 去重移植自 buildContentBlocks——全量重发（新文本以块已有文本开头）视为
     // 重复增量，只追加增量部分，避免扁平 content 与时间线块重复拼接。
     const blocks = (msg.contentBlocks ||= []);
-    const last = blocks[blocks.length - 1];
+    // 与任一已有 text 块完全重复 → 服务端重放旧文本（2026-08-14 修复：读特殊文件名触发
+    // 事件重放时，原逻辑只比最后一个块——最后块是 tool 会重复建块（时间线节点重复）、
+    // 最后块是 text 会错误拼接，两种都产生重复文字）
+    const dup = blocks.find((b) => b.type === "text" && b.content === text);
+    if (dup) return;
     let append = text;
+    const last = blocks[blocks.length - 1];
     if (last?.type === "text") {
       const old = last.content || "";
       if (text.startsWith(old)) {
@@ -737,6 +742,22 @@ export const useChatStore = defineStore("chat", () => {
         last.content = old + text;
       }
     } else {
+      // 最后块非 text（工具/思考隔断）：回查最后一个 text 块做全量去重——全量增长
+      // （startsWith）追加到该块而非新建重叠块；否则才是真正的新段落 → push 新块
+      let lastText: ContentBlock | undefined;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        if (blocks[i].type === "text") {
+          lastText = blocks[i];
+          break;
+        }
+      }
+      if (lastText && text.startsWith(lastText.content || "")) {
+        const suffix = text.slice((lastText.content || "").length);
+        if (!suffix) return;
+        lastText.content = (lastText.content || "") + suffix;
+        msg.content += suffix;
+        return;
+      }
       blocks.push({ type: "text", content: text });
     }
     msg.content += append;
@@ -748,8 +769,11 @@ export const useChatStore = defineStore("chat", () => {
     // contentBlocks 是顺序真相源（D3）：thinking 块（OC 无标准 thinking 块，NodeTimeline
     // 自定义类型识别用）按 SSE 事件序维护，startsWith 去重逻辑与 appendText 一致。
     const blocks = (msg.contentBlocks ||= []);
-    const last = blocks[blocks.length - 1];
+    // 与任一已有 thinking 块完全重复 → 重放旧思考文本，跳过（与 appendText 同因）
+    const dup = blocks.find((b) => b.type === "thinking" && b.content === thinking);
+    if (dup) return;
     let append = thinking;
+    const last = blocks[blocks.length - 1];
     if (last?.type === "thinking") {
       const old = last.content || "";
       if (thinking.startsWith(old)) {
@@ -760,6 +784,21 @@ export const useChatStore = defineStore("chat", () => {
         last.content = old + thinking;
       }
     } else {
+      // 最后块非 thinking（工具/文本隔断）：回查最后一个 thinking 块做全量去重
+      let lastThinking: ContentBlock | undefined;
+      for (let i = blocks.length - 1; i >= 0; i--) {
+        if (blocks[i].type === "thinking") {
+          lastThinking = blocks[i];
+          break;
+        }
+      }
+      if (lastThinking && thinking.startsWith(lastThinking.content || "")) {
+        const suffix = thinking.slice((lastThinking.content || "").length);
+        if (!suffix) return;
+        lastThinking.content = (lastThinking.content || "") + suffix;
+        msg.thinking += suffix;
+        return;
+      }
       blocks.push({ type: "thinking", content: thinking });
     }
     msg.thinking += append;

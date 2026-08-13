@@ -1247,6 +1247,52 @@ describe("chat store", () => {
     chat.refreshTodoRecords([makeTodoMsg("m2")]);
     expect(chat.todoRecords).toEqual([]);
   });
+
+  it("appendText 工具隔断后重发同内容 → 回查去重，不建重复节点（2026-08-14）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("第一段");
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" } });
+    // 服务端重放较早文本 part（最后块是 tool）——原逻辑 push 重复 text 块 → 时间线节点重复
+    chat.appendText("第一段");
+    const msg = chat.currentAssistantMsg!;
+    const textBlocks = msg.contentBlocks!.filter((b) => b.type === "text");
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0].content).toBe("第一段");
+    expect(msg.content).toBe("第一段");
+  });
+
+  it("appendText 重放早期文本（最后块是 text）→ 跳过不拼接（2026-08-14）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("第一段");
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" } });
+    chat.appendText("第二段"); // 工具隔断后新段落 → 新块
+    // 重放"第一段"（早期文本，最后 text 块是"第二段"）——原逻辑拼接 "第二段第一段"
+    chat.appendText("第一段");
+    const msg = chat.currentAssistantMsg!;
+    const textBlocks = msg.contentBlocks!.filter((b) => b.type === "text");
+    expect(textBlocks).toHaveLength(2);
+    expect(textBlocks[1].content).toBe("第二段");
+    expect(msg.content).toBe("第一段第二段");
+  });
+
+  it("appendText 工具隔断后全量增长 → 追加到前 text 块，不建重叠块（2026-08-14）", () => {
+    const chat = useChatStore();
+    chat.addUserMessage("Hi");
+    chat.startAssistantMessage();
+    chat.appendText("第一段");
+    chat.addToolUse({ id: "t1", name: "Bash", input: { command: "ls" } });
+    // 最后块是 tool，但新文本是"第一段"的全量增长（如 updated 全量重发）
+    chat.appendText("第一段后半");
+    const msg = chat.currentAssistantMsg!;
+    const textBlocks = msg.contentBlocks!.filter((b) => b.type === "text");
+    expect(textBlocks).toHaveLength(1);
+    expect(textBlocks[0].content).toBe("第一段后半");
+    expect(msg.content).toBe("第一段后半");
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════
