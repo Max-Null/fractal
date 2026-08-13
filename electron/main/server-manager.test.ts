@@ -1,11 +1,21 @@
 // server-manager 测试：单例/状态/生命周期（真 spawn serve 场景，CI 跳过）
 // 说明：startServer 会真 spawn 系统 opencode serve（阶段 0 已实测），本地需已装 OC；
 // CI 环境（无 OC / 慢）用 describe.skipIf(process.env.CI) 保护。
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { createServerManager, appendServeLog, closeServeLog, buildServeEnv, type ServerInfo } from './server-manager'
+import { createServerManager, appendServeLog, closeServeLog, buildServeEnv, readServedApiKey, maybeNotifyEngineError, type ServerInfo } from './server-manager'
+
+// 引擎异常通知（D16）：mock electron 的 Notification 构造——createServerManager 用注入 userDataDir 不碰 app，mock 安全
+const { ElectronNotificationMock, NotificationInstanceMock } = vi.hoisted(() => ({
+  ElectronNotificationMock: vi.fn(),
+  NotificationInstanceMock: { show: vi.fn() },
+}))
+vi.mock('electron', () => ({
+  app: { getPath: (name: string) => `C:\\mock-userdata\\${name}` },
+  Notification: ElectronNotificationMock,
+}))
 
 // CI 或无 DEEPSEEK_API_KEY 时不跑真 spawn（serve 冷启动 + 健康检查较慢，且 CI 无 OC）
 const isCi = !!process.env.CI
@@ -155,5 +165,56 @@ describe('appendServeLog（serve stderr 落盘 + 轮转）', () => {
     } finally {
       await fsp.rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+// ── 引擎异常通知（D16，设置页 5.3 触发点 4）：主进程直接 Notification，不经前端 ──
+// 规则：非主动停止 && 非零退出码 && ui.notifications.enabled && engineError 全满足才发；构造/显示失败静默
+describe('maybeNotifyEngineError（引擎异常通知）', () => {
+  beforeEach(() => {
+    ElectronNotificationMock.mockReset()
+    // new 构造必须返回实例对象：普通 function（箭头函数无法作为构造函数，new 会抛错被实现内 catch 吞掉）
+    ElectronNotificationMock.mockImplementation(function () {
+      return NotificationInstanceMock
+    })
+    NotificationInstanceMock.show.mockReset()
+  })
+
+  it('非主动停止 + 非零退出码 + enabled&engineError → 构造 Notification 并 show', () => {
+    maybeNotifyEngineError(1, false, { enabled: true, engineError: true })
+    expect(ElectronNotificationMock).toHaveBeenCalledWith({ title: expect.any(String), body: expect.any(String) })
+    expect(NotificationInstanceMock.show).toHaveBeenCalledOnce()
+  })
+
+  it('主动停止（stopping=true）→ 不通知（正常关闭不算引擎异常）', () => {
+    maybeNotifyEngineError(1, true, { enabled: true, engineError: true })
+    expect(ElectronNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('正常退出（code=0）→ 不通知', () => {
+    maybeNotifyEngineError(0, false, { enabled: true, engineError: true })
+    expect(ElectronNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('全局开关 enabled=false → 不通知（全部静默）', () => {
+    maybeNotifyEngineError(1, false, { enabled: false, engineError: true })
+    expect(ElectronNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('场景开关 engineError=false → 不通知', () => {
+    maybeNotifyEngineError(1, false, { enabled: true, engineError: false })
+    expect(ElectronNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('settings.json 无 ui.notifications → 不通知（未配置默认静默）', () => {
+    maybeNotifyEngineError(1, false, undefined)
+    expect(ElectronNotificationMock).not.toHaveBeenCalled()
+  })
+
+  it('Notification 构造抛错 → 静默不抛（通知失败不阻断自动重启流程）', () => {
+    ElectronNotificationMock.mockImplementation(() => {
+      throw new Error('notify fail')
+    })
+    expect(() => maybeNotifyEngineError(1, false, { enabled: true, engineError: true })).not.toThrow()
   })
 })

@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPinia, setActivePinia } from "pinia";
 import { useChatStore } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
+import { useSettingsStore } from "@/stores/settings";
 import { useStreamProcessor, getLastStreamEventAt } from "./useStreamProcessor";
 
-const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock } = vi.hoisted(() => ({
+const { listeners, saveMessageMock, listMessagesMock, debugLogAddMock, showNotificationMock } = vi.hoisted(() => ({
   listeners: new Map<string, (payload: any) => void>(),
   saveMessageMock: vi.fn(),
   listMessagesMock: vi.fn(),
   debugLogAddMock: vi.fn(),
+  showNotificationMock: vi.fn(),
 }));
 // 桩 window.electronBridge：useStreamProcessor 的事件订阅入口（原 @tauri-apps/api/event listen）
 window.electronBridge = {
@@ -52,6 +54,7 @@ vi.mock("@/lib/electron-bridge", async () => {
     saveSessionDebugLog: vi.fn().mockResolvedValue(undefined),
     listSessions: vi.fn().mockResolvedValue([]),
     listMessages: listMessagesMock,
+    showNotification: showNotificationMock,
   };
 });
 
@@ -63,6 +66,8 @@ describe("useStreamProcessor", () => {
     saveMessageMock.mockResolvedValue(undefined);
     listMessagesMock.mockReset();
     debugLogAddMock.mockReset();
+    showNotificationMock.mockReset();
+    showNotificationMock.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -679,6 +684,159 @@ describe("useStreamProcessor", () => {
     await flushPromises();
 
     // 无 todos 空跑不抛错（v2 记录卡由消息历史提取，与 result 事件解耦）
+    stopListening();
+  });
+
+  // ── 5.3 系统通知（设置页）：3 个前端触发点按 ui.notifications 场景开关门控 ──
+  // 规则：全局 enabled=false 全部静默；场景开关（replyDone/permissionPending/subtaskDone）单独控制
+
+  it("result 事件 + enabled&replyDone → 回答完成通知（含耗时 body）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-n1");
+    chat.addUserMessage("hi");
+    chat.startAssistantMessage();
+    chat.appendText("done");
+    useSettingsStore().notifications = { enabled: true, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "result",
+      session_id: "ses-n1",
+      text: "",
+      thinking: "",
+      duration_ms: 1200,
+      input_tokens: 1,
+      output_tokens: 2,
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).toHaveBeenCalledWith("回答已完成", expect.stringContaining("1.2s"));
+    stopListening();
+  });
+
+  it("result 事件 + enabled=false → 不通知（全局静默）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-n2");
+    chat.addUserMessage("hi");
+    chat.startAssistantMessage();
+    useSettingsStore().notifications = { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({ type: "result", session_id: "ses-n2", text: "", thinking: "" });
+    await flushPromises();
+
+    expect(showNotificationMock).not.toHaveBeenCalled();
+    stopListening();
+  });
+
+  it("result 事件 + replyDone=false → 不通知（场景开关）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-n3");
+    chat.addUserMessage("hi");
+    chat.startAssistantMessage();
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: false, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({ type: "result", session_id: "ses-n3", text: "", thinking: "" });
+    await flushPromises();
+
+    expect(showNotificationMock).not.toHaveBeenCalled();
+    stopListening();
+  });
+
+  it("control_request 事件 + enabled&permissionPending → 权限请求通知", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-n4");
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: true, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "control_request",
+      session_id: "ses-n4",
+      text: "",
+      thinking: "",
+      control_request: { subtype: "request", tool_name: "Bash", tool_input: { command: "ls" }, request_id: "perm-1" },
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).toHaveBeenCalledWith("权限请求", expect.any(String));
+    stopListening();
+  });
+
+  it("control_request 事件 + permissionPending=false → 不通知", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-n5");
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: false, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "control_request",
+      session_id: "ses-n5",
+      text: "",
+      thinking: "",
+      control_request: { subtype: "request", tool_name: "Bash", tool_input: {}, request_id: "perm-2" },
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).not.toHaveBeenCalled();
+    stopListening();
+  });
+
+  it("subtask idle 事件 + enabled&subtaskDone → 子任务完成通知", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-n6");
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: false, subtaskDone: true };
+    listMessagesMock.mockResolvedValue([]);
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-1",
+      subId: "ses-sub-1",
+      parentId: "ses-n6",
+      agent: "工匠",
+      kind: "idle",
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).toHaveBeenCalledWith("子任务完成", expect.any(String));
+    stopListening();
+  });
+
+  it("subtask idle 事件 + subtaskDone=false → 不通知", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-n7");
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: false, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "subtask",
+      session_id: "ses-sub-2",
+      subId: "ses-sub-2",
+      parentId: "ses-n7",
+      agent: "工匠",
+      kind: "idle",
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).not.toHaveBeenCalled();
     stopListening();
   });
 });

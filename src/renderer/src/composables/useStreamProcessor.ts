@@ -3,7 +3,7 @@ import { useChatStore, FULL_HISTORY_LIMIT, type ToolUse, type ContentBlock, type
 import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
-import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, type StreamEvent, type ProcessExitedEvent, type EngineStatus } from "@/lib/electron-bridge";
+import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, showNotification, type StreamEvent, type ProcessExitedEvent, type EngineStatus } from "@/lib/electron-bridge";
 import { translateError } from "@/lib/utils";
 import { extractFileChanges } from "@/lib/file-changes";
 
@@ -14,23 +14,6 @@ let unlistenStatus: (() => void) | null = null;
 let lastStreamEventAt = 0;
 export function getLastStreamEventAt(): number {
   return lastStreamEventAt;
-}
-
-function notifyComplete(durationMs?: number, inputTokens?: number, outputTokens?: number) {
-  if (!("Notification" in window)) return;
-  if (Notification.permission === "denied") return;
-  const body = [
-    durationMs ? `${(durationMs / 1000).toFixed(1)}s` : "",
-    inputTokens ? `↑${inputTokens}` : "",
-    outputTokens ? `↓${outputTokens}` : "",
-  ].filter(Boolean).join(" · ");
-  if (Notification.permission === "granted") {
-    new Notification("分形 — 完成", { body: body || undefined, silent: true });
-  } else {
-    Notification.requestPermission().then(p => {
-      if (p === "granted") new Notification("分形 — 完成", { body: body || undefined, silent: true });
-    });
-  }
 }
 
 /** 归一化 tool_result.content 的三种形态 → 纯文本 */
@@ -134,6 +117,45 @@ export function useStreamProcessor() {
   const debugLog = useDebugLog();
   const { t } = useI18n();
 
+  // ── 系统通知（设置页 5.3）：受 ui.notifications 场景开关门控，经主进程 Notification（无需浏览器权限）──
+  // 旧 Web Notification（notifyComplete）已移除：需 requestPermission 且不受设置控制，被系统通知取代
+
+  /** 通知场景总开关：全局 enabled && 对应场景开关（全满足才发） */
+  function shouldNotify(scene: "replyDone" | "permissionPending" | "subtaskDone"): boolean {
+    const n = settings.notifications;
+    return !!n.enabled && !!n[scene];
+  }
+
+  /** AI 回答完成通知（replyDone）：result/done 事件 = assistant isStreaming true→false 时机 */
+  async function notifyReplyDone(durationMs?: number) {
+    if (!shouldNotify("replyDone")) return;
+    try {
+      await showNotification("回答已完成", durationMs != null ? `用时 ${(durationMs / 1000).toFixed(1)}s` : "AI 已生成回答");
+    } catch {
+      // 通知失败静默（主进程异常已吞，此处仅防 IPC 自身异常）
+    }
+  }
+
+  /** 权限请求待处理通知（permissionPending）：收到 control_request 事件时 */
+  async function notifyPermissionPending() {
+    if (!shouldNotify("permissionPending")) return;
+    try {
+      await showNotification("权限请求", "有新的权限请求待处理");
+    } catch {
+      /* 通知失败静默 */
+    }
+  }
+
+  /** 子任务完成通知（subtaskDone）：subtask 事件流结束（kind=idle，子 agent 完成） */
+  async function notifySubtaskDone() {
+    if (!shouldNotify("subtaskDone")) return;
+    try {
+      await showNotification("子任务完成", "子任务已完成");
+    } catch {
+      /* 通知失败静默 */
+    }
+  }
+
   // 分阶段计时：思考 ↔ 工具执行
   let thinkingStart = 0;
   let toolExecStart = 0;
@@ -199,6 +221,8 @@ export function useStreamProcessor() {
         // 异步（idle 拉摘要）但不 await——事件循环不被阻塞
         // 传 activeSessionId：事件按父会话归属写缓存（#2 兜底：不匹配活跃父会话的仅后台累积不建卡）
         void chat.handleSubTaskEvent(data, session.activeSessionId);
+        // 子任务完成通知（5.3）：事件流结束（kind=idle）→ 检查 subtaskDone 场景开关
+        if (data.kind === "idle") void notifySubtaskDone();
         return;
       }
 
@@ -312,6 +336,8 @@ export function useStreamProcessor() {
             debugLog.add(`  🔐 subtype=${cr.subtype} tool=${cr.tool_name} request_id=${cr.request_id}`);
             debugLog.add(`  🔐 tool_input keys: ${cr.tool_input ? Object.keys(cr.tool_input).join(',') : '(null)'}`);
             chat.addControlRequest(cr);
+            // 权限请求待处理通知（5.3）：收到 permission 事件 → 检查 permissionPending 场景开关
+            void notifyPermissionPending();
           }
           break;
 
@@ -425,8 +451,8 @@ export function useStreamProcessor() {
             session.loadSessions(settings.cwd || undefined).catch(() => {});  // 刷新侧栏统计（带工作区过滤，否则覆盖为全部）
           }
 
-          // Desktop notification
-          notifyComplete(data.duration_ms, data.input_tokens, data.output_tokens);
+          // AI 回答完成系统通知（5.3）：result/done = assistant 流结束 → 检查 enabled && replyDone
+          void notifyReplyDone(data.duration_ms);
 
           // OC 可能修改了工作区文件 → 通知文件面板刷新
           // 注意：OC 工具 ID 是小写（"edit"/"write"/"bash"），cc-gui 时代 CC 工具名是大写——统一 toLowerCase 判定

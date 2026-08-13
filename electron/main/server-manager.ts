@@ -6,7 +6,7 @@
 // - 健康检查轮询 GET /doc（带 Basic 头）200 即就绪
 import { spawn, execFile, type ChildProcess } from 'node:child_process'
 
-import { app } from 'electron'
+import { app, Notification } from 'electron'
 import { createWriteStream, mkdirSync, renameSync, statSync, appendFileSync, existsSync, type WriteStream } from 'node:fs'
 import { promises as fsp } from 'node:fs'
 import net from 'node:net'
@@ -14,6 +14,32 @@ import crypto from 'node:crypto'
 import { dirname, join } from 'node:path'
 import { createOcClient, type OcClient } from './oc-sdk'
 import { getConfig } from './settings'
+
+/**
+ * 引擎异常通知开关判断（纯函数便于单测，D16 / 设置页 5.3 触发点 4）：
+ * 非主动停止 && 非零退出码 && settings.json 的 ui.notifications（enabled + engineError）全开才发。
+ * code 类型 number|null（exit 回调：signal 终止时 code 为 null——同样算异常退出，对齐 scheduleAutoRestart 语义）。
+ * notifications = getConfig().config['ui.notifications']（主进程内存态；未加载/缺失 → 默认静默）。
+ */
+export function shouldNotifyEngineError(code: number | null, stopping: boolean, notifications?: unknown): boolean {
+  if (stopping || code === 0) return false
+  const n = notifications as Record<string, unknown> | undefined
+  if (!n || typeof n !== 'object') return false
+  return n.enabled === true && n.engineError === true
+}
+
+/**
+ * 引擎异常系统通知（D16）：主进程直接 Notification，不经前端 IPC——
+ * 引擎异常时前端可能已断连（SSE 挂了），经前端转发会丢；构造/显示失败静默（不阻断自动重启）。
+ */
+export function maybeNotifyEngineError(code: number | null, stopping: boolean, notifications?: unknown): void {
+  if (!shouldNotifyEngineError(code, stopping, notifications)) return
+  try {
+    new Notification({ title: '分形引擎异常', body: '引擎异常退出，正在自动重启…' }).show()
+  } catch {
+    /* 通知失败静默（不阻断自动重启流程） */
+  }
+}
 
 /** serve 运行状态（供 getServerInfo / onStatusChange / engine:status 转发） */
 export interface ServerInfo {
@@ -610,6 +636,9 @@ async function startServer(): Promise<StartServerResult> {
       // 异常退出（非主动停止且非零退出码）→ 自动重启（外部 kill/崩溃后免手动刷新；退避防崩溃循环）
       if (!state.stopping && code !== 0) {
         scheduleAutoRestart()
+        // 引擎异常通知（D16，设置页 5.3 触发点 4）：读 settings.json ui.notifications 内存态，
+        // enabled && engineError 全开才发——直接 Notification（不经前端，异常时前端可能已断连）
+        maybeNotifyEngineError(code, state.stopping, getConfig().config['ui.notifications'])
       }
       // 诊断：退出时打印 stopping/dump 条件/尾部长度——崩溃 dump 失效排查（2026-08-08：两例 exit 1 无 dump 文件）
       console.log(`[server-manager] serve 退出 code=${code} signal=${signal ?? ''} stopping=${state.stopping} dump=${code !== 0 && !state.stopping} tail=${serveStderrTail?.length ?? 0}`)
