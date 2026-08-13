@@ -19,6 +19,10 @@ import {
   clearAvatar,
   getAvatarPath,
   showNotification,
+  checkForUpdates,
+  downloadUpdate,
+  quitAndInstall,
+  onUpdaterStatus,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -303,6 +307,38 @@ describe("pickAvatar / clearAvatar / getAvatarPath / showNotification（设置�
     invokeMock.mockResolvedValue(undefined);
     await showNotification("AI 回答完成", "对话已生成");
     expect(invokeMock).toHaveBeenCalledWith("notification:show", { title: "AI 回答完成", body: "对话已生成" });
+  });
+});
+
+describe("updater（自动更新通道）", () => {
+  it("checkForUpdates → updater:check 通道", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await checkForUpdates();
+    expect(invokeMock).toHaveBeenCalledWith("updater:check", undefined);
+  });
+
+  it("downloadUpdate → updater:download 通道", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await downloadUpdate();
+    expect(invokeMock).toHaveBeenCalledWith("updater:download", undefined);
+  });
+
+  it("quitAndInstall → updater:quit-and-install 通道", async () => {
+    invokeMock.mockResolvedValue(undefined);
+    await quitAndInstall();
+    expect(invokeMock).toHaveBeenCalledWith("updater:quit-and-install", undefined);
+  });
+
+  it("onUpdaterStatus 订阅 updater:status，回调 payload，返回取消函数", () => {
+    const cb = vi.fn();
+    const off = onUpdaterStatus(cb);
+    const handler = (window as unknown as { electronBridge: { on: ReturnType<typeof vi.fn> } }).electronBridge.on.mock.calls.find(
+      (c: string[]) => c[0] === "updater:status"
+    )?.[1];
+    expect(handler).toBeTypeOf("function");
+    handler({ type: "available", version: "1.2.0", releaseNotes: "fix" });
+    expect(cb).toHaveBeenCalledWith({ type: "available", version: "1.2.0", releaseNotes: "fix" });
+    expect(typeof off).toBe("function");
   });
 });
 

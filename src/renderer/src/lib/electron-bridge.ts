@@ -846,6 +846,41 @@ export function onPanelUpdate(cb: (payload: { kind: "memory" | "plans" | "status
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 自动更新（主进程 electron/main/updater.ts 推送 updater:status，通道前缀 updater:）
+// ══════════════════════════════════════════════════════════════════
+
+// 更新状态 payload（与主进程 UpdaterStatus 扁平形状对齐；开发模式主进程不推送，字段可选兜底）
+export interface UpdaterStatus {
+  type: "checking" | "available" | "not-available" | "progress" | "downloaded" | "error";
+  version?: string;
+  releaseNotes?: string;
+  percent?: number;
+  transferred?: number;
+  total?: number;
+  message?: string;
+}
+
+/** 检查更新（主进程校验 app.isPackaged，dev 下无操作） */
+export function checkForUpdates(): Promise<void> {
+  return invoke("updater:check", undefined);
+}
+
+/** 下载更新（available 后调用；进度经 onUpdaterStatus progress 推送） */
+export function downloadUpdate(): Promise<void> {
+  return invoke("updater:download", undefined);
+}
+
+/** 退出并安装（downloaded 后调用） */
+export function quitAndInstall(): Promise<void> {
+  return invoke("updater:quit-and-install", undefined);
+}
+
+/** 订阅更新状态推送（主进程 updater:status），返回取消订阅函数 */
+export function onUpdaterStatus(cb: (s: UpdaterStatus) => void): () => void {
+  return window.electronBridge.on("updater:status", (data) => cb(data as UpdaterStatus));
+}
+
+// ══════════════════════════════════════════════════════════════════
 // 多窗口（新开窗口并切到目标工作区，交互模式变更：最近工作区非当前项点击行为）
 // ══════════════════════════════════════════════════════════════════
 
