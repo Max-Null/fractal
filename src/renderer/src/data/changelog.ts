@@ -32,6 +32,54 @@ export const APP_VERSION: string = appPackage.version;
 // 按版本降序排列（最新在第一个）
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.1.1",
+    date: "2026-08-14",
+    sections: [
+      {
+        titleZh: "自动更新",
+        titleEn: "Auto Update",
+        itemsZh: [
+          "自动检查更新：启动后静默检查，发现新版自动弹窗提示",
+          "一键更新：设置页「检查更新」手动检查，下载进度实时展示，下载完成一键重启安装",
+          "更新日志弹窗：发版说明（Release Notes）随更新提示展示",
+        ],
+        itemsEn: [
+          "Auto check for updates: silently checks on launch, prompts automatically when a new version is found",
+          "One-click update: manual check in Settings, live download progress, restart & install when ready",
+          "Release notes shown in the update prompt",
+        ],
+      },
+      {
+        titleZh: "诊断面板重构",
+        titleEn: "Diagnostics Panel Rework",
+        itemsZh: [
+          "独立组件化，样式统一语义化",
+          "错误行高亮：❌ 错误红色、⚠️ 警告黄色，问题一眼定位",
+          "复制语义化：标签页内「复制当前标签页」+ 头部「复制诊断信息」全量打包",
+          "日志自动刷新：引擎/控制台日志 3 秒轮询，无需手动刷新",
+        ],
+        itemsEn: [
+          "Extracted into a standalone component with unified semantic styles",
+          "Error line highlighting: errors in red, warnings in yellow",
+          "Copy semantics: per-tab \"Copy Current Tab\" plus \"Copy Diagnostics\" full bundle",
+          "Auto-refresh: engine/console logs poll every 3 seconds",
+        ],
+      },
+      {
+        titleZh: "稳定性修复",
+        titleEn: "Stability Fixes",
+        itemsZh: [
+          "子任务失败原因透传：失败卡片显示具体错误（如引擎过载），不再只有失败状态",
+          "消息时间线文字节点重复修复：重放文本不再产生重复节点",
+        ],
+        itemsEn: [
+          "Subtask failure reason shown on the failure card (e.g. engine overloaded)",
+          "Fixed duplicated text nodes in the message timeline when text is replayed",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.0",
     date: "2026-08-13",
     sections: [
