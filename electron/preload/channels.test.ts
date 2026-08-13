@@ -14,7 +14,8 @@ function scanMainFiles(): string[] {
     .map((f) => path.join(dir, f))
 }
 
-// 提取主进程注册的 invoke 通道（ipcMain.handle('x' / "x"）——兼容单双引号
+// 提取主进程注册的 invoke 通道（ipcMain.handle('x' / "x"）——兼容单双引号。
+// 已知限制：只覆盖字面量通道；若未来改用变量注册（ipcMain.handle(channelVar, ...)）会静默漏扫，届时需同步本测试。
 function extractHandles(): string[] {
   const channels: string[] = []
   for (const file of scanMainFiles()) {
