@@ -121,6 +121,25 @@ describe("SubTaskCard", () => {
     expect(wrapper.text()).not.toContain("不应显示");
   });
 
+  it("failed + error：显示失败原因行（引擎过载等，用户可判断重试 vs 配置问题）", () => {
+    const wrapper = mountCard(
+      makeSubTask({
+        status: "done",
+        failed: true,
+        endedAt: Date.now(),
+        error: "The engine is currently overloaded, please try again later",
+      })
+    );
+    expect(wrapper.text()).toContain("❌ 失败");
+    expect(wrapper.find(".subtask-error-note").exists()).toBe(true);
+    expect(wrapper.text()).toContain("The engine is currently overloaded");
+  });
+
+  it("failed 但无 error：不渲染失败原因行（兼容旧事件）", () => {
+    const wrapper = mountCard(makeSubTask({ status: "done", failed: true, endedAt: Date.now() }));
+    expect(wrapper.find(".subtask-error-note").exists()).toBe(false);
+  });
+
   it("stale：显示「状态未知 · 会话已切换」灰显 + 点击不 emit（军师 #4）", async () => {
     const wrapper = mountCard(
       makeSubTask({ status: "running", stale: true, deltaText: "切走前进度" })

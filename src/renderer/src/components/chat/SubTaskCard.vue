@@ -178,6 +178,9 @@ const expandedText = computed(() => {
     <!-- 运行中：动态行（deltaText 尾部，单行省略） -->
     <div v-else-if="subtask.status === 'running'" class="subtask-live" :title="subtask.deltaText">{{ liveText }}</div>
 
+    <!-- 失败原因（子 agent 模型/工具错误透传，如「引擎过载」）：用户可据此判断「稍后重试」还是「检查配置」 -->
+    <div v-else-if="subtask.failed && subtask.error" class="subtask-error-note">{{ subtask.error }}</div>
+
     <!-- 已完成：未展开显预览（summary 前 3 行；summary 空 → 无预览行，只显示头部徽标行）；
          展开态显全文（loader 结果或实时 summary 或兜底）——收起且无预览时不渲染该 div -->
     <div
@@ -245,6 +248,13 @@ const expandedText = computed(() => {
   margin-top: 0.35rem;
   font-size: 0.786rem;
   color: var(--text-muted);
+}
+/* 失败原因行：与 stale-note 同款弱提示，但用危险色区分（展示子 agent 引擎/模型错误） */
+.subtask-error-note {
+  margin-top: 0.35rem;
+  font-size: 0.786rem;
+  color: var(--danger, #e5484d);
+  word-break: break-all;
 }
 .subtask-detail-btn {
   font-size: 0.714rem;

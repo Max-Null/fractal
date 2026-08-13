@@ -955,14 +955,24 @@ describe("chat store", () => {
     expect(chat.subTasks["sub-1"].summaryFailed).toBe(false);
   });
 
-  it("subtask error → status done + failed 标记（#5）", async () => {
+  it("subtask error → status done + failed 标记 + 保存失败原因（#5 扩展）", async () => {
+    const chat = useChatStore();
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
+    chat.handleSubTaskEvent({ subId: "sub-1", kind: "error", error: "The engine is currently overloaded" });
+
+    expect(chat.subTasks["sub-1"].status).toBe("done");
+    expect(chat.subTasks["sub-1"].failed).toBe(true);
+    expect(chat.subTasks["sub-1"].error).toBe("The engine is currently overloaded");
+    expect(chat.subTasks["sub-1"].endedAt).toBeGreaterThan(0);
+  });
+
+  it("subtask error 无 error 字段 → failed 标记正常，error 为空（兼容旧事件）", () => {
     const chat = useChatStore();
     chat.handleSubTaskEvent({ subId: "sub-1", kind: "created" });
     chat.handleSubTaskEvent({ subId: "sub-1", kind: "error" });
 
-    expect(chat.subTasks["sub-1"].status).toBe("done");
     expect(chat.subTasks["sub-1"].failed).toBe(true);
-    expect(chat.subTasks["sub-1"].endedAt).toBeGreaterThan(0);
+    expect(chat.subTasks["sub-1"].error).toBeUndefined();
   });
 
   it("subtask 重复 created 不重置进度（#7）", () => {

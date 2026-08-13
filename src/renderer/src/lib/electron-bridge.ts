@@ -73,6 +73,7 @@ export interface StreamEvent {
   /** 回合人民币成本（元）——主进程本地价格表计算下发（events.ts session.idle），替代美元 cost_usd */
   cost_cny?: number;
   is_final: boolean;
+  /** 错误文本（type='error' 会话错误；subtask kind='error' 时携带子 agent 失败原因，主进程 events.ts 提取） */
   error?: string;
   /** 工具执行结果（从 user 事件中提取） */
   tool_results?: Array<{

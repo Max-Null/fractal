@@ -900,15 +900,35 @@ describe('mapServeEvent 合成事件：子会话识别（activeSessionId ≠ ses
     expect(mapServeEvent(idle, ctx)[0].type).toBe('result')
   })
 
-  it('子会话 session.error → subtask error（不产主会话 error）', () => {
+  it('子会话 session.error → subtask error（不产主会话 error），透传错误文本（顶层 message 结构）', () => {
     const ctx = ctxWithActive()
     const err = synthEvent('session.error', {
       sessionID: 'ses_sub_1',
-      error: { message: '子模型调用失败' },
+      error: { name: 'AI_APICallError', message: 'The engine is currently overloaded, please try again later' },
     })
     const out = mapServeEvent(err, ctx)
     expect(out).toHaveLength(1)
-    expect(out[0]).toMatchObject({ type: 'subtask', subId: 'ses_sub_1', parentId: 'ses_main', kind: 'error' })
+    expect(out[0]).toMatchObject({
+      type: 'subtask', subId: 'ses_sub_1', parentId: 'ses_main', kind: 'error',
+      error: 'The engine is currently overloaded, please try again later',
+    })
+  })
+
+  it('子会话 session.error 透传 data.message 结构（旧 serve 错误格式仍兼容）', () => {
+    const ctx = ctxWithActive()
+    const err = synthEvent('session.error', {
+      sessionID: 'ses_sub_1',
+      error: { name: 'ProviderAuthError', data: { message: 'API key 无效' } },
+    })
+    const out = mapServeEvent(err, ctx)
+    expect(out[0]).toMatchObject({ type: 'subtask', kind: 'error', error: 'API key 无效' })
+  })
+
+  it('子会话 session.error 无 message → 退化为错误名', () => {
+    const ctx = ctxWithActive()
+    const err = synthEvent('session.error', { sessionID: 'ses_sub_1', error: { name: 'UnknownError' } })
+    const out = mapServeEvent(err, ctx)
+    expect(out[0]).toMatchObject({ type: 'subtask', kind: 'error', error: 'UnknownError' })
   })
 
   it('主会话 session.error → error 通道（不受子会话识别影响）', () => {

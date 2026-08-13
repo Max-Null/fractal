@@ -146,6 +146,8 @@ export interface SubTask {
   stale?: boolean;
   /** 子会话 session.error → 失败标记（卡片显「❌ 失败」） */
   failed?: boolean;
+  /** 失败原因（session.error 提取的模型/工具错误文本，如「引擎过载」）——failed 卡片可展示 */
+  error?: string;
   /** 动态行文本（deltaText 累积，截断尾部保留） */
   deltaText: string;
   /** 有序块流（监视弹窗渲染源，上限滚动；相邻 text/thinking 合并防碎片） */
@@ -528,6 +530,7 @@ export const useChatStore = defineStore("chat", () => {
       agent?: string;
       parentId?: string;
       text?: string;
+      error?: string;
       part?: SubTaskPart | { type: string; tool?: string; state?: string; text?: string };
     },
     activeSessionId = "",
@@ -618,10 +621,11 @@ export const useChatStore = defineStore("chat", () => {
     }
 
     if (kind === "error") {
-      // #5 子会话 session.error → 失败标记（卡片显「❌ 失败」）
+      // #5 子会话 session.error → 失败标记（卡片显「❌ 失败」）+ 保存失败原因（用户可区分引擎过载/key 无效）
       task.status = "done";
       task.endedAt = Date.now();
       task.failed = true;
+      task.error = evt.error;
       task.summary = undefined;
       task.summaryFailed = false;
       return;

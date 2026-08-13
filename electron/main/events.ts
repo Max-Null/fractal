@@ -130,6 +130,8 @@ export type StreamFrontendEvent =
       kind: 'created' | 'delta' | 'part' | 'idle' | 'error'
       /** kind='part' 时携带分派后的块信息（text/thinking/tool 三态） */
       part?: { type: string; tool?: string; state?: string; text?: string }
+      /** kind='error' 时携带子 agent 失败原因（模型/工具错误，如引擎过载、key 无效）——前端 failed 卡片展示 */
+      error?: string
     }
   | {
       // 会话标题自动更新（serve 收到首条消息后重命名，session.updated 的 info.title 变化时下发）
@@ -216,12 +218,15 @@ export function createMapContext(now: () => number = Date.now): MapContext {
 // 事件映射（纯函数：同输入 + 同 ctx → 同输出，可单测）
 // ══════════════════════════════════════════════════════════════════
 
-/** 从 serve 错误结构中提取展示用 message（UnknownError/ProviderAuthError/ApiError 的 data.message） */
+/** 从 serve 错误结构中提取展示用 message（UnknownError/ProviderAuthError/ApiError 的 data.message；
+ * 顶层 message 兜底——AI SDK 错误类（AI_APICallError 等）message 在顶层，serve 序列化结构不定） */
 function extractErrorText(error: unknown): string {
   if (!error || typeof error !== 'object') return String(error ?? '未知错误')
-  const data = (error as Record<string, unknown>).data as Record<string, unknown> | undefined
+  const rec = error as Record<string, unknown>
+  const data = rec.data as Record<string, unknown> | undefined
   if (data && typeof data.message === 'string') return data.message
-  const name = (error as Record<string, unknown>).name
+  if (typeof rec.message === 'string') return rec.message
+  const name = rec.name
   return typeof name === 'string' ? name : String(error)
 }
 
@@ -554,9 +559,10 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
       return [evtOut]
     }
     case 'session.error': {
-      // 子会话错误（子 agent 模型/工具失败）→ subtask error（前端标失败，不产主会话 error）
+      // 子会话错误（子 agent 模型/工具失败）→ subtask error（前端标失败 + 透传原因，不产主会话 error）
       if (isSubSession) {
-        return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'error' }]
+        const subErr = extractErrorText(props?.error)
+        return [{ type: 'subtask', session_id: sessionID, text: '', thinking: '', subId: sessionID, parentId: ctx.activeSessionId, kind: 'error', error: subErr }]
       }
       // 会话错误（模型不存在/认证失败等）→ error 通道
       const errText = extractErrorText(props?.error)
