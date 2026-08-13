@@ -5,7 +5,7 @@
 ## 项目核心事实（硬约束）
 
 - **产品**：分形；**项目代号**：oc-gui；**工作区**：本目录（H:\MaxNull\WorkStation\fractal）
-- **引擎**：OpenCode（OC）唯一，通过 ACP 双工协议集成（`opencode acp`），**不包含任何 CC（Claude Code）代码**
+- **引擎**：OpenCode（OC）唯一，通过内置 OC sidecar（`opencode serve` + `@opencode-ai/sdk`，SSE 事件流）集成，**不包含任何 CC（Claude Code）代码**
 - **模型**：仅 DeepSeek（OC 内置 provider），**API Key 是唯一必填配置项**
 - **UI**：整体迁移 cc-gui（H:\MaxNull\WorkStation\cc-gui）的设计资产——布局/会话管理/文件管理/会话区域/工具栏；**前后端事件契约 StreamFrontendEvent 不变**（前端组件零改造的关键）
 - **配置体系**：类 VSCode settings.json + JSON Schema；agent 可自检自改配置（小白可直接让 agent 帮忙设置）
@@ -18,6 +18,8 @@
 **开始任何工作前，先读：`docs/设计/分形-设计方案.md`**（完整方案 v1.8+，含关键设计决策、迁移清单、实施计划、附录 A 关键技术结论、附录 B 实测指南、附录 C 待实测清单、附录 D 产品场景）。
 
 **动手编码/迁移设计资产前，再读：`docs/知识/开发规范.md`**（整合自 cc-gui 开发规范：编码总则 / CSS 语义化命名 / 颜色系统 / 41 条设计决策参考（含继承/重写/删除标注）/ Git 提交规范；CC 专属条目已剔除）。
+
+**做架构/产品决策或改造现有设计前，先查 `docs/决策/` 并落盘新决策**（一篇一决策、按日期归档；决策记录备查优先于动手写代码）。
 
 **涉及 OC 机制（协议/插件 API/配置 schema）时，先查：`docs/知识/oc-engine/`**（OC 版本化知识库：版本矩阵 / 升级检查清单 / 插件 API / ACP 协议 / 配置 schema / 数据格式；OC 更新快，结论必须带版本锚点）。
 

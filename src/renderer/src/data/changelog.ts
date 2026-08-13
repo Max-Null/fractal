@@ -116,12 +116,12 @@ export const changelog: ChangelogEntry[] = [
         titleEn: "New Engine: Powered by OpenCode",
         itemsZh: [
           "内置 OpenCode 引擎，DeepSeek 模型开箱即用——只需配置一个 API Key",
-          "经 ACP 双工协议与引擎实时通信：流式消息、思考过程、工具调用全程可见",
+          "经 serve 实时通信（SSE 事件流）：流式消息、思考过程、工具调用全程可见",
           "不再依赖任何其他 AI 工具，OC 是唯一引擎",
         ],
         itemsEn: [
           "Bundled OpenCode engine, DeepSeek out of the box — just one API Key",
-          "Real-time communication over the ACP duplex protocol: streaming, thinking, and tool calls all visible",
+          "Real-time communication over serve (SSE event stream): streaming, thinking, and tool calls all visible",
           "OpenCode is the single engine — no other AI tools required",
         ],
       },

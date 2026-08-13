@@ -2,7 +2,7 @@
 
 面向非编程人员的 OpenCode 桌面 GUI——开箱即用，OpenCode（OC）为唯一引擎。
 
-- **引擎**：OpenCode，通过 ACP 双工协议集成（`opencode acp`），内置 OC sidecar，不依赖系统已装 OC
+- **引擎**：OpenCode，通过内置 OC sidecar（`opencode serve` + `@opencode-ai/sdk`，SSE 事件流）集成，不依赖系统已装 OC
 - **模型**：仅 DeepSeek（OC 内置 provider），**API Key 是唯一必填配置项**
 - **配置体系**：类 VSCode settings.json + JSON Schema，agent 可自检自改配置
 - **预置**：内置 MCP/skill/插件预置包，首次启动自动初始化，用户零概念门槛
@@ -75,6 +75,7 @@ scripts/             # download-opencode.js 等构建脚本
 | 文档 | 说明 |
 |------|------|
 | [分形-设计方案](docs/设计/分形-设计方案.md) | 完整方案 v1.8+（关键设计决策、迁移清单、实施计划、附录） |
+| [决策记录](docs/决策/README.md) | 架构与产品决策，一篇一决策、按日期归档，动手前先落盘备查 |
 | [开发规范](docs/知识/开发规范.md) | 编码总则、CSS 语义化命名、颜色系统、Git 提交规范 |
 | [部署指南](docs/知识/分形-部署指南.md) | 安装包获取/打包、安装步骤、常见问题 |
 | [oc-engine 知识库](docs/知识/oc-engine/README.md) | OC 版本化知识（协议/插件 API/配置 schema，带版本锚点） |
