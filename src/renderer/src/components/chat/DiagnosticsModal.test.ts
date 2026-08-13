@@ -48,6 +48,7 @@ const i18n = createI18n({
         debugNoRendererLog: "No console logs yet",
         debugRefresh: "Refresh",
         debugCopyDiag: "Copy Diagnostics",
+        debugCopyTab: "Copy Current Tab",
         debugFooter: "Logs help troubleshooting",
         loading: "Loading",
         copy: "Copy",
@@ -129,6 +130,8 @@ describe("DiagnosticsModal 组件", () => {
     expect(readServeLogMock).toHaveBeenCalledWith(500);
     expect(wrapper.text()).toContain("serve line 1");
     expect(wrapper.text()).toContain("serve line 2");
+    // 卸载清理定时轮询（切到 serve 页会启动 3s setInterval，防 open handle）
+    wrapper.unmount();
   });
 
   it("切到控制台标签页 → readRendererLog(500) 拉取并渲染", async () => {
@@ -141,6 +144,8 @@ describe("DiagnosticsModal 组件", () => {
 
     expect(readRendererLogMock).toHaveBeenCalledWith(500);
     expect(wrapper.text()).toContain("renderer line");
+    // 卸载清理定时轮询（切到 renderer 页会启动 3s setInterval，防 open handle）
+    wrapper.unmount();
   });
 
   it("复制当前标签页按钮 → execCommand copy + 状态提示", async () => {
@@ -157,8 +162,8 @@ describe("DiagnosticsModal 组件", () => {
     try {
       await mountModal();
 
-      // header 第一个按钮 = 复制当前标签页（Copy 图标）
-      const copyBtn = wrapper.findAll(".diag-header-btn")[0];
+      // 标签页栏「复制当前标签页」按钮（Copy 图标 + 文字；header 只留复制诊断信息主按钮）
+      const copyBtn = wrapper.find(".diag-tab-btn--copy");
       await copyBtn.trigger("click");
 
       expect(captured[0]).toBe("❌ 错误行\n普通行");
@@ -169,9 +174,11 @@ describe("DiagnosticsModal 组件", () => {
     }
   });
 
-  it("复制诊断信息按钮 → getAppInfo + readServeLog 打包", async () => {
+  it("复制诊断信息按钮 → 全量包（应用信息 + 事件日志 + serve + renderer）", async () => {
     getAppInfoMock.mockResolvedValue({ name: "Fractal", version: "1.2.3" });
     readServeLogMock.mockResolvedValue(["diag line"]);
+    readRendererLogMock.mockResolvedValue(["console line"]);
+    debugLog.add("❌ 错误行");
     const captured: string[] = [];
     const origExec = document.execCommand;
     document.execCommand = ((cmd: string) => {
@@ -182,13 +189,17 @@ describe("DiagnosticsModal 组件", () => {
     try {
       await mountModal();
 
-      const diagBtn = wrapper.findAll(".diag-header-btn")[1];
+      // header 唯一按钮 = 复制诊断信息（全量包）
+      const diagBtn = wrapper.find(".diag-header-btn");
       await diagBtn.trigger("click");
       await nextTick();
 
       expect(getAppInfoMock).toHaveBeenCalled();
       expect(readServeLogMock).toHaveBeenCalledWith(500);
-      expect(captured[0]).toBe("Fractal v1.2.3\n\ndiag line");
+      expect(readRendererLogMock).toHaveBeenCalledWith(500);
+      expect(captured[0]).toBe(
+        "Fractal v1.2.3\n\n[Event Log]\n❌ 错误行\n\n[Engine Log]\ndiag line\n\n[Console Log]\nconsole line"
+      );
       expect(wrapper.find(".diag-footer-status").text()).toContain("Copied");
     } finally {
       document.execCommand = origExec;

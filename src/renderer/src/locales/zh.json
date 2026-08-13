@@ -103,6 +103,7 @@
     "debugRendererTab": "控制台日志",
     "debugRefresh": "刷新",
     "debugCopyDiag": "复制诊断信息",
+    "debugCopyTab": "复制当前标签页",
     "debugNoServeLog": "暂无引擎日志",
     "debugNoRendererLog": "暂无控制台日志（调试模式启动后自动记录）",
     "debugPrivacyHint": "日志可能包含本地路径，谨慎发送",

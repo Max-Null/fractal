@@ -103,6 +103,7 @@
     "debugRendererTab": "Console Log",
     "debugRefresh": "Refresh",
     "debugCopyDiag": "Copy Diagnostics",
+    "debugCopyTab": "Copy Current Tab",
     "debugNoServeLog": "No engine logs yet",
     "debugNoRendererLog": "No console logs yet (recorded automatically when launched in debug mode)",
     "debugPrivacyHint": "Logs may contain local paths — share with care",

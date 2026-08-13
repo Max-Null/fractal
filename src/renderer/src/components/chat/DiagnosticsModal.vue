@@ -10,7 +10,7 @@ export function classifyLogLine(text: string): "error" | "warn" | "normal" {
 </script>
 
 <script setup lang="ts">
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, watch, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { Copy, ClipboardCopy, RefreshCw } from "lucide-vue-next";
 import ModalShell from "@/components/shared/ModalShell.vue";
@@ -58,12 +58,43 @@ const currentLineCount = computed(() =>
 
 function switchDebugTab(tab: "events" | "serve" | "renderer") {
   debugTab.value = tab;
-  // 进入引擎/控制台页即拉取尾部 500 行（面板不自动轮询，刷新按钮重读——原型 4.3）
+  // 进入引擎/控制台页即拉取尾部 500 行（切页立即显示，轮询随后接管持续更新）
   if (tab === "serve") void loadServeLog();
   if (tab === "renderer") void loadRendererLog();
 }
 
+// 定时轮询：弹窗打开且当前标签页为 serve/renderer 时每 3s 自动重读日志
+// 切到 events 页或关闭弹窗即停——只轮询用户正在查看的页，避免无谓 IPC
+let pollTimer: ReturnType<typeof setInterval> | null = null;
+watch(
+  () => [props.open, debugTab.value] as const,
+  ([open, tab]) => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+    if (open && (tab === "serve" || tab === "renderer")) {
+      pollTimer = setInterval(() => {
+        // 用 debugTab.value 而非闭包 tab：即使 watch 未触发也能读最新值
+        if (debugTab.value === "serve") void loadServeLog();
+        else void loadRendererLog();
+      }, 3000);
+    }
+  },
+  { immediate: true },
+);
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (statusTimer) clearTimeout(statusTimer);
+});
+
 async function loadServeLog() {
+  // 轮询/手动刷新共用入口：上次请求未完成时跳过本次（防 3s 轮询堆积）
+  if (serveLogLoading.value) return;
   serveLogLoading.value = true;
   try {
     serveLogLines.value = await readServeLog(500);
@@ -81,6 +112,8 @@ async function loadServeLog() {
 }
 
 async function loadRendererLog() {
+  // 轮询/手动刷新共用入口：上次请求未完成时跳过本次（防 3s 轮询堆积）
+  if (rendererLogLoading.value) return;
   rendererLogLoading.value = true;
   try {
     rendererLogLines.value = await readRendererLog(500);
@@ -114,11 +147,26 @@ function copyDebugLog() {
   showStatus(t("chat.copied"));
 }
 
-// 复制诊断信息：应用名 + 版本 + serve.log 尾部（用户反馈通道；提示隐私——日志含本地路径）
+// 复制诊断信息（全量包，用户反馈通道）：应用名 + 版本 + 事件日志 + serve.log + renderer.log
+// serve/renderer 读取失败不阻断——降级为空段，避免一个失败整包不可用（readRendererLog 在非调试启动可能无日志）
 async function copyDiagnostics() {
   try {
-    const [info, lines] = await Promise.all([getAppInfo(), readServeLog(500)]);
-    const body = [`${info.name} v${info.version}`, "", ...lines].join("\n");
+    const info = await getAppInfo();
+    const [serveRes, rendererRes] = await Promise.allSettled([readServeLog(500), readRendererLog(500)]);
+    const serveLines = serveRes.status === "fulfilled" ? serveRes.value : [];
+    const rendererLines = rendererRes.status === "fulfilled" ? rendererRes.value : [];
+    const body = [
+      `${info.name} v${info.version}`,
+      "",
+      `[${t("chat.debugLabel")}]`,
+      ...debugLog.lines.value,
+      "",
+      `[${t("chat.debugServeTab")}]`,
+      ...serveLines,
+      "",
+      `[${t("chat.debugRendererTab")}]`,
+      ...rendererLines,
+    ].join("\n");
     copyText(body);
     showStatus(`${t("chat.copied")} — ${t("chat.debugPrivacyHint")}`);
   } catch (e) {
@@ -129,13 +177,10 @@ async function copyDiagnostics() {
 
 <template>
   <ModalShell :open="open" size="xl" @close="emit('close')">
-    <!-- header：固定标题（D8 不显示行数）+ 复制按钮（ModalShell 自带 × 关闭） -->
+    <!-- header：固定标题（D8 不显示行数）+ 复制诊断信息主按钮（ModalShell 自带 × 关闭） -->
     <template #header>
       <span class="diag-title">{{ t("chat.debugTitle") }}</span>
       <span class="flex-1" />
-      <button class="diag-header-btn" :title="t('chat.copy')" @click="copyDebugLog">
-        <Copy :size="13" />
-      </button>
       <button class="diag-header-btn" :title="t('chat.debugCopyDiag')" @click="copyDiagnostics">
         <ClipboardCopy :size="13" />
         <span>{{ t("chat.debugCopyDiag") }}</span>
@@ -162,6 +207,11 @@ async function copyDiagnostics() {
       <span class="flex-1" />
       <!-- D8：当前标签页实际行数 -->
       <span class="diag-count">{{ currentLineCount }}</span>
+      <!-- 复制当前标签页（与标签页绑定，放标签页栏；header 只留复制诊断信息主按钮） -->
+      <button class="diag-tab-btn diag-tab-btn--copy" :title="t('chat.debugCopyTab')" @click="copyDebugLog">
+        <Copy :size="12" />
+        <span>{{ t("chat.debugCopyTab") }}</span>
+      </button>
       <!-- 引擎/控制台页刷新（面板不自动轮询，原型 4.3） -->
       <button
         v-if="debugTab === 'serve' || debugTab === 'renderer'"
@@ -221,8 +271,8 @@ async function copyDiagnostics() {
 </template>
 
 <style scoped>
-// 诊断弹窗样式：语义化 .diag-*（替代原 attach-bar/system-msg-bar 借用 + 内联 style）
-// 属性排序：定位 → 盒模型 → 排版 → 视觉
+/* 诊断弹窗样式：语义化 .diag-*（替代原 attach-bar/system-msg-bar 借用 + 内联 style） */
+/* 属性排序：定位 → 盒模型 → 排版 → 视觉 */
 
 .diag-title {
   color: var(--text-bright);
@@ -230,7 +280,7 @@ async function copyDiagnostics() {
   font-weight: 500;
 }
 
-// header 操作按钮：图标 + 文本（复制诊断信息），hover 提亮
+/* header 操作按钮：图标 + 文本（复制诊断信息），hover 提亮 */
 .diag-header-btn {
   display: inline-flex;
   align-items: center;
@@ -248,7 +298,7 @@ async function copyDiagnostics() {
   background: var(--bg-hover);
 }
 
-// 标签页栏：与内容区同行顶部，底部边框分隔
+/* 标签页栏：与内容区同行顶部，底部边框分隔 */
 .diag-tabs {
   display: flex;
   align-items: center;
@@ -270,19 +320,19 @@ async function copyDiagnostics() {
   background: var(--bg-hover);
 }
 
-// 激活态：提亮 + 底色，标识当前标签页
+/* 激活态：提亮 + 底色，标识当前标签页 */
 .diag-tab--active {
   color: var(--text-bright);
   background: var(--bg-hover);
 }
 
-// 当前标签页行数（D8：与内容对应，消除「标题数字与内容无关」混乱）
+/* 当前标签页行数（D8：与内容对应，消除「标题数字与内容无关」混乱） */
 .diag-count {
   color: var(--text-muted);
   font-size: 0.714rem;
 }
 
-// 刷新按钮：仅引擎/控制台页显示
+/* 刷新按钮：仅引擎/控制台页显示 */
 .diag-tab-btn {
   display: inline-flex;
   align-items: center;
@@ -294,12 +344,19 @@ async function copyDiagnostics() {
   transition: color 0.15s, background-color 0.15s;
 }
 
+/* 复制当前标签页：带文字，需要稍大内边距 + 图标文字间距 */
+.diag-tab-btn--copy {
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.75rem;
+}
+
 .diag-tab-btn:hover {
   color: var(--text-bright);
   background: var(--bg-hover);
 }
 
-// 日志内容区：只读代码块观感，超长滚动
+/* 日志内容区：只读代码块观感，超长滚动 */
 .diag-log {
   max-height: 55vh;
   overflow-y: auto;
@@ -309,12 +366,12 @@ async function copyDiagnostics() {
   background: var(--bg-elevated);
 }
 
-// serve/renderer 页滚动容器（ref 挂载点，供超长自动滚底）
+/* serve/renderer 页滚动容器（ref 挂载点，供超长自动滚底） */
 .diag-log-body {
   padding: 0.25rem 0;
 }
 
-// 日志行：保留换行语义（pre-wrap），超长断行
+/* 日志行：保留换行语义（pre-wrap），超长断行 */
 .diag-log-line {
   padding: 0.125rem 0.75rem;
   color: var(--text-muted);
@@ -325,17 +382,17 @@ async function copyDiagnostics() {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
-// 错误行（D7：❌ 前缀，danger 色）
+/* 错误行（D7：❌ 前缀，danger 色） */
 .diag-log-line--error {
   color: var(--danger, #f87171);
 }
 
-// 警告行（D7：⚠️ 前缀，warning 色）
+/* 警告行（D7：⚠️ 前缀，warning 色） */
 .diag-log-line--warn {
   color: var(--warning, #fbbf24);
 }
 
-// 空态 / 加载中 / 读取失败提示
+/* 空态 / 加载中 / 读取失败提示 */
 .diag-log-empty {
   padding: 0.75rem;
   color: var(--text-muted);
@@ -348,7 +405,7 @@ async function copyDiagnostics() {
   gap: 0.5rem;
 }
 
-// 复制操作反馈：短暂显示后消失（5s）
+/* 复制操作反馈：短暂显示后消失（5s） */
 .diag-footer-status {
   color: var(--accent, #60a5fa);
   font-size: 0.714rem;
