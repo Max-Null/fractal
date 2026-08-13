@@ -9,7 +9,7 @@
 - **模型**：仅 DeepSeek（OC 内置 provider），**API Key 是唯一必填配置项**
 - **UI**：整体迁移 cc-gui（H:\MaxNull\WorkStation\cc-gui）的设计资产——布局/会话管理/文件管理/会话区域/工具栏；**前后端事件契约 StreamFrontendEvent 不变**（前端组件零改造的关键）
 - **配置体系**：类 VSCode settings.json + JSON Schema；agent 可自检自改配置（小白可直接让 agent 帮忙设置）
-- **交付**：独立可安装工具，内置 OC sidecar（Tauri externalBin），不依赖系统已装 OC
+- **交付**：独立可安装工具，内置 OC sidecar（Electron extraResources），不依赖系统已装 OC
 - **预置**：内置 MCP/skill/插件预置包，首次启动自动初始化，用户零概念门槛
 - **预置来源**：`electron/resources/preset/` 是 oc-plus 全家桶的**镜像**（oc-plus 做核、分形做壳）。**禁止直接编辑 preset 文件**——由 oc-plus 仓库的 `node sync-to-fractal.mjs` 同步（含 agents-manifest.json 契约 + CHANGELOG + OC 版本对齐检查）；手动改会被下次同步覆盖
 

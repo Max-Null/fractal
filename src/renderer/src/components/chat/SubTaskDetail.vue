@@ -156,16 +156,16 @@ function onBack() {
   gap: 0.5rem;
 }
 .detail-badge {
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
 }
 .detail-agent {
   font-weight: 600;
   color: var(--violet);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 .detail-status {
-  font-size: 10px;
+  font-size: 0.714rem;
   white-space: nowrap;
 }
 .detail-status--running {
@@ -173,7 +173,7 @@ function onBack() {
   animation: pulse 1s ease-in-out infinite;
 }
 .detail-back-btn {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-dim);
@@ -188,7 +188,7 @@ function onBack() {
 }
 .detail-placeholder {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.857rem;
   padding: 1rem 0;
 }
 .detail-body {
@@ -227,13 +227,13 @@ function onBack() {
   margin-bottom: 0.35rem;
 }
 .detail-task-desc-title {
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--accent);
 }
 .detail-task-desc-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-primary);
   line-height: 1.6;
   white-space: pre-wrap;
@@ -244,21 +244,21 @@ function onBack() {
   margin-bottom: 0.35rem;
 }
 .detail-thinking-summary {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--amber);
   padding: 0.2rem 0;
   cursor: pointer;
   user-select: none;
 }
 .detail-thinking-body {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   padding-bottom: 0.4rem;
 }
 .detail-tool {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   color: var(--violet);
   margin: 0.2rem 0;
@@ -270,7 +270,7 @@ function onBack() {
 .detail-tool-input {
   font-weight: 400;
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-secondary);
   white-space: pre-wrap;
   word-break: break-all;
@@ -279,7 +279,7 @@ function onBack() {
 }
 .detail-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-primary);
   line-height: 1.6;
   white-space: pre-wrap;

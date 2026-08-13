@@ -498,7 +498,7 @@ async function reloadFile(silent = false) {
         }
         html += "</table>";
         if (data.length > maxRows) {
-          html += `<div class="text-[10px] mt-1" style="color:var(--text-muted)">${t("preview.truncated", { n: maxRows })}</div>`;
+          html += `<div class="text-[0.714rem] mt-1" style="color:var(--text-muted)">${t("preview.truncated", { n: maxRows })}</div>`;
         }
         return { name, html };
       });
@@ -924,33 +924,33 @@ function handleClose() {
             v-for="t in (['edit', 'preview'] as const)"
             :key="t"
             @click="activeTab = t"
-            class="text-[10px] px-2.5 py-0.5 font-medium transition-colors rounded-md"
+            class="text-[0.714rem] px-2.5 py-0.5 font-medium transition-colors rounded-md"
             :style="{ background: activeTab === t ? 'var(--accent)' : 'transparent', color: activeTab === t ? 'var(--bg-root)' : 'var(--text-muted)' }"
           >{{ t === 'edit' ? $t('preview.edit') : $t('preview.previewTab') }}</button>
         </div>
         <button v-if="activeTab === 'edit' && dirty" @click="saveFile" :disabled="saving"
-          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0"
+          class="text-[0.714rem] px-2 py-0.5 rounded font-medium transition-colors shrink-0"
           :class="saving ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'"
           style="background: var(--accent); color: var(--bg-root)"
         >{{ saving ? '…' : $t('preview.save') }}</button>
         <!-- 手动刷新：重新读取文件并刷新各类型预览（agent/外部改动后无需重开面板） -->
         <button v-if="!loading" @click="reloadFile()"
-          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
+          class="text-[0.714rem] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
           style="border: 1px solid var(--border-dim); color: var(--text-muted)"
           :title="$t('preview.refresh')"
         ><RefreshCw :size="13" /></button>
         <!-- 独立窗口：双屏联调时把大预览单独开一窗（主界面内嵌模式可用） -->
         <button v-if="!standalone" @click="openPreviewWindow(file.path)"
-          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
+          class="text-[0.714rem] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
           style="border: 1px solid var(--border-dim); color: var(--text-muted)"
           :title="$t('preview.openInWindow')"
         ><ExternalLink :size="13" /></button>
         <button v-if="fileKind === 'markdown'" @click="showMdOutline = !showMdOutline"
-          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
+          class="text-[0.714rem] px-2 py-0.5 rounded font-medium transition-colors shrink-0 hover:opacity-80"
           :style="{ background: showMdOutline ? 'var(--accent)' : 'transparent', color: showMdOutline ? 'var(--bg-root)' : 'var(--text-muted)', border: showMdOutline ? 'none' : '1px solid var(--border-dim)' }"
         ><PanelLeft :size="13" /></button>
         <button v-if="!standalone && fileKind === 'markdown'" @click="sendConvertDocx" :disabled="converting"
-          class="text-[10px] px-2 py-0.5 rounded font-medium transition-colors shrink-0"
+          class="text-[0.714rem] px-2 py-0.5 rounded font-medium transition-colors shrink-0"
           :class="converting ? 'opacity-50 cursor-not-allowed' : 'hover:opacity-80'"
           style="background: var(--accent); color: var(--bg-root)"
           :title="$t('preview.convertDocx')"
@@ -984,7 +984,7 @@ function handleClose() {
             </div>
           </Transition>
           <!-- 宽度预设工具栏 + 检查模式开关（2026-08-12：关闭后页面可交互，动态元素可操作） -->
-          <div class="flex items-center gap-1 px-2 h-7 text-[10px] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
+          <div class="flex items-center gap-1 px-2 h-7 text-[0.714rem] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
             <button
               @click="toggleInspector"
               :title="inspectorEnabled ? '检查模式：点击元素选中发送（关闭可操作页面）' : '检查模式已关闭：页面可正常交互（打开后点击元素选中）'"
@@ -1040,7 +1040,7 @@ function handleClose() {
         </div>
         <div v-else-if="fileKind === 'xlsx'" class="flex-1 flex flex-col" style="min-height: 0">
           <!-- Sheet Tab 栏 -->
-          <div v-if="xlsxSheets.length > 1" class="flex items-center gap-1 px-2 h-7 text-[10px] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
+          <div v-if="xlsxSheets.length > 1" class="flex items-center gap-1 px-2 h-7 text-[0.714rem] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
             <button
               v-for="s in xlsxSheets" :key="s.name"
               @click="xlsxActiveSheet = s.name"
@@ -1075,7 +1075,7 @@ function handleClose() {
         <div v-else-if="fileKind === 'markdown'" class="flex-1 flex" style="min-height:0">
           <!-- 大纲侧边栏 -->
           <div v-if="showMdOutline && mdHeadings.length > 0"
-            class="md-outline shrink-0 overflow-auto text-[11px]"
+            class="md-outline shrink-0 overflow-auto text-[0.786rem]"
             :style="{ width: '200px', background: 'var(--bg-surface)', borderRight: '1px solid var(--border-dim)' }"
           >
             <div class="px-3 py-2 font-medium" style="color: var(--text-secondary)">大纲</div>
@@ -1124,7 +1124,7 @@ function handleClose() {
           <template v-if="fileKind === 'markdown' && activeTab === 'edit' && mdSelection">
             <input
               v-model="mdSuggestion"
-              class="w-full mt-1 px-2 py-1 rounded text-[11px] outline-none"
+              class="w-full mt-1 px-2 py-1 rounded text-[0.786rem] outline-none"
               :style="{ background: 'var(--bg-root)', color: 'var(--text-primary)', border: '1px solid var(--border-dim)' }"
               :placeholder="$t('preview.mdSuggestionPlaceholder')"
               @keyup.enter="sendMdToChat"
@@ -1132,7 +1132,7 @@ function handleClose() {
             <div class="flex gap-2 mt-1">
               <button
                 @click="sendMdToChat"
-                class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+                class="flex-1 px-3 py-1 rounded text-[0.714rem] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
               ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
             </div>
@@ -1143,13 +1143,13 @@ function handleClose() {
               <button
                 v-if="fileKind === 'xlsx'"
                 @click="sendExcelSelection"
-                class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+                class="flex-1 px-3 py-1 rounded text-[0.714rem] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
               ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
               <button
                 v-else
                 @click="sendTextSelection"
-                class="flex-1 px-3 py-1 rounded text-[10px] font-medium transition-colors hover:opacity-80"
+                class="flex-1 px-3 py-1 rounded text-[0.714rem] font-medium transition-colors hover:opacity-80"
                 style="background: var(--accent); color: var(--bg-root)"
               ><Send :size="11" class="mr-1 inline" />{{ $t('preview.sendToChat') }}</button>
             </div>
@@ -1172,7 +1172,7 @@ function handleClose() {
       <span class="truncate flex-1" style="color: var(--text-muted)">{{ selectedDom.text.slice(0, 50) }}</span>
       <button @click="selectedDom = null" class="shrink-0 w-5 h-5 flex items-center justify-center rounded hover:bg-[var(--bg-hover)]" style="color: var(--text-muted)"><X :size="13" /></button>
       <!-- 发送到对话：独立预览窗口无会话上下文——载荷经主进程转发主窗口（双屏联调核心场景） -->
-      <button v-if="selectedDom" @click.stop="sendDomToChat" class="shrink-0 px-2 py-0.5 rounded text-[10px] font-medium hover:opacity-80" style="background: var(--accent); color: var(--bg-root)">发送到对话</button>
+      <button v-if="selectedDom" @click.stop="sendDomToChat" class="shrink-0 px-2 py-0.5 rounded text-[0.714rem] font-medium hover:opacity-80" style="background: var(--accent); color: var(--bg-root)">发送到对话</button>
     </div>
   </Teleport>
 
@@ -1193,7 +1193,7 @@ function handleClose() {
 .docx-preview {
   color: var(--text-primary);
   line-height: 1.7;
-  font-size: 14px;
+  font-size: 1rem;
 }
 .docx-preview h1 {
   font-size: 1.4em;
@@ -1228,7 +1228,7 @@ function handleClose() {
   flex-direction: column;
   gap: 0.5rem;
   padding: 0.625rem 0.75rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   min-width: 320px;
   max-width: min(380px, calc(100vw - 16px));
 }
@@ -1241,7 +1241,7 @@ function handleClose() {
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   border-radius: 0.5rem;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   background: var(--bg-elevated);
@@ -1294,7 +1294,7 @@ function handleClose() {
 /* ── xlsx 表格预览 ── */
 .xlsx-preview table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-family: ui-monospace, monospace;
 }
 .xlsx-preview td, .xlsx-preview th {

@@ -246,13 +246,13 @@ function goUp() {
         <!-- 文件 tab：保留原有面包屑 + 文件/Git 子 tab + 文件树 + 内联预览 -->
         <div v-if="panelTab === 'files'" class="flex flex-col min-h-0 flex-1">
         <!-- Breadcrumb -->
-        <div class="flex items-center gap-0.5 px-2 py-1.5 text-[11px] shrink-0 overflow-hidden"
+        <div class="flex items-center gap-0.5 px-2 py-1.5 text-[0.786rem] shrink-0 overflow-hidden"
           :style="{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-dim)' }">
           <button @click="goRoot" class="hover:text-[var(--accent)] transition-colors shrink-0 mr-0.5" :title="$t('file.backToRoot')">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
           </button>
           <template v-for="(seg, i) in pathSegments" :key="seg.fullPath">
-            <span class="text-[10px]" :style="{ color: 'var(--border-bright)' }" v-if="i > 0">›</span>
+            <span class="text-[0.714rem]" :style="{ color: 'var(--border-bright)' }" v-if="i > 0">›</span>
             <button
               @click="navigateTo(seg.fullPath)"
               class="hover:text-[var(--accent)] transition-colors truncate max-w-[120px] shrink-0"
@@ -314,7 +314,7 @@ function goUp() {
 
           <!-- Inline preview panel -->
           <div v-if="selectedFile && previewContent" class="flex flex-col min-h-0" :style="{ flex: 1 }">
-            <div class="flex items-center justify-between px-3 h-8 text-[11px] shrink-0"
+            <div class="flex items-center justify-between px-3 h-8 text-[0.786rem] shrink-0"
               :style="{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--border-dim)' }">
               <span class="truncate font-medium">{{ selectedFile }}</span>
               <div class="flex items-center gap-1">
@@ -373,7 +373,7 @@ function goUp() {
   position: relative;
   flex: 1;
   padding: 10px 2px 9px;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
   text-align: center;
   white-space: nowrap;
@@ -408,7 +408,7 @@ function goUp() {
 .file-panel-tab-btn {
   padding: 2px 10px;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
   cursor: pointer;
   transition: background 150ms, color 150ms;
@@ -477,7 +477,7 @@ function goUp() {
 .file-panel-tab-label {
   transition: transform 200ms;
   writing-mode: vertical-rl;
-  font-size: 10px;
+  font-size: 0.714rem;
   letter-spacing: 3px;
 }
 .file-panel-tab-label--open {

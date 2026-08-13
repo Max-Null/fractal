@@ -34,7 +34,7 @@ function onClose() {
       </span>
     </template>
 
-    <div class="text-[11px] mb-4" :style="{ color: 'var(--text-muted)' }">
+    <div class="text-[0.786rem] mb-4" :style="{ color: 'var(--text-muted)' }">
       {{ entry?.date }}
     </div>
 
@@ -44,7 +44,7 @@ function onClose() {
           {{ section.title }}
         </h4>
         <ul
-          class="text-[13px] leading-relaxed space-y-1 ml-1"
+          class="text-[0.929rem] leading-relaxed space-y-1 ml-1"
           :style="{ color: 'var(--text-secondary)' }"
         >
           <li v-for="(item, ii) in section.items" :key="ii" class="flex gap-2">

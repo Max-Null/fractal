@@ -27,10 +27,10 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'ui.showThinking': true,
       'ui.avatarImage': '',
       'ui.notifications': {
-        enabled: false,
+        enabled: true,
         replyDone: true,
-        engineError: false,
-        permissionPending: false,
+        engineError: true,
+        permissionPending: true,
         subtaskDone: false,
       },
       'agentModelOverrides': {},
@@ -43,7 +43,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
       'engine.opencodePath': '',
       'engine.logLevel': 'INFO',
       'dataMode': 'isolated',
-      'smallModel': '',
+      'smallModel': 'deepseek/deepseek-v4-flash',
     })
   })
 
@@ -64,12 +64,12 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['dataMode'].default).toBe('isolated')
   })
 
-  it('getSchema 含 smallModel（enum 空/两个显式模型全名，default 空=跟随主模型）', () => {
+  it('getSchema 含 smallModel（enum 空/两个显式模型全名，default flash=轻量快）', () => {
     const schema = getSchema()
     const props = schema.properties as Record<string, { enum?: string[]; default?: unknown }>
     expect(props['smallModel']).toBeDefined()
     expect(props['smallModel'].enum).toEqual(['', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'])
-    expect(props['smallModel'].default).toBe('')
+    expect(props['smallModel'].default).toBe('deepseek/deepseek-v4-flash')
   })
 
   it('getSchema 含 4 个新字段（思考开关/头像图/子agent覆盖/通知场景，default 与 DEFAULT_SETTINGS 一致）', () => {
@@ -83,7 +83,7 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['agentModelOverrides']).toMatchObject({ type: 'object', default: {} })
     expect(props['ui.notifications']).toMatchObject({
       type: 'object',
-      default: { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+      default: { enabled: true, replyDone: true, engineError: true, permissionPending: true, subtaskDone: false },
     })
   })
 })
@@ -208,10 +208,10 @@ describe('parseAndValidate（JSONC 解析 + schema 校验）', () => {
   it('ui.notifications 嵌套字段类型错误 → 整字段回退默认 + warning', () => {
     const { config, warnings } = parseAndValidate('{ "ui.notifications": { "enabled": "yes" } }')
     expect(config['ui.notifications']).toEqual({
-      enabled: false,
+      enabled: true,
       replyDone: true,
-      engineError: false,
-      permissionPending: false,
+      engineError: true,
+      permissionPending: true,
       subtaskDone: false,
     })
     expect(warnings.some((w) => w.includes('ui.notifications'))).toBe(true)

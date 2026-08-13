@@ -85,16 +85,16 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
   gap: 0.5rem;
 }
 .monitor-badge {
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
 }
 .monitor-agent {
   font-weight: 600;
   color: var(--violet);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 .monitor-status {
-  font-size: 10px;
+  font-size: 0.714rem;
   white-space: nowrap;
 }
 .monitor-status--running {
@@ -113,7 +113,7 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
 }
 .monitor-empty {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 .monitor-thinking {
   border: 1px solid var(--border-dim);
@@ -121,7 +121,7 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
   background: var(--bg-elevated);
 }
 .monitor-thinking-summary {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--amber);
   padding: 0.4rem 0.6rem;
   cursor: pointer;
@@ -129,7 +129,7 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
 }
 .monitor-thinking-body {
   padding: 0 0.6rem 0.6rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: pre-wrap;
 }
@@ -145,10 +145,10 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
 .monitor-tool-name {
   font-weight: 600;
   color: var(--violet);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 .monitor-tool-state {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--accent);
   white-space: nowrap;
 }
@@ -157,7 +157,7 @@ const badge = computed(() => badgeFor(task.value?.agent || ""));
 }
 .monitor-text {
   margin: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-primary);
   line-height: 1.6;
   white-space: pre-wrap;

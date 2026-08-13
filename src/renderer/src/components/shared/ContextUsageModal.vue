@@ -72,7 +72,7 @@ const rows = computed<Row[]>(() => [
       <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">
         {{ $t('contextUsage.title') }}
       </span>
-      <span class="text-[11px] font-mono ml-2" :style="{ color: 'var(--text-muted)' }">{{ settings.model }}</span>
+      <span class="text-[0.786rem] font-mono ml-2" :style="{ color: 'var(--text-muted)' }">{{ settings.model }}</span>
     </template>
 
     <!-- 用量摘要 -->
@@ -87,7 +87,7 @@ const rows = computed<Row[]>(() => [
     </div>
 
     <!-- 分类表格 -->
-    <div class="text-[10px] font-semibold uppercase tracking-wider mb-1.5" :style="{ color: 'var(--text-muted)' }">{{ $t('contextUsage.category') }}</div>
+    <div class="text-[0.714rem] font-semibold uppercase tracking-wider mb-1.5" :style="{ color: 'var(--text-muted)' }">{{ $t('contextUsage.category') }}</div>
     <table class="w-full text-xs mb-3">
       <thead>
         <tr :style="{ color: 'var(--text-muted)' }">
@@ -118,7 +118,7 @@ const rows = computed<Row[]>(() => [
       </span>
     </div>
 
-    <p class="text-[10px] leading-relaxed pb-1" :style="{ color: 'var(--text-muted)' }">
+    <p class="text-[0.714rem] leading-relaxed pb-1" :style="{ color: 'var(--text-muted)' }">
       {{ $t('contextUsage.note') }}
     </p>
 

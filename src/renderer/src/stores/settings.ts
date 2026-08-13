@@ -38,6 +38,16 @@ export function normalizeEffort(v: unknown): Effort {
   }
 }
 
+/**
+ * store 三联动 → settings.json 四值权限模式（反向映射见 applySettingsJson：plan/auto→开关，default/acceptEdits→permissionMode）。
+ * planMode → 'plan'；autoMode 或完全放行（bypassPermissions/dontAsk 旧值）→ 'auto'；其余落 acceptEdits/default。
+ */
+function toSettingsPermissionMode(plan: boolean, auto: boolean, pm: PermissionMode): string {
+  if (plan) return "plan";
+  if (auto || pm === "bypassPermissions" || pm === "dontAsk") return "auto";
+  return pm === "acceptEdits" ? "acceptEdits" : "default";
+}
+
 /** 系统通知场景配置（settings.json ui.notifications；全局开关 + 4 触发点，缺省按此补全） */
 export interface NotificationsConfig {
   /** 全局通知开关：false 时全部场景静默 */
@@ -50,6 +60,17 @@ export interface NotificationsConfig {
   permissionPending: boolean;
   /** 子任务完成 */
   subtaskDone: boolean;
+}
+
+/** 通知配置浅比较（5 布尔字段全同=同值）——applySettingsJson 防 deep watch 写盘循环用（同值不替换引用） */
+function sameNotifications(a: NotificationsConfig, b: NotificationsConfig): boolean {
+  return (
+    a.enabled === b.enabled &&
+    a.replyDone === b.replyDone &&
+    a.engineError === b.engineError &&
+    a.permissionPending === b.permissionPending &&
+    a.subtaskDone === b.subtaskDone
+  );
 }
 
 /** 仅存 localStorage 的 UI 偏好 */
@@ -100,8 +121,8 @@ function getUiDefaults(): UiSettings {
     // 思考节点默认显示（关闭仅隐藏时间线节点，不删数据）
     showThinking: true,
     avatarImage: "",
-    // 通知默认关闭全局开关（不打扰）；单场景勾选保留（全局开启时按场景决定）
-    notifications: { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+    // 通知默认开启 3 场景（回答完成/引擎异常/权限请求），子任务完成默认关（2026-08-14 用户定案）
+    notifications: { enabled: true, replyDone: true, engineError: true, permissionPending: true, subtaskDone: false },
     agentModelOverrides: {},
   };
 }
@@ -199,15 +220,14 @@ export const useSettingsStore = defineStore("settings", () => {
   // 设置页重构新字段（同 ui.* 三写；notifications/agentModelOverrides 拷贝副本防共享引用）
   const showThinking = ref(ui.showThinking);
   const avatarImage = ref(ui.avatarImage);
+  // 头像图片版本号（cache-busting，运行时状态不持久化）：avatar:pick 统一命名 avatar.{ext} 覆盖旧图 →
+  // 换文件后文件名不变，用版本号强制 URL 变化（?v=n）刷新 Chromium 缓存
+  const avatarRevision = ref(0);
   const notifications = ref<NotificationsConfig>({ ...ui.notifications });
   const agentModelOverrides = ref<Record<string, string>>({ ...ui.agentModelOverrides });
 
   // settings.json 是否真实存在于磁盘（默认态标记）：不存在时 applySettingsJson 的 ui.theme/ui.language 不覆盖表单（主题持久化）
   const settingsFileExists = ref(false);
-
-  // LLM API 地址：跟随 baseUrl，用户手动编辑过才存 localStorage 覆盖
-  const LLM_API_URL_KEY = "sb-llm-api-url-override";
-  const optimizeApiUrl = ref(localStorage.getItem(LLM_API_URL_KEY) || baseUrl.value);
 
   // 上下文窗口大小（tokens）：0 = 自动检测，>0 = 手动指定
   const contextLimit = ref(0);
@@ -230,7 +250,8 @@ export const useSettingsStore = defineStore("settings", () => {
   // ── 轻量模型（settings.json smallModel：LOW 槽位，标题生成/会话摘要/消息润色专用）──
   // 不进 UI 偏好 watch 数组（同 dataMode 理由）：主题/语言 800ms 防抖写盘会以「当前文件字段 + 主题/语言」重建对象，
   // smallModel 混入防抖链会以旧值覆盖用户最新选择
-  const smallModel = ref("");
+  // 默认 flash（2026-08-14 用户定案）：比「跟随主模型」更快更省；'' = 显式选跟随主模型
+  const smallModel = ref("deepseek/deepseek-v4-flash");
   /** 可选值白名单（对齐设置页下拉与 settings.schema.json 枚举）：空=跟随主模型 / 两个显式模型全名 */
   const SMALL_MODEL_OPTIONS = ["", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"];
 
@@ -265,7 +286,11 @@ export const useSettingsStore = defineStore("settings", () => {
   /** 选择头像图片（bridge 弹系统对话框）；成功后写 avatarImage（ui.* 三写链由 watch 自动同步） */
   async function pickAvatar(): Promise<{ ok: boolean; filename?: string }> {
     const r = await pickAvatarBridge();
-    if (r.ok && r.filename) avatarImage.value = r.filename;
+    if (r.ok && r.filename) {
+      avatarImage.value = r.filename;
+      // 递增版本号：文件名不变时也强制头像 URL 变化（?v=n），否则换文件后 Chromium 缓存旧图不刷新
+      avatarRevision.value++;
+    }
     return r;
   }
 
@@ -351,11 +376,6 @@ export const useSettingsStore = defineStore("settings", () => {
     localStorage.setItem(ONBOARDING_KEY, "1");
   }
 
-  function resetOnboarding() {
-    onboardingDismissed.value = false;
-    localStorage.removeItem(ONBOARDING_KEY);
-  }
-
   // ── 工作区状态 ──
   const MAX_RECENT_WORKSPACES = 10;
   const cwd = ref(localStorage.getItem("sb-current-workspace") || "");
@@ -397,7 +417,6 @@ export const useSettingsStore = defineStore("settings", () => {
       loadUiSettingsDb().then(json => {
     try {
       const db = JSON.parse(json);
-      if (db.optimizeApiUrl) optimizeApiUrl.value = db.optimizeApiUrl;
       if (db.theme) theme.value = db.theme as "dark" | "light" | "system";
       if (db.locale) locale.value = db.locale as "zh" | "en";
       if (db.fontSize) fontSize.value = db.fontSize as "small" | "medium" | "large";
@@ -484,25 +503,33 @@ export const useSettingsStore = defineStore("settings", () => {
     // 图片头像文件名（空=emoji 兜底）
     if (typeof config["ui.avatarImage"] === "string") avatarImage.value = config["ui.avatarImage"];
     // 通知场景（config-changed 广播可能只带部分子项——缺失子项保留当前值）
+    // 防循环（2026-08-14 修复「开关多点几次才有效」）：deep watch 对对象引用替换必触发
+    // （内容相同也触发），无条件替换会形成 写盘→广播→回写替换→再写盘 的无限循环，
+    // 每 800ms 一次 settings.json 写盘风暴，UI 事件处理被拖慢 → 值相同则不替换引用
     const notif = config["ui.notifications"];
     if (notif && typeof notif === "object" && !Array.isArray(notif)) {
       const n = notif as Record<string, unknown>;
-      notifications.value = {
+      const next: NotificationsConfig = {
         enabled: typeof n.enabled === "boolean" ? n.enabled : notifications.value.enabled,
         replyDone: typeof n.replyDone === "boolean" ? n.replyDone : notifications.value.replyDone,
         engineError: typeof n.engineError === "boolean" ? n.engineError : notifications.value.engineError,
         permissionPending: typeof n.permissionPending === "boolean" ? n.permissionPending : notifications.value.permissionPending,
         subtaskDone: typeof n.subtaskDone === "boolean" ? n.subtaskDone : notifications.value.subtaskDone,
       };
+      if (!sameNotifications(next, notifications.value)) notifications.value = next;
     }
     // 子 agent 模型覆盖（对象白名单：仅保留字符串值；非字符串条目丢弃——非法覆盖值由 applyModelAliases 白名单兜底）
+    // 防循环同 notifications：同值不替换引用
     const overrides = config["agentModelOverrides"];
     if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
       const next: Record<string, string> = {};
       for (const [k, v] of Object.entries(overrides)) {
         if (typeof v === "string") next[k] = v;
       }
-      agentModelOverrides.value = next;
+      const cur = agentModelOverrides.value;
+      const nextKeys = Object.keys(next);
+      const changed = Object.keys(cur).length !== nextKeys.length || nextKeys.some((k) => cur[k] !== next[k]);
+      if (changed) agentModelOverrides.value = next;
     }
   }
 
@@ -545,15 +572,6 @@ export const useSettingsStore = defineStore("settings", () => {
     }
   }, { immediate: true });
 
-  // LLM API 地址：未手填时跟随 baseUrl，手填后存 localStorage
-  watch(baseUrl, (v) => {
-    if (!optimizeApiUrl.value) optimizeApiUrl.value = v;
-  });
-  watch(optimizeApiUrl, (v) => {
-    if (v) localStorage.setItem(LLM_API_URL_KEY, v);
-    else localStorage.removeItem(LLM_API_URL_KEY);
-  });
-
   // UI 偏好变更 → 写 localStorage（B1 补 messageLayout/nickname/avatar；设置页重构补 showThinking/avatarImage/notifications/agentModelOverrides）
   watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides], () => {
     const s: UiSettings = {
@@ -579,12 +597,11 @@ export const useSettingsStore = defineStore("settings", () => {
   // UI 偏好变更 → 写 SQLite（500ms 防抖，不受 Tauri identifier 变更影响）
   let uiDbTimer: ReturnType<typeof setTimeout> | null = null;
   watch(
-    [optimizeApiUrl, theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides],
+    [theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides],
     () => {
       if (uiDbTimer) clearTimeout(uiDbTimer);
       uiDbTimer = setTimeout(() => {
         saveUiSettingsDb(JSON.stringify({
-          optimizeApiUrl: optimizeApiUrl.value,
           theme: theme.value,
           locale: locale.value,
           fontSize: fontSize.value,
@@ -615,16 +632,18 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem("sb-current-workspace");
   });
 
-  // ── 主题/语言/消息排布/昵称/头像同步写 settings.json（高级源）──
+  // ── 主题/语言/消息排布/昵称/头像/权限模式/思考深度同步写 settings.json（高级源）──
   // 根因：settings.json 不存在时 loadSettings 返回默认值（ui.theme=dark），applySettingsJson 把它当显式配置覆盖表单
   // 修复：①默认态（exists=false）不覆盖表单 ②用户显式切换主题/语言 → 写 settings.json（之后启动以文件为准）
   // 循环防护：写盘 → config-changed 广播 → applySettingsJson 同值 → watch 不触发（值未变），无死循环
   // B1 扩展：messageLayout/nickname/avatar 并入同一防抖链（theme=system 时只写 ui 三字段，不写 theme/locale）
   // 设置页重构扩展：showThinking/avatarImage/notifications 并入同链（notifications 对象需 deep 监听嵌套子项变化）
+  // 2026-08-14 修复：planMode/autoMode/permissionMode/effort 并入同链——此前只写 localStorage+SQLite，
+  // settings.json 旧值（默认 default/high）重启时被 applySettingsJson 覆盖 → 权限/思考深度设置丢失
   let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  watch([theme, locale, messageLayout, nickname, avatar, showThinking, avatarImage, notifications], () => {
+  watch([theme, locale, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, planMode, autoMode, permissionMode, effort], () => {
     if (themeSyncTimer) clearTimeout(themeSyncTimer);
-    // 防抖：连续切换只写一次（saveSettings 会触发引擎联动判断，但纯 UI 项不改 opencode.json）
+    // 防抖：连续切换只写一次（saveSettings 触发引擎联动判断：agent 字段变更才联动 opencode.json，纯 UI 项不联动）
     themeSyncTimer = setTimeout(() => {
       getSettingsConfig()
         .then((r) => {
@@ -638,6 +657,9 @@ export const useSettingsStore = defineStore("settings", () => {
           next["ui.showThinking"] = showThinking.value;
           next["ui.avatarImage"] = avatarImage.value;
           next["ui.notifications"] = { ...notifications.value };
+          // 引擎字段写回（修复权限/思考深度重启丢失）；effort 空（模型无 variants）不写，保留文件原值
+          next["agent.permissionMode"] = toSettingsPermissionMode(planMode.value, autoMode.value, permissionMode.value);
+          if (effort.value) next["agent.effort"] = effort.value;
           saveSettingsJson(JSON.stringify(next, null, 2)).catch(() => {
             // 写失败不阻断（settings.json 写入失败仍可运行，仅配置重启不恢复）
             console.error("[settings] 主题同步写 settings.json 失败");
@@ -671,5 +693,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides, setAgentModelOverride, pickAvatar, clearAvatar, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, showThinking, avatarImage, avatarRevision, notifications, agentModelOverrides, setAgentModelOverride, pickAvatar, clearAvatar, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
 });

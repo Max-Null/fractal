@@ -254,7 +254,7 @@ defineExpose({ show, hide });
 
     <!-- 最近使用（无搜索词时显示） -->
     <template v-if="recentActions.length > 0">
-      <div class="px-1 pt-1 pb-1 text-[10px] font-semibold tracking-wider uppercase select-none" :style="{ color: 'var(--text-muted)' }">
+      <div class="px-1 pt-1 pb-1 text-[0.714rem] font-semibold tracking-wider uppercase select-none" :style="{ color: 'var(--text-muted)' }">
         {{ $t('command.recent') }}
       </div>
       <button
@@ -267,9 +267,9 @@ defineExpose({ show, hide });
         <span v-else class="w-5 shrink-0"></span>
         <span class="flex-1 text-sm truncate" :style="{ color: 'var(--text-secondary)' }">
           {{ $t(a.labelKey) }}
-          <span v-if="a.cliKey" class="italic text-[11px] ml-1.5" :style="{ color: 'var(--text-muted)' }">{{ a.cliKey }}</span>
+          <span v-if="a.cliKey" class="italic text-[0.786rem] ml-1.5" :style="{ color: 'var(--text-muted)' }">{{ a.cliKey }}</span>
         </span>
-        <kbd v-if="a.keys" class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--bg-root)', color: 'var(--text-muted)' }">{{ a.keys }}</kbd>
+        <kbd v-if="a.keys" class="text-[0.714rem] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--bg-root)', color: 'var(--text-muted)' }">{{ a.keys }}</kbd>
       </button>
       <div class="mx-1 my-1 border-t" :style="{ borderColor: 'var(--border-dim)' }"></div>
     </template>
@@ -278,7 +278,7 @@ defineExpose({ show, hide });
     <template v-for="(item, i) in flatList" :key="item.type === 'group' ? `g-${item.groupId}` : `c-${item.action!.id}`">
       <div
         v-if="item.type === 'group'"
-        class="px-1 pt-3 pb-1 text-[10px] font-semibold tracking-wider uppercase select-none"
+        class="px-1 pt-3 pb-1 text-[0.714rem] font-semibold tracking-wider uppercase select-none"
         :style="{ color: 'var(--text-muted)' }"
       >
         {{ $t(`command.groups.${item.groupId}`) }}
@@ -301,15 +301,15 @@ defineExpose({ show, hide });
           <div class="flex items-center gap-1.5">
             <span class="text-sm" :style="{ color: (item.actionIndex === selectedIdx || (item.action && isActive(item.action))) ? 'var(--accent)' : 'var(--text-secondary)' }">
               <span class="truncate">{{ $t(item.action!.labelKey) }}</span>
-              <span v-if="item.action!.cliKey" class="italic text-[11px] ml-1.5 shrink-0" :style="{ color: 'var(--text-muted)' }">{{ item.action!.cliKey }}</span>
+              <span v-if="item.action!.cliKey" class="italic text-[0.786rem] ml-1.5 shrink-0" :style="{ color: 'var(--text-muted)' }">{{ item.action!.cliKey }}</span>
             </span>
           </div>
-          <div v-if="item.action!.descKey" class="text-[11px] truncate mt-0.5" :style="{ color: 'var(--text-muted)' }">
+          <div v-if="item.action!.descKey" class="text-[0.786rem] truncate mt-0.5" :style="{ color: 'var(--text-muted)' }">
             {{ $t(item.action!.descKey) }}
           </div>
         </div>
 
-        <kbd v-if="item.action!.keys" class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--bg-root)', color: 'var(--text-muted)' }">{{ item.action!.keys }}</kbd>
+        <kbd v-if="item.action!.keys" class="text-[0.714rem] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--bg-root)', color: 'var(--text-muted)' }">{{ item.action!.keys }}</kbd>
       </button>
     </template>
 

@@ -37,10 +37,7 @@ const i18n = createI18n({
         apiKey: "DeepSeek API Key",
         apiKeyDesc: "Used by the main model and most sub-agents (DeepSeek)",
         model: "Model",
-        test: "Test Connection",
-        testing: "Testing…",
         save: "Save",
-        saveAndRestart: "Save & Restart Engine",
         language: "Language",
         theme: "Theme",
         defaultMode: "Permission Mode",
@@ -66,15 +63,17 @@ const i18n = createI18n({
         dataModeDone: "Engine restarted: isolated session data mode",
         dataModeFail: "Engine restart failed, restored original mode",
         smallModel: "Lightweight Model",
-        smallModelFollow: "Follow main model (default)",
+        smallModelFollow: "Follow main model",
         smallModelFlash: "deepseek-v4-flash · fast",
         smallModelPro: "deepseek-v4-pro · stronger reasoning",
-        smallModelDesc: "Used for lightweight tasks (titles, summaries, message polish); empty = follow main model",
+        smallModelDesc: "Used for lightweight tasks (titles, summaries, message polish); flash by default for speed and cost",
         kimiApiKey: "Kimi K3 API Key",
         kimiApiKeyDesc: "Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty",
-        kimiTest: "Test Connection",
-        kimiTesting: "Testing…",
-        kimiKeySaved: "Saved and engine restarted",
+        keyChangeTitle: "API Key Changed",
+        keyChangeTesting: "Testing connection…",
+        keyChangeSaving: "Saving and restarting engine…",
+        keyChangeSuccess: "✓ Saved and engine restarted",
+        keyChangeRetry: "Retry",
         showKey: "Show API Key",
         hideKey: "Hide API Key",
         messageLayout: "Message Layout",
@@ -88,7 +87,6 @@ const i18n = createI18n({
         opencodePathDesc: "Full path to opencode.exe; empty = auto-resolve",
         opencodePathPick: "Select opencode executable",
         browseFile: "Browse…",
-        reopenOnboarding: "Reopen onboarding",
         loading: "Loading…",
         jsonHint: "VSCode-style JSONC",
         logLevel: "Engine Log Level",
@@ -113,7 +111,6 @@ const i18n = createI18n({
         },
         backToChat: "Back to chat",
         keyPlaceholder: "sk-...",
-        testConnectionOk: "✓ serve connected",
         balance: "Account Balance",
         balanceQueryFailed: "Failed to query balance",
         balanceQueryFailedShort: "Query failed",
@@ -149,6 +146,7 @@ const i18n = createI18n({
         bypassDesc: "No permission prompts",
         effort: { low: "Low", high: "High", max: "Max" },
       },
+      modal: { close: "Close", confirm: "Confirm", cancel: "Cancel" },
       app: { title: "Fractal" },
     },
   },
@@ -356,6 +354,13 @@ describe("SettingsPanel", () => {
     return wrapper.find("[data-tab='model']");
   }
 
+  /** fake timers 下 flush 微任务链（async/await 多层链推进到稳定，不触发宏任务 timer）。
+   *  不用 advanceTimersByTimeAsync(0)——其微任务 flush 行为不稳定（偶发推进不充分导致 Heisenbug），
+   *  Promise.resolve 链是纯微任务、不受 fake timers 影响，稳定可靠。 */
+  async function flushMicrotasks(times = 20) {
+    for (let i = 0; i < times; i++) await Promise.resolve();
+  }
+
   it("model tab renders two key groups: main model API + multimodal API + session", async () => {
     const wrapper = mountPanel();
     const tab = await switchToModelTab(wrapper);
@@ -364,16 +369,14 @@ describe("SettingsPanel", () => {
     expect(sections.length).toBe(3);
     const titles = sections.map((s) => s.find(".settings-section__title").text());
     expect(titles).toEqual(["Main Model API", "Multimodal API", "Session"]);
-    // 主模型 API section：DeepSeek API Key + 说明 + 余额 + baseUrl + 模型 + 测试连接 + 保存并重启（与 kimi 对称）
+    // 主模型 API section：DeepSeek API Key + 说明 + 余额 + baseUrl + 模型（测试/保存已移至 blur 引导弹窗）
     const mainSection = sections[0];
     expect(mainSection.text()).toContain("DeepSeek API Key");
     expect(mainSection.text()).toContain("Used by the main model and most sub-agents (DeepSeek)");
     expect(mainSection.text()).toContain("Account Balance");
     expect(mainSection.text()).toContain("API Base URL");
     expect(mainSection.text()).toContain("Model");
-    expect(mainSection.text()).toContain("Test Connection");
-    expect(mainSection.text()).toContain("Save & Restart Engine");
-    // 多模态 API section：Kimi K3 Key + 说明（制图师不可用提示）+ 余额行 + 刷新按钮 + 测试连接 + 保存并重启（与 DeepSeek 对称）
+    // 多模态 API section：Kimi K3 Key + 说明（制图师不可用提示）+ 余额行 + 刷新按钮
     const multiSection = sections[1];
     expect(multiSection.text()).toContain("Kimi K3 API Key");
     expect(multiSection.text()).toContain("Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty");
@@ -381,8 +384,6 @@ describe("SettingsPanel", () => {
     // 多模态区余额刷新按钮（aria-label 复用 refreshBalance，与 DeepSeek 对称）
     const kimiRefresh = multiSection.find("button[aria-label='Refresh balance']");
     expect(kimiRefresh.exists()).toBe(true);
-    expect(multiSection.text()).toContain("Test Connection");
-    expect(multiSection.text()).toContain("Save & Restart Engine");
     // 会话 section：上下文窗口
     const sessionSection = sections[2];
     expect(sessionSection.text()).toContain("Context Limit");
@@ -444,46 +445,40 @@ describe("SettingsPanel", () => {
     expect(kimiInput).toBeTruthy();
   });
 
-  it("kimi key save button writes provider-configs with restart=true", async () => {
+  it("kimi key blur runs auto test→save→restart flow with restart=true", async () => {
     const wrapper = mountPanel();
     await switchToModelTab(wrapper);
     const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
     bridge.invoke = vi.fn().mockImplementation((channel: string) => {
       if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
       if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "engine:testKimiConnection") return Promise.resolve({ ok: true, message: "kimi ok" });
       if (channel === "settings:saveProviderConfig") return Promise.resolve({ ok: true });
       return Promise.resolve({});
     });
-    // 填入 kimi key：密码输入框有两个（DeepSeek / kimi Key，均 sk-...），取第二个（模型 tab 顺序固定）
-    const passwordInputs = wrapper.findAll("input").filter((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
-    expect(passwordInputs.length).toBe(2);
-    await passwordInputs[1].setValue("sk-kimi-123");
-    // 保存按钮：限定多模态 section（DeepSeek 也有同名 Save & Restart Engine 按钮，全页 find 会命中第一个）
-    const multiSection = wrapper.find("[data-tab='model']").findAll(".settings-section")[1];
-    const saveBtn = multiSection.findAll("button").find((b) => b.text() === "Save & Restart Engine" && !(b.element as HTMLButtonElement).disabled);
-    expect(saveBtn).toBeTruthy();
-    await saveBtn!.trigger("click");
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
-    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
-    const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
-    expect(arg.providerId).toBe("moonshotai-cn");
-    expect(arg.apiKey).toBe("sk-kimi-123");
-    expect(arg.restart).toBe(true);
-  });
-
-  it("test connection buttons exist for both providers", async () => {
-    const wrapper = mountPanel();
-    const tab = await switchToModelTab(wrapper);
-    const sections = tab.findAll(".settings-section");
-    // 主模型区（DeepSeek）测试连接按钮：默认文案 Test Connection，非禁用
-    const dsTest = sections[0].findAll("button").find((b) => b.text().includes("Test Connection"));
-    expect(dsTest).toBeTruthy();
-    expect(dsTest!.attributes("disabled")).toBeUndefined();
-    // 多模态区（Kimi）测试连接按钮：对称存在
-    const kimiTest = sections[1].findAll("button").find((b) => b.text().includes("Test Connection"));
-    expect(kimiTest).toBeTruthy();
-    expect(kimiTest!.attributes("disabled")).toBeUndefined();
+    vi.useFakeTimers();
+    try {
+      // 填入 kimi key：密码输入框有两个（DeepSeek / kimi Key，均 sk-...），取第二个（模型 tab 顺序固定）
+      const passwordInputs = wrapper.findAll("input").filter((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
+      expect(passwordInputs.length).toBe(2);
+      await passwordInputs[1].setValue("sk-kimi-123");
+      // blur 触发自动流程（测试 → 保存并重启）
+      await passwordInputs[1].trigger("blur");
+      await flushMicrotasks();
+      // 自动保存 restart=true（此刻防抖 500ms 未 advance，仅显式保存一次）
+      const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
+      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+      const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
+      expect(arg.providerId).toBe("moonshotai-cn");
+      expect(arg.apiKey).toBe("sk-kimi-123");
+      expect(arg.restart).toBe(true);
+      // 成功态后自动关闭
+      vi.advanceTimersByTime(1200);
+      await flushMicrotasks();
+      expect(document.body.querySelector(".modal-shell-overlay")).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("mount with non-empty kimiApiKey queries kimi balance (getKimiBalance invoked)", async () => {
@@ -621,9 +616,10 @@ describe("SettingsPanel", () => {
     const fields = wrapper.find("[data-tab='behavior']").findAll(".settings-field");
     const agentField = fields.find((f) => f.find(".settings-field__label").text() === "Default Main Agent")!;
     await agentField.find(".settings-select__trigger").trigger("click");
-    const scoutItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "侦查兵")!;
-    await scoutItem.trigger("click");
-    expect(settings.currentAgent).toBe("侦查兵");
+    // 主 agent 下拉仅 3 项（双星/build/plan），选 build 验证写入（子 agent 不在此列）
+    const buildItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "build")!;
+    await buildItem.trigger("click");
+    expect(settings.currentAgent).toBe("build");
   });
 
   // ── 通知 tab：全局开关 + 4 场景 ──
@@ -637,26 +633,30 @@ describe("SettingsPanel", () => {
     expect(tab.text()).toContain("Engine Error");
     expect(tab.text()).toContain("Pending Permission Request");
     expect(tab.text()).toContain("Subtask Complete");
-    // 全局关时场景开关禁用（D15：opt-in）；全局开关自身不禁用
+    // 默认全局开（2026-08-14 定案：默认开启回答完成/引擎异常/权限请求，子任务完成关）→ 场景开关均可用
     const switches = tab.findAll(".settings-toggle__switch");
     expect(switches.length).toBe(5);
-    expect((switches[0].element as HTMLButtonElement).disabled).toBe(false);
-    for (let i = 1; i < switches.length; i++) {
-      expect((switches[i].element as HTMLButtonElement).disabled).toBe(true);
+    for (const s of switches) {
+      expect((s.element as HTMLButtonElement).disabled).toBe(false);
     }
+    // 关闭全局开关 → 场景开关禁用（opt-in）
+    await switches[0].trigger("click");
+    expect((switches[1].element as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("notification toggle switches store.notifications", async () => {
     const wrapper = mountPanel();
     await wrapper.findAll(".f-settings-nav-item")[3].trigger("click");
     const settings = useSettingsStore();
-    // 默认全局关
-    expect(settings.notifications.enabled).toBe(false);
-    // 打开全局开关（第一个 toggle）
+    // 默认全局开
+    expect(settings.notifications.enabled).toBe(true);
+    // 关全局 → 场景开关禁用
     const switches = wrapper.find("[data-tab='notify']").findAll(".settings-toggle__switch");
     await switches[0].trigger("click");
+    expect(settings.notifications.enabled).toBe(false);
+    // 再开全局 → 场景可操作：切 replyDone（默认 true → false）
+    await switches[0].trigger("click");
     expect(settings.notifications.enabled).toBe(true);
-    // 开启后场景开关可操作：切 replyDone
     await switches[1].trigger("click");
     expect(settings.notifications.replyDone).toBe(false);
     await switches[1].trigger("click");
@@ -720,5 +720,109 @@ describe("SettingsPanel", () => {
     // ModalShell 用 Teleport 渲染到 body（不在组件 wrapper 内）
     await wrapper.vm.$nextTick();
     expect(document.body.querySelector(".modal-shell-overlay")).toBeTruthy();
+    // 关闭弹窗（右上角 close 按钮）：Teleport 到 body 不随 wrapper 自动清理，避免残留影响后续用例
+    const closeBtn = document.body.querySelector<HTMLButtonElement>(".modal-shell-close");
+    closeBtn!.click();
+    await wrapper.vm.$nextTick();
+  });
+
+  // ── API Key 变更引导弹窗（blur 检测变化 → 自动「测试连接 → 保存并重启引擎」，弹窗只做进度/结果反馈）──
+
+  it("deepseek key blur runs auto test→save→restart flow and auto-closes on success", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "engine:testConnection") return Promise.resolve({ ok: true, message: "serve connected" });
+      if (channel === "settings:saveProviderConfig") return Promise.resolve({ ok: true });
+      return Promise.resolve({});
+    });
+    vi.useFakeTimers();
+    try {
+      const dsInput = wrapper
+        .findAll("input")
+        .find((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
+      expect(dsInput).toBeTruthy();
+      await dsInput!.setValue("sk-new-key");
+      await dsInput!.trigger("blur");
+      // 推进自动流程微任务链（testConnection → saveCurrentConfig → success 态）；
+      // 不 advance 1200ms 自动关闭 timer（此刻仍处 success 态）
+      await flushMicrotasks();
+      // 弹窗打开 + 成功态文案
+      expect(document.body.querySelector(".modal-shell-overlay")).toBeTruthy();
+      expect(document.body.textContent).toContain("API Key Changed");
+      expect(document.body.textContent).toContain("Saved and engine restarted");
+      // 自动测试已发起
+      expect(bridge.invoke.mock.calls.filter((c) => c[0] === "engine:testConnection").length).toBeGreaterThanOrEqual(1);
+      // 自动保存 restart=true（此刻防抖 500ms 未 advance，仅显式保存一次）
+      const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig");
+      expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+      const arg = saveCalls.at(-1)![1] as { providerId: string; apiKey: string; restart: boolean };
+      expect(arg.providerId).toBe("deepseek");
+      expect(arg.apiKey).toBe("sk-new-key");
+      expect(arg.restart).toBe(true);
+      // 1.2s 后自动关闭（同步 advance 触发 timer，再 flush 微任务让 DOM 更新）
+      vi.advanceTimersByTime(1200);
+      await flushMicrotasks();
+      expect(document.body.querySelector(".modal-shell-overlay")).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("deepseek key blur with unchanged value does not open dialog", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const dsInput = wrapper
+      .findAll("input")
+      .find((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
+    // 空值 blur：cur 为空，不弹窗
+    await dsInput!.trigger("blur");
+    await wrapper.vm.$nextTick();
+    expect(document.body.querySelector(".modal-shell-overlay")).toBeFalsy();
+  });
+
+  it("auto flow stops on test failure: shows error, does not save, retry re-tests", async () => {
+    const wrapper = mountPanel();
+    await switchToModelTab(wrapper);
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    let testCount = 0;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "engine:testConnection") {
+        testCount++;
+        return Promise.resolve({ ok: false, message: "401 Unauthorized" });
+      }
+      if (channel === "settings:saveProviderConfig") return Promise.resolve({ ok: true });
+      return Promise.resolve({});
+    });
+    vi.useFakeTimers();
+    try {
+      const dsInput = wrapper
+        .findAll("input")
+        .find((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
+      await dsInput!.setValue("sk-bad-key");
+      await dsInput!.trigger("blur");
+      await flushMicrotasks();
+      // 失败态：显示错误信息 + 不保存（不重启）
+      expect(document.body.textContent).toContain("401 Unauthorized");
+      expect(bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig").length).toBe(0);
+      // 「重试」+「取消」按钮存在
+      const retryBtn = Array.from(document.body.querySelectorAll<HTMLButtonElement>(".key-change-btn--primary"))
+        .find((b) => b.textContent === "Retry");
+      expect(retryBtn).toBeTruthy();
+      // 点重试 → 重新跑测试（testCount 递增），仍失败不保存
+      retryBtn!.click();
+      await flushMicrotasks();
+      expect(testCount).toBe(2);
+      expect(bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveProviderConfig").length).toBe(0);
+      // 清理：点取消关闭弹窗
+      const cancel = Array.from(document.body.querySelectorAll<HTMLButtonElement>(".key-change-btn"))
+        .find((b) => b.textContent === "Cancel");
+      cancel!.click();
+      await wrapper.vm.$nextTick();
+      expect(document.body.querySelector(".modal-shell-overlay")).toBeFalsy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

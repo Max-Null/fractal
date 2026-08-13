@@ -151,7 +151,7 @@ function cwdBase(cwd?: string): string {
   border-radius: var(--radius-sm);
   background: var(--amber-glow);
   color: var(--amber);
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.5;
 }
 
@@ -169,7 +169,7 @@ function cwdBase(cwd?: string): string {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--text-bright);
 }
@@ -180,7 +180,7 @@ function cwdBase(cwd?: string): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 .stat-ico--g { background: var(--accent-glow); color: var(--accent); }
 .stat-ico--a { background: var(--amber-glow); color: var(--amber); }
@@ -188,27 +188,27 @@ function cwdBase(cwd?: string): string {
 .stat-row {
   display: flex;
   justify-content: space-between;
-  font-size: 11.5px;
+  font-size: 0.821rem;
   gap: 10px;
 }
 .stat-row .k { color: var(--text-secondary); flex-shrink: 0; }
 .stat-row .v { color: var(--text-primary); overflow: hidden; }
 .stat-row .ellipsis { text-overflow: ellipsis; white-space: nowrap; }
 .stat-desc {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-tertiary);
   line-height: 1.4;
 }
 /* 大数字（总量/成本） */
 .stat-big {
-  font-size: 22px;
+  font-size: 1.571rem;
   font-weight: 700;
   color: var(--text-bright);
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 .stat-unit {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 500;
   color: var(--text-tertiary);
   margin-left: 4px;
@@ -222,7 +222,7 @@ function cwdBase(cwd?: string): string {
   border: 1px solid var(--border-dim);
   background: var(--bg-elevated);
   color: var(--text-secondary);
-  font-size: 10.5px;
+  font-size: 0.75rem;
   cursor: pointer;
 }
 .stat-refresh:hover:not(:disabled) {

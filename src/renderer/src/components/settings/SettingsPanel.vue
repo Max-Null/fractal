@@ -3,16 +3,16 @@ import { ref, computed, onMounted, onUnmounted, watch, type Component } from "vu
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useI18n } from "vue-i18n";
-import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
+import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, type DeepSeekBalanceResult } from "@/lib/electron-bridge";
 import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
 import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-vue-next";
 
 const appVersion = __APP_VERSION__;
-import { translateError } from "@/lib/utils";
 
 import ErrorBoundary from "@/components/shared/ErrorBoundary.vue";
 import ModalShell from "@/components/shared/ModalShell.vue";
+import KeyChangeDialog from "@/components/shared/KeyChangeDialog.vue";
 import MarkdownRenderer from "@/components/shared/MarkdownRenderer.vue";
 import SettingsJsonEditor from "./SettingsJsonEditor.vue";
 import SettingsSelect from "./SettingsSelect.vue";
@@ -131,7 +131,7 @@ const effortSelectOptions = computed(() =>
   effortOptions.value.map((o) => ({ value: o.value, label: t(o.labelKey), desc: o.cliKey })),
 );
 
-// ── 轻量模型选项（LOW 槽位：标题生成/会话摘要/消息润色；值=模型全名，空=跟随主模型）──
+// ── 轻量模型选项（LOW 槽位：标题生成/会话摘要/消息润色；值=模型全名，默认 flash，''=跟随主模型）──
 const smallModelOptions = computed(() => [
   { value: "", label: t("settings.smallModelFollow") },
   { value: "deepseek/deepseek-v4-flash", label: t("settings.smallModelFlash") },
@@ -150,8 +150,10 @@ async function handleSmallModelSelect(v: string) {
   }
 }
 
-// ── 默认主 Agent 选项（7 agent，写 store.currentAgent）──
-const agentOptions = computed(() => SUBAGENT_ORDER.map((name) => ({ value: name, label: name })));
+// ── 默认主 Agent 选项（仅主 agent：双星/build/plan，与输入框 agent pill 的 AGENT_OPTIONS 对齐）──
+// 子 agent（工匠/军师等）是 subagent，不可作主 agent；SUBAGENT_ORDER 仅用于下方「子 agent 模型」配置
+const PRIMARY_AGENTS = ["双星", "build", "plan"];
+const agentOptions = computed(() => PRIMARY_AGENTS.map((name) => ({ value: name, label: name })));
 
 // ── 语言 / 主题 / 字号 / 排布选项（SettingsSelect 直接消费 {value,label}；i18n key 即时翻译）──
 // 语言名显示原生名（zh 界面也是"中文"），与语言选择器惯例一致
@@ -268,53 +270,8 @@ function handleSubagentModelChange(name: string, v: string) {
   settings.setAgentModelOverride(name, v ? v : null);
 }
 
-// ── 连接测试 ──
-const testResult = ref<ConnectionTestResult | null>(null);
-const testError = ref<string | null>(null);
-const translatedTestError = computed(() => {
-  if (!testError.value) return null;
-  const { key, params } = translateError(testError.value);
-  return t(key, params as Record<string, string>);
-});
-const isTesting = ref(false);
-
-async function handleTest() {
-  testResult.value = null; testError.value = null; isTesting.value = true;
-  try {
-    // 分形主链路：engine:testConnection 写 key 到 serve 隔离配置 + 验证 serve 可达
-    const r = await testConnection(settings.apiKey);
-    if (r.ok) {
-      // 模板按 ✓ 前缀判定绿色（成功）；chat 字段展示写入详情
-      testResult.value = { cc: t("settings.testConnectionOk"), chat: "✓ " + r.message };
-      // 用户主动换 key：重启 serve 使新 key 对运行实例生效（主进程对相同 key 跳过重启）
-      try { await settings.saveCurrentConfig(true); } catch { /* 后台静默，防抖 watch 兜底 */ }
-    } else {
-      testError.value = r.message;
-    }
-  }
-  catch (err) { testError.value = String(err); }  // translateError applied in template display
-  finally { isTesting.value = false; }
-}
-
-// ── 主模型（DeepSeek）key 明文切换 + 保存反馈（与 kimi 区对称：密码可见性独立 state，互不干扰）──
+// ── 主模型（DeepSeek）key 明文切换（测试/保存逻辑已移至 blur 引导弹窗）──
 const showDeepSeekKey = ref(false);
-// 保存反馈（成功提示，失败静默——saveCurrentConfig 内部 catch）
-const deepseekSaveMsg = ref<string | null>(null);
-let deepseekSaveTimer: ReturnType<typeof setTimeout> | null = null;
-
-/** 保存主模型 key → 重启 serve 使新 key 生效（用户显式操作；key 变化才重启，主进程判断） */
-async function handleDeepSeekSave() {
-  deepseekSaveMsg.value = null;
-  try {
-    await settings.saveCurrentConfig(true);
-    deepseekSaveMsg.value = t("settings.kimiKeySaved");
-    // 成功提示 2s 后消失（不常驻遮挡表单）
-    if (deepseekSaveTimer) clearTimeout(deepseekSaveTimer);
-    deepseekSaveTimer = setTimeout(() => { deepseekSaveMsg.value = null; }, 2000);
-  } catch {
-    // saveCurrentConfig 内部已静默，此处不重复报错
-  }
-}
 
 // ── DeepSeek 账户余额（计费迭代：API Key 区下方显示，随 key 变化自动刷新）──
 const balance = ref<DeepSeekBalanceResult | null>(null);
@@ -391,7 +348,6 @@ watch(() => settings.kimiApiKey, () => {
 onUnmounted(() => {
   if (balanceTimer) clearTimeout(balanceTimer);
   if (kimiBalanceTimer) clearTimeout(kimiBalanceTimer);
-  if (deepseekSaveTimer) clearTimeout(deepseekSaveTimer);
 });
 // 挂载即查询一次（设置页打开时直接显示余额，不依赖 key 变化事件）
 onMounted(() => {
@@ -403,38 +359,90 @@ onMounted(() => {
 // ── 多模态模型（制图师 kimi-k3）API Key ──
 // password 明文切换（独立 state，与 DeepSeek key 互不干扰——DeepSeek 输入框无切换，沿用 Onboarding 交互模式）
 const showKimiKey = ref(false);
-// 保存反馈（成功提示，失败静默——saveKimiKey 内部 catch）
-const kimiSaveMsg = ref<string | null>(null);
-let kimiSaveTimer: ReturnType<typeof setTimeout> | null = null;
 
-/** 保存制图师多模态 key → 重启 serve 使 provider 生效（key 变化才重启，主进程判断） */
-async function handleKimiKeySave() {
-  kimiSaveMsg.value = null;
-  try {
-    await settings.saveKimiKey(true);
-    kimiSaveMsg.value = t("settings.kimiKeySaved");
-    // 成功提示 2s 后消失（不常驻遮挡表单）
-    if (kimiSaveTimer) clearTimeout(kimiSaveTimer);
-    kimiSaveTimer = setTimeout(() => { kimiSaveMsg.value = null; }, 2000);
-  } catch {
-    // saveKimiKey 内部已静默，此处不重复报错
+// ── API Key 变更引导弹窗（key 输入框 blur 检测到变化 → 自动「测试连接 → 保存并重启引擎」）──
+// 背景：key 改了但 serve 不重启就不生效（serve 启动时读 key），小白不懂「重启引擎」——
+// blur 后自动串行执行测试→保存重启，弹窗只做进度/结果反馈，无需手动点任何按钮。
+type KeyChangeTarget = "deepseek" | "kimi";
+type KeyChangePhase = "testing" | "saving" | "success" | "error";
+const keyChangeTarget = ref<KeyChangeTarget | null>(null);
+const keyChangeOpen = computed(() => keyChangeTarget.value !== null);
+// 已生效 key 快照（serve 正在用的值）：挂载时同步，保存重启成功后更新
+const servedApiKeySnapshot = ref(settings.apiKey);
+const servedKimiKeySnapshot = ref(settings.kimiApiKey);
+// 自动流程状态：阶段 + 动态文案（进度/结果）
+const dialogPhase = ref<KeyChangePhase>("testing");
+const dialogMessage = ref("");
+// 成功态自动关闭定时器（1.2s 后关），取消时清理避免误关
+const successCloseTimer = ref<ReturnType<typeof setTimeout> | null>(null);
+
+/** DeepSeek key 失去焦点：值变化（非空且 ≠ 已生效快照）→ 弹窗并自动跑「测试→保存重启」流程 */
+function onApiKeyBlur() {
+  const cur = settings.apiKey.trim();
+  if (cur && cur !== servedApiKeySnapshot.value.trim()) {
+    keyChangeTarget.value = "deepseek";
+    void runKeyChangeFlow();
   }
 }
 
-// ── Kimi 多模态 key 测试连接（与 DeepSeek 测试对称：主进程直接校验 key，不依赖 serve）──
-const kimiTestResult = ref<{ ok: boolean; message: string } | null>(null);
-const kimiTestError = ref<string | null>(null);
-const isKimiTesting = ref(false);
-
-async function handleKimiTest() {
-  kimiTestResult.value = null; kimiTestError.value = null; isKimiTesting.value = true;
-  try {
-    const r = await testKimiConnection(settings.kimiApiKey);
-    if (r.ok) kimiTestResult.value = r;
-    else kimiTestError.value = r.message;
+/** Kimi key 失去焦点：同上 */
+function onKimiKeyBlur() {
+  const cur = settings.kimiApiKey.trim();
+  if (cur && cur !== servedKimiKeySnapshot.value.trim()) {
+    keyChangeTarget.value = "kimi";
+    void runKeyChangeFlow();
   }
-  catch (err) { kimiTestError.value = String(err); }  // 桥异常直接展示文本（无翻译需求）
-  finally { isKimiTesting.value = false; }
+}
+
+/** 关闭弹窗：清 target + 清成功态自动关闭定时器（幂等，可重复调用） */
+function handleDialogCancel() {
+  keyChangeTarget.value = null;
+  if (successCloseTimer.value) {
+    clearTimeout(successCloseTimer.value);
+    successCloseTimer.value = null;
+  }
+}
+
+/** 「重试」：失败态重新跑完整自动流程（测试→保存重启） */
+function handleDialogRetry() {
+  void runKeyChangeFlow();
+}
+
+/** 自动流程：测试连接 →（通过）保存并重启引擎 → 成功自动关闭；测试/保存失败停住显示错误 */
+async function runKeyChangeFlow() {
+  const target = keyChangeTarget.value;
+  if (!target) return;
+  dialogPhase.value = "testing";
+  dialogMessage.value = t("settings.keyChangeTesting");
+  try {
+    // 第一步：测试连接（纯校验 key 有效性，不保存不重启）
+    const r = target === "deepseek" ? await testConnection(settings.apiKey) : await testKimiConnection(settings.kimiApiKey);
+    if (!r.ok) {
+      // 测试失败说明 key 无效：停下不保存不重启（避免用坏 key 重启引擎），显示错误供重试/取消
+      dialogPhase.value = "error";
+      dialogMessage.value = r.message;
+      return;
+    }
+    // 第二步：保存并重启引擎（使新 key 生效）
+    dialogPhase.value = "saving";
+    dialogMessage.value = t("settings.keyChangeSaving");
+    if (target === "deepseek") {
+      await settings.saveCurrentConfig(true);
+      servedApiKeySnapshot.value = settings.apiKey;
+    } else {
+      await settings.saveKimiKey(true);
+      servedKimiKeySnapshot.value = settings.kimiApiKey;
+    }
+    // 第三步：成功 → 1.2s 后自动关闭
+    dialogPhase.value = "success";
+    dialogMessage.value = t("settings.keyChangeSuccess");
+    successCloseTimer.value = setTimeout(() => {
+      if (keyChangeTarget.value === target) handleDialogCancel();
+    }, 1200);
+  } catch (err) {
+    dialogPhase.value = "error";
+    dialogMessage.value = String(err);
+  }
 }
 
 // ── 更新日志弹窗 ──
@@ -559,12 +567,13 @@ onMounted(async () => {
             <!-- 主模型 API（DeepSeek）：API Key + 余额 + baseUrl + 模型 + 测试连接 -->
             <SettingsSection :title="$t('settings.mainModelApi')">
               <div class="f-settings-fields">
-                <!-- API Key：password 输入 + 明文切换（Eye/EyeOff）+ 余额刷新（RefreshCw），操作按钮并排 -->
+                <!-- API Key：password 输入 + 明文切换（Eye/EyeOff） -->
                 <SettingsInput
                   v-model="settings.apiKey"
                   :label="$t('settings.apiKey')"
                   :type="showDeepSeekKey ? 'text' : 'password'"
                   :placeholder="$t('settings.keyPlaceholder')"
+                  @blur="onApiKeyBlur"
                 >
                   <template #suffix>
                     <button
@@ -576,22 +585,22 @@ onMounted(async () => {
                       <Eye v-if="!showDeepSeekKey" :size="14" />
                       <EyeOff v-else :size="14" />
                     </button>
-                    <button
-                      type="button"
-                      class="f-settings-btn f-settings-btn--suffix"
-                      :disabled="balanceLoading"
-                      :aria-label="$t('settings.refreshBalance')"
-                      @click="refreshBalance"
-                    >
-                      <RefreshCw :size="14" />
-                    </button>
                   </template>
                 </SettingsInput>
                 <p class="f-settings-hint">{{ $t('settings.apiKeyDesc') }}</p>
-                <!-- 余额展示：CNY 总余额或失败原因；无 key 时显示 -- -->
+                <!-- 余额展示：CNY 总余额或失败原因；无 key 时显示 --；刷新按钮跟随余额行 -->
                 <div class="balance-row">
                   <span class="balance-label">{{ $t('settings.balance') }}</span>
                   <span class="balance-value">{{ balanceText }}</span>
+                  <button
+                    type="button"
+                    class="f-settings-btn f-settings-btn--suffix"
+                    :disabled="balanceLoading"
+                    :aria-label="$t('settings.refreshBalance')"
+                    @click="refreshBalance"
+                  >
+                    <RefreshCw :size="14" />
+                  </button>
                 </div>
 
                 <SettingsInput
@@ -601,30 +610,6 @@ onMounted(async () => {
                 />
 
                 <SettingsSelect v-model="settings.model" :label="$t('settings.model')" :options="modelPresets" />
-
-                <!-- 测试连接 + 保存并重启：调 engine:testConnection / saveCurrentConfig(true)；成功显示 ✓ 详情，失败显示 translateError -->
-                <div class="f-settings-actions">
-                  <button
-                    type="button"
-                    class="f-settings-btn f-settings-btn--test"
-                    :disabled="isTesting"
-                    @click="handleTest"
-                  >
-                    <span v-if="!isTesting">{{ $t('settings.test') }}</span>
-                    <span v-else>{{ $t('settings.testing') }}</span>
-                  </button>
-                  <button
-                    type="button"
-                    class="f-settings-btn"
-                    :disabled="isTesting"
-                    @click="handleDeepSeekSave"
-                  >
-                    {{ $t('settings.saveAndRestart') }}
-                  </button>
-                </div>
-                <p v-if="deepseekSaveMsg" class="f-settings-hint f-settings-hint--ok">{{ deepseekSaveMsg }}</p>
-                <div v-if="testResult" class="test-result test-result--ok">{{ testResult.chat }}</div>
-                <div v-else-if="translatedTestError" class="test-result test-result--err">{{ translatedTestError }}</div>
               </div>
             </SettingsSection>
 
@@ -637,6 +622,7 @@ onMounted(async () => {
                   :label="$t('settings.kimiApiKey')"
                   :type="showKimiKey ? 'text' : 'password'"
                   :placeholder="$t('settings.keyPlaceholder')"
+                  @blur="onKimiKeyBlur"
                 >
                   <template #suffix>
                     <button
@@ -648,39 +634,23 @@ onMounted(async () => {
                       <Eye v-if="!showKimiKey" :size="14" />
                       <EyeOff v-else :size="14" />
                     </button>
-                    <button
-                      type="button"
-                      class="f-settings-btn f-settings-btn--suffix"
-                      :disabled="kimiBalanceLoading"
-                      :aria-label="$t('settings.refreshBalance')"
-                      @click="refreshKimiBalance"
-                    >
-                      <RefreshCw :size="14" />
-                    </button>
-                    <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleKimiKeySave">
-                      {{ $t('settings.saveAndRestart') }}
-                    </button>
                   </template>
                 </SettingsInput>
                 <p class="f-settings-hint">{{ $t('settings.kimiApiKeyDesc') }}</p>
-                <!-- Kimi 余额展示：CNY 可用余额或失败原因；未配置 key 显示空（与 DeepSeek 余额对称） -->
+                <!-- Kimi 余额展示：CNY 可用余额或失败原因；未配置 key 显示空；刷新按钮跟随余额行 -->
                 <div class="balance-row">
                   <span class="balance-label">{{ $t('settings.balance') }}</span>
                   <span class="balance-value">{{ kimiBalanceText }}</span>
+                  <button
+                    type="button"
+                    class="f-settings-btn f-settings-btn--suffix"
+                    :disabled="kimiBalanceLoading"
+                    :aria-label="$t('settings.refreshBalance')"
+                    @click="refreshKimiBalance"
+                  >
+                    <RefreshCw :size="14" />
+                  </button>
                 </div>
-                <!-- Kimi 测试连接（与 DeepSeek 对称）：主进程直接校验 key，不重启 serve -->
-                <button
-                  type="button"
-                  class="f-settings-btn f-settings-btn--test"
-                  :disabled="isKimiTesting"
-                  @click="handleKimiTest"
-                >
-                  <span v-if="!isKimiTesting">{{ $t('settings.kimiTest') }}</span>
-                  <span v-else>{{ $t('settings.kimiTesting') }}</span>
-                </button>
-                <div v-if="kimiTestResult" class="test-result test-result--ok">{{ kimiTestResult.message }}</div>
-                <div v-else-if="kimiTestError" class="test-result test-result--err">{{ kimiTestError }}</div>
-                <p v-if="kimiSaveMsg" class="f-settings-hint">{{ kimiSaveMsg }}</p>
               </div>
             </SettingsSection>
 
@@ -702,7 +672,7 @@ onMounted(async () => {
           <section v-else-if="activeTab === 'behavior'" data-tab="behavior" class="f-settings-tab">
             <SettingsSection :title="$t('settings.section.agent')">
               <div class="f-settings-fields">
-                <!-- 默认主 Agent：7 agent 选择，写 store.currentAgent -->
+                <!-- 默认主 Agent：仅主 agent（双星/build/plan），写 store.currentAgent -->
                 <SettingsSelect v-model="settings.currentAgent" :label="$t('settings.defaultMainAgent')" :options="agentOptions" />
               </div>
             </SettingsSection>
@@ -732,7 +702,7 @@ onMounted(async () => {
                   :label="$t('settings.defaultEffort')"
                   :options="effortSelectOptions"
                 />
-                <!-- 思考节点开关：控制时间线节点显隐（v-show，数据不删） -->
+                <!-- 思考节点开关：控制时间线节点显隐（v-show，数据不删）；右对齐样式与通知 tab 开关一致 -->
                 <SettingsToggle
                   v-model="settings.showThinking"
                   :label="$t('settings.thinkingNode')"
@@ -742,6 +712,7 @@ onMounted(async () => {
                 <SettingsSelect
                   :model-value="currentSmallModel.value"
                   :label="$t('settings.smallModel')"
+                  :desc="$t('settings.smallModelDesc')"
                   :options="smallModelOptions"
                   @update:model-value="handleSmallModelSelect"
                 />
@@ -749,7 +720,7 @@ onMounted(async () => {
             </SettingsSection>
           </section>
 
-          <!-- 通知：全局开关 + 4 场景（全局关时场景禁用；D15 默认关，开全局后 replyDone 默认开） -->
+          <!-- 通知：全局开关 + 4 场景（全局关时场景禁用；2026-08-14 定案：默认开 3 场景——回答完成/引擎异常/权限请求，子任务完成默认关） -->
           <section v-else-if="activeTab === 'notify'" data-tab="notify" class="f-settings-tab">
             <SettingsSection :title="$t('settings.tabs.notify')">
               <div class="f-settings-fields">
@@ -838,15 +809,6 @@ onMounted(async () => {
             <SettingsSection :title="$t('settings.section.configFile')">
               <SettingsJsonEditor />
             </SettingsSection>
-
-            <!-- 重开引导：清除 onboardingDismissed，下次启动重新显示引导页 -->
-            <SettingsSection :title="$t('settings.section.onboarding')">
-              <div class="f-settings-fields">
-                <button type="button" class="f-settings-btn" @click="settings.resetOnboarding()">
-                  {{ $t('settings.reopenOnboarding') }}
-                </button>
-              </div>
-            </SettingsSection>
           </section>
 
           <!-- 关于：版本/引擎版本/预置版本/变更记录（迁移自旧 footer 关于栏） -->
@@ -864,7 +826,7 @@ onMounted(async () => {
                 <span class="about-label">{{ $t('settings.presetVersion') }}</span>
                 <span class="about-value">{{ presetVersion }}</span>
               </div>
-              <button type="button" class="f-settings-btn" @click="showChangelog = true">
+              <button type="button" class="f-settings-btn f-settings-btn--about" @click="showChangelog = true">
                 {{ $t('settings.changelog') }}
               </button>
             </SettingsSection>
@@ -879,6 +841,16 @@ onMounted(async () => {
     </template>
     <MarkdownRenderer :content="changelogContent" />
   </ModalShell>
+  <!-- API Key 变更引导弹窗：blur 检测变化后自动「测试连接 → 保存并重启引擎」，弹窗只做进度/结果反馈 -->
+  <KeyChangeDialog
+    :open="keyChangeOpen"
+    :title="$t('settings.keyChangeTitle')"
+    :message="dialogMessage"
+    :phase="dialogPhase"
+    :retry-text="$t('settings.keyChangeRetry')"
+    @retry="handleDialogRetry"
+    @cancel="handleDialogCancel"
+  />
   </ErrorBoundary>
 </template>
 
@@ -1017,6 +989,13 @@ onMounted(async () => {
   border-color: var(--accent);
   color: var(--accent);
 }
+/* 关于 tab 的更新日志按钮：独立一行右对齐（about-row 是左右分布行，按钮单独成行需 block 化 + margin-left auto，2026-08-14 用户反馈） */
+.f-settings-btn--about {
+  display: flex;
+  width: fit-content;
+  margin-left: auto;
+  margin-top: 8px;
+}
 /* 危险操作（清除头像）：hover 红色提示 */
 .f-settings-btn--danger:hover {
   border-color: var(--danger, #ef4444);
@@ -1154,37 +1133,6 @@ onMounted(async () => {
   font-size: 1rem;
   font-weight: 600;
   color: var(--text-bright);
-}
-
-/* 测试连接按钮：accent 描边，突出主操作（与输入框旁 suffix 按钮区分） */
-.f-settings-btn--test {
-  align-self: flex-start;
-  padding: 8px 18px;
-  font-size: 0.929rem;
-  font-weight: 500;
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-glow);
-}
-.f-settings-btn--test:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* 测试结果：成功 accent 绿 / 失败红色（迁移自旧 inline style + class 判定） */
-.test-result {
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 0.857rem;
-  line-height: 1.5;
-}
-.test-result--ok {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.08);
-}
-.test-result--err {
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
 }
 
 /* ── 通知 tab ── */

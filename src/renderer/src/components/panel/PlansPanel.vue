@@ -177,10 +177,10 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
-.plan-empty-big { font-size: 26px; opacity: 0.6; }
-.plan-empty-sub { font-size: 10.5px; }
+.plan-empty-big { font-size: 1.857rem; opacity: 0.6; }
+.plan-empty-sub { font-size: 0.75rem; }
 
 /* 计划卡片 */
 .plan {
@@ -215,12 +215,12 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: 0.929rem;
   font-weight: 600;
   color: var(--text-bright);
 }
 .plan-status {
-  font-size: 10px;
+  font-size: 0.714rem;
   padding: 2px 8px;
   border-radius: 999px;
   font-weight: 500;
@@ -244,19 +244,19 @@ onUnmounted(() => {
   transition: width 0.6s ease;
 }
 .plan-pct {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--accent);
   font-family: var(--font-mono);
 }
 .plan-desc {
-  font-size: 11.5px;
+  font-size: 0.821rem;
   color: var(--text-secondary);
   line-height: 1.6;
 }
 
 /* 更新时间行（2026-08-12：按最后更新时间倒序显示） */
 .plan-time {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
@@ -269,20 +269,20 @@ onUnmounted(() => {
   min-width: 0;
 }
 .plan-detail-steps {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--accent);
   font-family: var(--font-mono);
   flex-shrink: 0;
 }
 .plan-detail-file {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .plan-detail-time {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
 }
@@ -297,7 +297,7 @@ onUnmounted(() => {
 .plan-detail-error {
   padding: 24px 0;
   text-align: center;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
 }
 .plan-detail-error { color: var(--coral); }

@@ -136,7 +136,7 @@ watch(() => props.file.path, () => loadPptx());
 }
 .pptx-page-num {
   padding: 4px 12px;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-elevated);
@@ -146,12 +146,12 @@ watch(() => props.file.path, () => loadPptx());
   margin: 0;
   padding: 12px 14px;
   white-space: pre-wrap; word-break: break-word;
-  font-size: 13px; line-height: 1.7; font-family: inherit;
+  font-size: 0.929rem; line-height: 1.7; font-family: inherit;
   color: var(--text-primary); user-select: text;
 }
 .pptx-block-empty {
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-muted);
 }
 .pptx-block-sep {

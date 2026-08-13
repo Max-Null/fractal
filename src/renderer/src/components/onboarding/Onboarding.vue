@@ -256,13 +256,13 @@ function skip() { emit("skip"); }
   flex-shrink: 0;
 }
 .ob-logo h1 {
-  font-size: 22px;
+  font-size: 1.571rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-bright);
 }
 .ob-sub {
-  font-size: 12px;
+  font-size: 0.857rem;
   margin-top: 2px;
   color: var(--text-secondary);
 }
@@ -277,7 +277,7 @@ function skip() { emit("skip"); }
   padding: 8px 6px;
   text-align: center;
   border-radius: 10px;
-  font-size: 11.5px;
+  font-size: 0.821rem;
   color: var(--text-muted);
   border: 1px solid var(--border-dim);
   transition: all 0.25s;
@@ -295,7 +295,7 @@ function skip() { emit("skip"); }
 /* 字段区 */
 .ob-field label {
   display: block;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   margin-bottom: 8px;
   color: var(--text-secondary);
 }
@@ -309,7 +309,7 @@ function skip() { emit("skip"); }
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   color: var(--text-bright);
-  font-size: 13px;
+  font-size: 0.929rem;
   font-family: var(--font-mono);
   outline: none;
   caret-color: var(--accent);
@@ -340,7 +340,7 @@ function skip() { emit("skip"); }
 }
 .ob-hint {
   margin-top: 8px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
 }
 /* 制图师 key 标签：与上方 deepseek 的 hint 之间留出分组间距（默认 label 紧贴 hint 太挤） */
@@ -355,7 +355,7 @@ function skip() { emit("skip"); }
   gap: 10px;
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  font-size: 12.5px;
+  font-size: 0.893rem;
 }
 .ob-status--testing {
   color: var(--text-secondary);
@@ -374,7 +374,7 @@ function skip() { emit("skip"); }
   word-break: break-all;
 }
 .ob-status-icon {
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -414,18 +414,18 @@ function skip() { emit("skip"); }
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 26px;
+  font-size: 1.857rem;
   color: var(--accent);
   background: var(--accent-glow);
   border: 2px solid var(--accent-line);
 }
 .ob-success h2 {
-  font-size: 17px;
+  font-size: 1.214rem;
   font-weight: 600;
   color: var(--text-bright);
 }
 .ob-success p {
-  font-size: 12.5px;
+  font-size: 0.893rem;
   line-height: 1.7;
   color: var(--text-secondary);
 }
@@ -443,7 +443,7 @@ function skip() { emit("skip"); }
   gap: 8px;
   padding: 11px 22px;
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: 0.929rem;
   font-weight: 600;
   color: var(--bg-root);
   background: var(--accent);
@@ -463,7 +463,7 @@ function skip() { emit("skip"); }
   position: absolute;
   top: 18px;
   right: 22px;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
   cursor: pointer;
   transition: color 150ms;

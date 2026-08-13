@@ -53,13 +53,14 @@ function toggle() {
   min-width: 0;
 }
 .settings-toggle__label {
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
-  color: var(--text-primary);
+  /* 与 .settings-field__label（下拉/输入框 label）统一为灰字 text-secondary（2026-08-14 用户反馈颜色不统一） */
+  color: var(--text-secondary);
 }
 .settings-toggle__desc {
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
 }
 

@@ -24,7 +24,7 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   // 子 agent 模型覆盖：agent 名 → 模型全名（优先级高于槽位默认，白名单过滤见 preset.applyModelAliases）
   'agentModelOverrides': {},
   // 系统通知开关：enabled 总开关 + 4 场景独立开关（见阶段 5.3 触发点）
-  'ui.notifications': { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+  'ui.notifications': { enabled: true, replyDone: true, engineError: true, permissionPending: true, subtaskDone: false },
   'deepseek.model': 'deepseek-v4-flash',
   'agent.permissionMode': 'default',
   'agent.effort': 'high',
@@ -38,7 +38,7 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   // （serve 数据目录跟随 XDG_DATA_HOME；startServer 注入 env 时读此值，见 server-manager.ts）
   'dataMode': 'isolated',
   // 轻量任务模型（LOW 槽位）：空=跟随主模型（不写 opencode.json small_model）/ 显式值=模型全名
-  'smallModel': '',
+  'smallModel': 'deepseek/deepseek-v4-flash',
 }
 
 /** 引擎相关 key：变更时同步 opencode.json（其余纯 UI 项不触碰引擎配置）

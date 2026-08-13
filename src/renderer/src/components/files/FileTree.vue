@@ -274,7 +274,7 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
           class="flex-1 text-xs bg-transparent border rounded px-1 py-px outline-none"
           :style="{ borderColor: 'var(--accent)', color: 'var(--text-bright)' }"
         />
-        <span class="text-[10px] shrink-0" :style="{ color: 'var(--text-muted)' }">⏎</span>
+        <span class="text-[0.714rem] shrink-0" :style="{ color: 'var(--text-muted)' }">⏎</span>
       </div>
 
       <!-- ═══ 普通行 ═══ -->
@@ -293,7 +293,7 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
       >
         <span
           v-if="entry.is_dir"
-          class="w-3.5 shrink-0 text-center text-[10px]"
+          class="w-3.5 shrink-0 text-center text-[0.714rem]"
           :style="{ color: 'var(--text-muted)' }"
         >
           <span v-if="isLoading(entry.path)" class="inline-block animate-spin">⟳</span>
@@ -305,7 +305,7 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
         <span class="truncate">{{ entry.name }}</span>
         <span
           v-if="!entry.is_dir"
-          class="ml-auto text-[10px] shrink-0"
+          class="ml-auto text-[0.714rem] shrink-0"
           :style="{ color: 'var(--text-muted)' }"
         >{{ sizeStr(entry.size) }}</span>
       </div>
@@ -322,7 +322,7 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
           @selectFile="emit('selectFile', $event)"
           @navigateTo="emit('navigateTo', $event)"
         />
-        <div v-else class="px-2 py-1 text-[10px]" :style="{ color: 'var(--text-muted)' }">
+        <div v-else class="px-2 py-1 text-[0.714rem]" :style="{ color: 'var(--text-muted)' }">
           {{ $t('file.empty') }}
         </div>
       </div>
@@ -341,7 +341,7 @@ function isLoading(path: string): boolean { return !!loadingDirs.value[path]; }
       <div
         ref="menuRef"
         v-if="ctxMenu"
-        class="fixed z-50 py-1 rounded-lg shadow-lg border text-[11px] min-w-[180px]"
+        class="fixed z-50 py-1 rounded-lg shadow-lg border text-[0.786rem] min-w-[180px]"
         :style="{
           left: ctxMenu.x + 'px',
           top: ctxMenu.y + 'px',

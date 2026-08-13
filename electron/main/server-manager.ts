@@ -68,6 +68,29 @@ export function parseListeningPort(line: string): number | null {
   return m ? Number(m[1]) : null
 }
 
+/**
+ * 读 serve 实际加载的 deepseek key（serve 启动时从 opencode.jsonc/json 快照的 provider.deepseek.options.apiKey）。
+ * 用途：saveProviderConfig 判断「key 是否变化需重启 serve」——基准必须是 serve 实际加载的 key，
+ * 而非 provider-configs.json（后者可能已被 store watch 防抖提前写入新 key，导致 keyChanged 恒 false，永不重启）。
+ * 读失败（文件不存在/损坏）→ ''（视为无 key）。
+ */
+export async function readServedApiKey(userDataDir: string): Promise<string> {
+  const dir = join(userDataDir, 'config', 'opencode')
+  // serve 候选加载优先 opencode.jsonc（oc-config 双写两文件内容一致），json 兜底
+  for (const name of ['opencode.jsonc', 'opencode.json']) {
+    try {
+      const raw = await fsp.readFile(join(dir, name), 'utf-8')
+      const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as {
+        provider?: { deepseek?: { options?: { apiKey?: string } } }
+      }
+      return (parsed?.provider?.deepseek?.options?.apiKey ?? '').trim()
+    } catch {
+      // 该候选不存在/损坏 → 试下一个
+    }
+  }
+  return ''
+}
+
 /** startServer 成功返回的连接参数（前端/ipc 建 SDK client 用） */
 export interface StartServerResult {
   baseURL: string
@@ -125,6 +148,9 @@ export interface ServerManager {
   syncStop(): void
   /** 当前运行状态（含凭据，engine:status 转发用） */
   getServerInfo(): ServerInfo
+  /** serve 当前加载的 deepseek key（spawnOnce 成功后从 opencode.jsonc/json 快照记录）——
+   *  供 saveProviderConfig 判断「key 变化需重启 serve」用（基准必须是 serve 实际加载值） */
+  getServedApiKey(): string
   /** 懒创建会话客户端（startServer 成功后可用，内部缓存） */
   getClient(): OcClient
   /** 注册运行状态变化回调（start 成功 / 进程 exit / spawn error） */
@@ -393,6 +419,11 @@ export function createServerManager(options: ServerManagerOptions): ServerManage
   let autoRestartTimer: NodeJS.Timeout | null = null
   /** serve 初始化完成信号（每次 spawn 重建；exit/stop 后不再 resolve，旧信号无人等待） */
   let serverInit: ServerInitSignal = newServerInitSignal()
+
+  /** serve 当前加载的 deepseek key（spawnOnce 成功时从 opencode.jsonc/json 快照记录）。
+   *  语义 = serve 进程实际生效的 key，供 saveProviderConfig 判断是否需要重启 serve；
+   *  初始 ''（未启动/无 key）——不能用 provider-configs.json 兜底（会被 watch 防抖污染）。 */
+  let servedApiKey = ''
 
   /** serve 异常退出（非主动停止且非零退出码）→ 延迟自动重启；5 分钟窗口 3 次上限防崩溃循环 */
   function scheduleAutoRestart(): void {
@@ -684,6 +715,9 @@ async function startServer(): Promise<StartServerResult> {
     }
 
     emitStatus()
+    // 记录 serve 生效 key：健康检查通过后读 opencode.jsonc/json 的 provider.deepseek.options.apiKey
+    // （serve 启动时加载的就是这份配置——saveProviderConfig 重启判断的可靠基准）
+    servedApiKey = await readServedApiKey(options.userDataDir)
     return { baseURL: state.baseURL!, username, password, port: state.port! }
   }
 
@@ -791,7 +825,7 @@ async function startServer(): Promise<StartServerResult> {
     }
   }
 
-  return { startServer, ready, stopServer, syncStop, getServerInfo: toInfo, getClient, onStatusChange, waitEventConnected: waitServerInit }
+  return { startServer, ready, stopServer, syncStop, getServerInfo: toInfo, getServedApiKey: () => servedApiKey, getClient, onStatusChange, waitEventConnected: waitServerInit }
 }
 
 // ══════════════════════════════════════════════════════════════════

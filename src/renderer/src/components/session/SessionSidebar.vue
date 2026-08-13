@@ -94,7 +94,7 @@ async function handleDelete(id: string) {
   <div class="flex flex-col h-full">
     <!-- Header -->
     <div class="flex items-center justify-between px-4 pt-4 pb-2">
-      <span class="text-[11px] font-semibold uppercase tracking-[0.08em]" style="color:var(--text-secondary)">{{ $t('session.title') }}</span>
+      <span class="text-[0.786rem] font-semibold uppercase tracking-[0.08em]" style="color:var(--text-secondary)">{{ $t('session.title') }}</span>
       <div class="flex items-center gap-1">
         <button
           @click="newSession"
@@ -145,7 +145,7 @@ async function handleDelete(id: string) {
         v-for="s in filteredSessions"
         :key="s.id"
         @click="handleSelect(s.id)"
-        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-[8px] text-left text-[12.5px] transition-colors group hover:bg-[var(--bg-hover)]"
+        class="w-full flex items-center gap-2.5 px-3 py-2 rounded-[8px] text-left text-[0.893rem] transition-colors group hover:bg-[var(--bg-hover)]"
         :style="{
           background: s.id === activeId ? 'var(--accent-glow)' : 'transparent',
           color: s.id === activeId ? 'var(--text-bright)' : 'var(--text-secondary)',
@@ -163,7 +163,7 @@ async function handleDelete(id: string) {
           @keydown.escape="cancelRename()"
           @blur="finishRename(s.id)"
           @click.stop
-          class="flex-1 bg-transparent border-0 outline-0 text-[13px]"
+          class="flex-1 bg-transparent border-0 outline-0 text-[0.929rem]"
           :style="{ color: 'var(--text-bright)', borderBottom: '1px solid var(--accent)' }"
           maxlength="50"
         />
@@ -172,7 +172,7 @@ async function handleDelete(id: string) {
           <span class="block truncate">{{ s.title === 'New Chat' || s.title === '新会话' ? $t('session.new') : s.title }}</span>
           <span
             v-if="s.totalTokens"
-            class="block text-[10px] truncate"
+            class="block text-[0.714rem] truncate"
             :style="{ color: 'var(--text-muted)' }"
           >
             {{ formatTokenCount(s.totalTokens) }}

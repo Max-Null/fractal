@@ -27,7 +27,7 @@ function retry() {
       <div class="text-sm font-medium mb-2" style="color: var(--coral)">
         {{ name || 'Component' }} Error
       </div>
-      <pre class="text-[11px] mb-4 p-3 rounded-lg text-left max-h-32 overflow-y-auto" style="background:var(--bg-root); color:var(--text-muted); border:1px solid var(--border-dim)">{{ error }}</pre>
+      <pre class="text-[0.786rem] mb-4 p-3 rounded-lg text-left max-h-32 overflow-y-auto" style="background:var(--bg-root); color:var(--text-muted); border:1px solid var(--border-dim)">{{ error }}</pre>
       <button
         @click="retry"
         class="px-4 py-1.5 rounded-md text-xs font-medium transition-colors"

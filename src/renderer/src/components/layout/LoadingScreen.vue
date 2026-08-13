@@ -329,7 +329,7 @@ watch(stageLines, async () => {
   top: 50%;
   transform: translateY(-50%);
   font-family: var(--font-mono, monospace);
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
 }
 
@@ -342,7 +342,7 @@ watch(stageLines, async () => {
   background: var(--bg-elevated);
   border: 1px solid var(--border-dim);
   font-family: var(--font-mono, monospace);
-  font-size: 10.5px;
+  font-size: 0.75rem;
   line-height: 1.75;
   color: var(--text-muted);
   /* 可滚动但隐藏滚动条（对齐 rail 风格）：日志超出 150px 时自动滚动到底部 */
@@ -382,14 +382,14 @@ watch(stageLines, async () => {
 }
 
 .boot-timeout {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--el-color-danger);
 }
 
 .boot-footer {
   position: absolute;
   bottom: 18px;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-family: var(--font-mono, monospace);
   color: rgba(148, 163, 184, 0.45);
 }

@@ -16,7 +16,7 @@ defineProps<{ title: string }>();
 <style scoped>
 .settings-section__title {
   margin-bottom: 16px;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;

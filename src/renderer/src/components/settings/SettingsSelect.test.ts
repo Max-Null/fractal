@@ -51,4 +51,16 @@ describe("SettingsSelect", () => {
     await w.find(".settings-select__trigger").trigger("click");
     expect(w.find(".settings-select__menu").exists()).toBe(false);
   });
+
+  it("desc prop 渲染字段级描述（label 下方副文案）", () => {
+    const w = mount(SettingsSelect, { props: { label: "轻量模型", modelValue: "deepseek/deepseek-v4-flash", options, desc: "用于标题生成、会话摘要、消息润色" } });
+    const d = w.find(".settings-field__desc");
+    expect(d.exists()).toBe(true);
+    expect(d.text()).toBe("用于标题生成、会话摘要、消息润色");
+  });
+
+  it("无 desc prop 时不渲染描述节点", () => {
+    const w = mount(SettingsSelect, { props: { label: "主题", modelValue: "dark", options } });
+    expect(w.find(".settings-field__desc").exists()).toBe(false);
+  });
 });

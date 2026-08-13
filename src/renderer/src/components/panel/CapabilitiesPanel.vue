@@ -141,7 +141,7 @@ function mcpTypeText(m: CapabilityMcp): string {
 
 /* 分组标题 */
 .pgroup {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   letter-spacing: 0.08em;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -165,7 +165,7 @@ function mcpTypeText(m: CapabilityMcp): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 0.857rem;
   flex-shrink: 0;
 }
 .pitem-ico--agent { background: var(--accent-glow); color: var(--accent); }
@@ -181,12 +181,12 @@ function mcpTypeText(m: CapabilityMcp): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   color: var(--text-bright);
 }
 .pitem-sub {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -198,7 +198,7 @@ function mcpTypeText(m: CapabilityMcp): string {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 9.5px;
+  font-size: 0.679rem;
   font-weight: 400;
   padding: 1px 7px;
   border-radius: 999px;
@@ -222,7 +222,7 @@ function mcpTypeText(m: CapabilityMcp): string {
 
 /* type 小标签（本地/远程） */
 .mcp-type {
-  font-size: 9px;
+  font-size: 0.643rem;
   padding: 0 5px;
   margin-right: 5px;
   border-radius: 4px;
@@ -236,7 +236,7 @@ function mcpTypeText(m: CapabilityMcp): string {
   border-radius: var(--radius-md);
   border: 1px dashed var(--border-dim);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 0.786rem;
   text-align: center;
 }
 </style>

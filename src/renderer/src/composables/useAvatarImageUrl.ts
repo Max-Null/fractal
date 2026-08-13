@@ -1,26 +1,19 @@
 import { ref, watch } from "vue";
-import { getAvatarPath } from "@/lib/electron-bridge";
 import { useSettingsStore } from "@/stores/settings";
 
-/** 图片头像 file:// URL（异步取 getAvatarPath 后拼接）；空 = 未设置/路径获取失败 → 回退 emoji 文字/图标头像 */
+/** 图片头像 avatar:// URL；空 = 未设置/非法值 → 回退 emoji/图标头像 */
 export function useAvatarImageUrl() {
   const settings = useSettingsStore();
   const avatarImageUrl = ref("");
   watch(
-    () => settings.avatarImage,
-    async () => {
+    () => [settings.avatarImage, settings.avatarRevision] as const,
+    () => {
       if (!settings.avatarImage) { avatarImageUrl.value = ""; return; }
-      try {
-        // 文件名白名单校验（军师审查 2026-08-13）：avatarImage 只能由后端 avatar:pick 写成 avatar.{png|jpg|jpeg|webp}，
-        // 防止 settings.json 被 JSON 编辑器/agent 手改注入 ../../ 路径遍历加载 userData 任意文件
-        if (!/^avatar\.(png|jpg|jpeg|webp)$/.test(settings.avatarImage)) { avatarImageUrl.value = ""; return; }
-        // Windows 路径 → file:/// URL：反斜杠转正斜杠 + encodeURI 编码空格/中文（冒号/斜杠保留，供 file 协议解析）
-        const dir = await getAvatarPath();
-        avatarImageUrl.value = "file:///" + encodeURI(dir.replace(/\\/g, "/") + "/" + settings.avatarImage);
-      } catch {
-        // 路径 IPC 失败（开发/测试环境）→ 回退 emoji，不显示破图
-        avatarImageUrl.value = "";
-      }
+      // 文件名白名单校验（军师审查 2026-08-13）：防路径遍历
+      if (!/^avatar\.(png|jpg|jpeg|webp)$/.test(settings.avatarImage)) { avatarImageUrl.value = ""; return; }
+      // avatar:// 协议（主进程注册，仅暴露 <userData>/avatar，替代 file:// 绕过 webSecurity 拦截）；
+      // ?v= 版本号做 cache-busting：换文件后文件名不变但版本号变，强制 Chromium 重新加载
+      avatarImageUrl.value = `avatar:///${settings.avatarImage}?v=${settings.avatarRevision}`;
     },
     { immediate: true },
   );

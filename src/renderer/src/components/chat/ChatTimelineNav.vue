@@ -229,7 +229,7 @@ function onClick(index: number) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 8px;
+  font-size: 0.571rem;
   line-height: 1;
   color: var(--text-muted);
   background: var(--bg-elevated);
@@ -272,7 +272,7 @@ function onClick(index: number) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
@@ -294,7 +294,7 @@ function onClick(index: number) {
   translate: 0 -50%;
   max-width: 260px;
   padding: 3px 8px;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.4;
   color: var(--text-primary);
   background: var(--bg-elevated);

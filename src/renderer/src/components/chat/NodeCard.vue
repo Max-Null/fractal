@@ -365,7 +365,7 @@ function formatJSON(obj: unknown): string {
   justify-content: space-between;
   gap: 6px;
   padding: 5px 10px;
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
   user-select: none;
   color: var(--text-secondary);
@@ -408,9 +408,9 @@ function formatJSON(obj: unknown): string {
   flex: 1;
   opacity: 0.85;
 }
-.node-card-stat { font-size: 10px; color: var(--text-muted); white-space: nowrap; }
+.node-card-stat { font-size: 0.714rem; color: var(--text-muted); white-space: nowrap; }
 .node-card-stat--summary { margin-left: auto; }
-.node-card-status { font-size: 10px; color: var(--accent); white-space: nowrap; }
+.node-card-status { font-size: 0.714rem; color: var(--accent); white-space: nowrap; }
 .node-card-status--error { color: var(--coral); }
 
 /* ── 可展开节点 chevron（D5）：收起态朝下，展开态 180° 朝上 ── */
@@ -444,7 +444,7 @@ function formatJSON(obj: unknown): string {
 /* ── thinking 展开全文 ── */
 .node-card-body--thinking {
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: 0.857rem;
   line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -455,7 +455,7 @@ function formatJSON(obj: unknown): string {
 
 /* ── text / summary 正文 ── */
 .node-card-text {
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.65;
 }
 .node-card-text :deep(p) { margin: 0.25em 0; }
@@ -463,7 +463,7 @@ function formatJSON(obj: unknown): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: #16a34a;
   margin-bottom: 2px;
   /* 折叠态：常驻 DOM 但不占位（max-height:0 + overflow:hidden）——idle 切 summary 时 max-height/opacity
@@ -481,7 +481,7 @@ function formatJSON(obj: unknown): string {
 /* ── tool 展开区（原 MessageBubble tl-tool 样式迁移） ── */
 .node-card-section-label {
   padding: 5px 10px 2px;
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -491,7 +491,7 @@ function formatJSON(obj: unknown): string {
 .node-card-pre {
   padding: 8px 10px;
   margin: 0;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.5;
   overflow-x: auto;
   white-space: pre;
@@ -508,7 +508,7 @@ function formatJSON(obj: unknown): string {
 .node-card-result-body {
   padding: 6px 10px 6px;
   margin: 0;
-  font-size: 11px;
+  font-size: 0.786rem;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
@@ -536,7 +536,7 @@ function formatJSON(obj: unknown): string {
 .node-card-subtask { padding: 2px 0; }
 .node-card-subtask-fallback {
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
   opacity: 0.6;
   font-style: italic;

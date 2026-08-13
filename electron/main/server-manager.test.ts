@@ -54,6 +54,49 @@ describe('buildServeEnv（spawn env 注入，纯函数不 spawn）', () => {
   })
 })
 
+describe('readServedApiKey（读 serve 实际加载的 deepseek key）', () => {
+  it('opencode.jsonc 存在 → 提取 provider.deepseek.options.apiKey（去首尾空白）', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'oc-served-key-'))
+    try {
+      const opencodeDir = join(dir, 'config', 'opencode')
+      await fsp.mkdir(opencodeDir, { recursive: true })
+      await fsp.writeFile(
+        join(opencodeDir, 'opencode.jsonc'),
+        JSON.stringify({ provider: { deepseek: { options: { apiKey: '  sk-abc  ' } } } }),
+        'utf-8'
+      )
+      expect(await readServedApiKey(dir)).toBe('sk-abc')
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('jsonc 缺失 → 回退 opencode.json', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'oc-served-key-'))
+    try {
+      const opencodeDir = join(dir, 'config', 'opencode')
+      await fsp.mkdir(opencodeDir, { recursive: true })
+      await fsp.writeFile(
+        join(opencodeDir, 'opencode.json'),
+        JSON.stringify({ provider: { deepseek: { options: { apiKey: 'sk-from-json' } } } }),
+        'utf-8'
+      )
+      expect(await readServedApiKey(dir)).toBe('sk-from-json')
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('均缺失/损坏 → 返回空串（视为无 key）', async () => {
+    const dir = await fsp.mkdtemp(join(tmpdir(), 'oc-served-key-'))
+    try {
+      expect(await readServedApiKey(dir)).toBe('')
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  })
+})
+
 describe.skipIf(isCi)('server-manager 生命周期（真 spawn）', () => {
   it('startServer → running / 客户端可用 / 二次调用复用单例 → stopServer 后 running=false', async () => {
     const dir = await fsp.mkdtemp(join(tmpdir(), 'oc-server-test-'))

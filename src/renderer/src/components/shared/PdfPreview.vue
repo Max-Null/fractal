@@ -110,7 +110,7 @@ onBeforeUnmount(() => { loadId++; renderId++; if (renderTask) renderTask.cancel(
 <template>
   <div class="flex-1 flex flex-col" style="min-height:0">
     <!-- 翻页/缩放工具栏（暗色，照 FilePreviewPanel 宽度预设按钮风格） -->
-    <div class="flex items-center gap-1 px-2 h-7 text-[10px] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
+    <div class="flex items-center gap-1 px-2 h-7 text-[0.714rem] shrink-0" style="background: var(--bg-elevated); border-bottom: 1px solid var(--border-dim)">
       <button
         @click="prev"
         :disabled="pageNum <= 1"

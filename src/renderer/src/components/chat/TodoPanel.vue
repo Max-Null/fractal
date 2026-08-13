@@ -181,7 +181,7 @@ const hidePanel = computed(() => {
 
 /* 折叠态进行中呼吸蓝点（当前项状态提示，pending 时不渲染） */
 .todo-current-dot {
-  font-size: 8px;
+  font-size: 0.571rem;
   line-height: 1;
   color: var(--accent);
   flex-shrink: 0;
@@ -200,7 +200,7 @@ const hidePanel = computed(() => {
 
 /* 折叠态单行 📋 图标（emoji 自带行高，显式 line-height:1 避免撑高整行） */
 .todo-panel-title {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   line-height: 1;
   text-transform: uppercase;
@@ -211,14 +211,14 @@ const hidePanel = computed(() => {
 
 /* 总数徽标（展开态标题） */
 .todo-count-badge {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
 }
 
 /* 进度数字：主题蓝 + 700（用户反馈「1/4 用灰色不明显」——完成进度是正向反馈，用 accent 强调） */
 .todo-count {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -227,7 +227,7 @@ const hidePanel = computed(() => {
 
 /* 折叠态序号「②/ ④」：accent 强调当前项位置 */
 .todo-current {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   line-height: 1;
@@ -241,7 +241,7 @@ const hidePanel = computed(() => {
 
 /* 折叠态当前任务文案：主题蓝 + 600（用户反馈「收起时进行中的任务很不明显」——用 accent 强调当前项） */
 .todo-current-text {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   line-height: 1;
   color: var(--accent);
@@ -281,7 +281,7 @@ const hidePanel = computed(() => {
   gap: 0.25rem;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 0.714rem;
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
@@ -319,14 +319,14 @@ const hidePanel = computed(() => {
 }
 
 .todo-panel-empty {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
   padding: 0.15rem 0;
 }
 
 .todo-chip-num {
   flex-shrink: 0;
-  font-size: 8px;
+  font-size: 0.571rem;
   color: var(--text-muted);
   opacity: 0.5;
   min-width: 1em;
@@ -334,7 +334,7 @@ const hidePanel = computed(() => {
 
 .todo-chip-status {
   flex-shrink: 0;
-  font-size: 8px;
+  font-size: 0.571rem;
 }
 
 .todo-chip--in_progress .todo-chip-status {

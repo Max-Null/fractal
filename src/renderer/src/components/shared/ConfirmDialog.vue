@@ -43,7 +43,7 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
 /* 确认弹窗正文：muted 文字，居中布局由 ModalShell footer 提供 */
 .confirm-dialog-message {
   margin: 0;
-  font-size: 13px;
+  font-size: 0.929rem;
   line-height: 1.6;
   color: var(--text-secondary);
   word-break: break-word;
@@ -58,7 +58,7 @@ const emit = defineEmits<{ confirm: []; cancel: [] }>();
   padding: 6px 16px;
   border: none;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 0.929rem;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
   background: transparent;

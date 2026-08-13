@@ -674,7 +674,6 @@ async function enrichDescriptions() {
       needTranslate,
       settingsStore.apiKey,
       settingsStore.baseUrl,
-      settingsStore.optimizeApiUrl || undefined,
     );
     const map = new Map(enriched.map(e => [e.name, e]));
     for (const it of flatItems) {
@@ -709,7 +708,6 @@ async function enrichMcpDescriptions() {
       needQuery,
       settingsStore.apiKey,
       settingsStore.baseUrl,
-      settingsStore.optimizeApiUrl || undefined,
     );
     const map = new Map(generated.map(e => [e.name, e.desc_zh]));
     for (const it of items.value) {

@@ -223,14 +223,69 @@ describe("settings store", () => {
     expect(localStorage.getItem("sb-onboarding-dismissed")).toBe("1");
   });
 
-  it("onboarding dismiss flag loads from localStorage and can reset", () => {
+  it("onboarding dismiss flag loads from localStorage", () => {
     localStorage.setItem("sb-onboarding-dismissed", "1");
     setActivePinia(createPinia());
     const settings = useSettingsStore();
     expect(settings.onboardingDismissed).toBe(true);
-    settings.resetOnboarding();
-    expect(settings.onboardingDismissed).toBe(false);
-    expect(localStorage.getItem("sb-onboarding-dismissed")).toBeNull();
+  });
+
+  // ── 权限模式/思考深度写回 settings.json（2026-08-14 修复：此前只写 localStorage+SQLite，重启被 settings.json 旧值覆盖）──
+
+  it("permissionMode 三联动变更 → 防抖写 settings.json（四值映射 plan/auto/acceptEdits/default）", async () => {
+    vi.useFakeTimers();
+    const settings = useSettingsStore();
+    const invoke = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge.invoke;
+    // 取最近一次 settings:saveSettings 的 JSON 载荷（防抖只写一次，多次变更取最后一次）
+    const lastSaveJson = () => {
+      const calls = invoke.mock.calls.filter((c: unknown[]) => c[0] === "settings:saveSettings");
+      return JSON.parse((calls[calls.length - 1] as unknown as [{}, { jsoncText: string }])[1].jsoncText);
+    };
+
+    // planMode → 'plan'
+    settings.planMode = true;
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.permissionMode"]).toBe("plan");
+
+    // 完全放行（autoMode）→ 'auto'
+    settings.planMode = false;
+    settings.autoMode = true;
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.permissionMode"]).toBe("auto");
+
+    // acceptEdits → 'acceptEdits'
+    settings.autoMode = false;
+    settings.permissionMode = "acceptEdits";
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.permissionMode"]).toBe("acceptEdits");
+
+    // default → 'default'
+    settings.permissionMode = "default";
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.permissionMode"]).toBe("default");
+
+    vi.useRealTimers();
+  });
+
+  it("effort 变更 → 写 settings.json agent.effort；空值（模型无 variants）跳过保留文件原值", async () => {
+    vi.useFakeTimers();
+    const settings = useSettingsStore();
+    const invoke = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge.invoke;
+    const lastSaveJson = () => {
+      const calls = invoke.mock.calls.filter((c: unknown[]) => c[0] === "settings:saveSettings");
+      return JSON.parse((calls[calls.length - 1] as unknown as [{}, { jsoncText: string }])[1].jsoncText);
+    };
+
+    settings.effort = "max";
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.effort"]).toBe("max");
+
+    // 清空（模型无 variants）→ 不写 agent.effort（schema 枚举无空串，写空会回退+广播，保留文件原值更干净）
+    settings.effort = "";
+    await vi.advanceTimersByTimeAsync(800);
+    expect(lastSaveJson()["agent.effort"]).toBeUndefined();
+
+    vi.useRealTimers();
   });
 
   // ── settings.json 合并（阶段 6 config-changed 事件 / 启动拉取共用 applySettingsJson）──
@@ -448,9 +503,9 @@ describe("settings store", () => {
 
   // ── 轻量模型（smallModel，LOW 槽位）──
 
-  it("smallModel 默认空（跟随主模型）", () => {
+  it("smallModel 默认 flash（2026-08-14 定案：轻量快，''=显式选跟随主模型）", () => {
     const settings = useSettingsStore();
-    expect(settings.smallModel).toBe("");
+    expect(settings.smallModel).toBe("deepseek/deepseek-v4-flash");
   });
 
   it("applySettingsJson 同步 smallModel（白名单值生效）", () => {
@@ -495,10 +550,10 @@ describe("settings store", () => {
     expect(settings.showThinking).toBe(true);
     expect(settings.avatarImage).toBe("");
     expect(settings.notifications).toEqual({
-      enabled: false,
+      enabled: true,
       replyDone: true,
-      engineError: false,
-      permissionPending: false,
+      engineError: true,
+      permissionPending: true,
       subtaskDone: false,
     });
     expect(settings.agentModelOverrides).toEqual({});
@@ -517,8 +572,8 @@ describe("settings store", () => {
     expect(settings.notifications.enabled).toBe(true);
     expect(settings.notifications.replyDone).toBe(false);
     expect(settings.notifications.engineError).toBe(true);
-    // 未提供的子项保留默认（config-changed 广播可能只带部分字段）
-    expect(settings.notifications.permissionPending).toBe(false);
+    // 未提供的子项保留默认（config-changed 广播可能只带部分字段；2026-08-14 新默认：permissionPending 开、subtaskDone 关）
+    expect(settings.notifications.permissionPending).toBe(true);
     expect(settings.notifications.subtaskDone).toBe(false);
     expect(settings.agentModelOverrides).toEqual({
       双星: "deepseek/deepseek-v4-pro",
@@ -534,13 +589,40 @@ describe("settings store", () => {
     expect(settings.showThinking).toBe(false);
     expect(settings.avatarImage).toBe("avatar.png");
     expect(settings.notifications).toEqual({
-      enabled: false,
+      enabled: true,
       replyDone: true,
-      engineError: false,
-      permissionPending: false,
+      engineError: true,
+      permissionPending: true,
       subtaskDone: false,
     });
     expect(settings.agentModelOverrides).toEqual({});
+  });
+
+  it("applySettingsJson 同值对象不替换引用（防 deep watch 写盘循环）", () => {
+    const settings = useSettingsStore();
+    // 同值广播（config-changed 常见：写盘→广播回同值）→ 引用不变，deep watch 不触发，循环断开
+    const notifRef = settings.notifications;
+    settings.applySettingsJson({
+      "ui.notifications": { enabled: true, replyDone: true, engineError: true, permissionPending: true, subtaskDone: false },
+    });
+    expect(settings.notifications).toBe(notifRef);
+    // 值变化 → 才替换引用
+    settings.applySettingsJson({
+      "ui.notifications": { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+    });
+    expect(settings.notifications).not.toBe(notifRef);
+    expect(settings.notifications.enabled).toBe(false);
+    // agentModelOverrides 同样防循环
+    const overridesRef = settings.agentModelOverrides;
+    settings.applySettingsJson({ agentModelOverrides: {} });
+    expect(settings.agentModelOverrides).toBe(overridesRef);
+    settings.applySettingsJson({ agentModelOverrides: { 工匠: "deepseek/deepseek-v4-flash" } });
+    expect(settings.agentModelOverrides).not.toBe(overridesRef);
+    // 部分子项缺失（广播只带部分）→ 补全后与当前相同 → 仍不替换
+    // 注意：此时 store 已被上一步改成 enabled=false/engineError=false/permissionPending=false，输入同值才不替换
+    const notifRef2 = settings.notifications;
+    settings.applySettingsJson({ "ui.notifications": { enabled: false } });
+    expect(settings.notifications).toBe(notifRef2);
   });
 
   it("showThinking 变化持久化到 localStorage（ui 三写链第一链）", async () => {
@@ -604,7 +686,7 @@ describe("settings store", () => {
     expect(jsonc.agentModelOverrides).toBeUndefined();
   });
 
-  it("pickAvatar：bridge 成功 → avatarImage 写入文件名", async () => {
+  it("pickAvatar：bridge 成功 → avatarImage 写入文件名 + avatarRevision 递增（cache-busting）", async () => {
     const settings = useSettingsStore();
     const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
     bridge.invoke.mockImplementation((channel: string) => {
@@ -612,8 +694,11 @@ describe("settings store", () => {
       if (channel === "avatar:pick") return Promise.resolve({ ok: true, filename: "avatar.png" });
       return Promise.resolve({});
     });
+    const before = settings.avatarRevision;
     await settings.pickAvatar();
     expect(settings.avatarImage).toBe("avatar.png");
+    // 核心：即使文件名不变（统一命名 avatar.{ext} 覆盖旧图），版本号也递增，强制头像 URL 变化刷新缓存
+    expect(settings.avatarRevision).toBe(before + 1);
   });
 
   it("pickAvatar：用户取消 → avatarImage 不变", async () => {

@@ -15,6 +15,10 @@ import { migrateUserDataIfNeeded } from './migrate-userdata'
 import { initPreset, ensurePresetConfig } from './preset'
 import { watchSettings, loadSettings } from './settings'
 import { startPanelWatchers, setPanelWatchers } from './panel'
+import { registerAvatarScheme, handleAvatarProtocol } from './avatar-protocol'
+
+// avatar:// 特权 scheme 注册必须在 app ready 前完成且仅一次——模块顶层调用天然保证
+registerAvatarScheme()
 
 // 模块级诊断日志（退出流程/窗口事件用——win 级 diag 在 createWindow 内不可达）
 // userData 路径在 whenReady 的 setPath 后固定，运行时调用安全
@@ -218,6 +222,10 @@ function openPreviewWindow(filePath: string): void {
 app.whenReady().then(async () => {
   // Windows 通知/任务栏分组需要固定的 app user model id
   electronApp.setAppUserModelId('com.oc-gui')
+
+  // avatar:// 协议 handler（app ready 后才能注册）——必须在任何窗口创建前安装，
+  // 否则首个窗口的 <img> 加载头像时会命中未注册协议（协议实例按 app 级共享，先装后建窗口）
+  handleAvatarProtocol()
 
   // userData 改名一次性迁移（oc-gui → fractal，2026-08-08）：必须在任何 userData 读写前执行
   // （settings/预置/日志/服务配置都依赖 userData 路径）；e2e 临时 userData 自动跳过

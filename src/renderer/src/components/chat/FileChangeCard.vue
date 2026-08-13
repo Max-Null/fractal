@@ -97,7 +97,7 @@ function displayPath(p: string): string {
   border-radius: 8px;
   background: var(--bg-surface);
   overflow: hidden;
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 /* 单文件行：hover 高亮，整行可点击展开 */
 .file-change-item {
@@ -122,7 +122,7 @@ function displayPath(p: string): string {
 /* 状态徽标色：新增=翠绿（--accent）/ 修改=信息蓝（--blue） */
 .file-change-badge {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 0.714rem;
   padding: 1px 6px;
   border-radius: 999px;
 }
@@ -145,7 +145,7 @@ function displayPath(p: string): string {
   margin: 0;
   padding: 4px 8px;
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
   white-space: pre-wrap;
   word-break: break-all;
 }

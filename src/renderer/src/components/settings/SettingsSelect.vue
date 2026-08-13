@@ -16,6 +16,8 @@ const props = defineProps<{
   modelValue: string;
   options: SelectOption[];
   disabled?: boolean;
+  /** 字段级描述：label 下方副文案（如轻量模型作用说明），样式对齐 SettingsToggle 的 desc */
+  desc?: string;
 }>();
 
 const emit = defineEmits<{ (e: "update:modelValue", v: string): void }>();
@@ -43,6 +45,8 @@ function pick(v: string) {
 <template>
   <div class="settings-field">
     <label class="settings-field__label">{{ label }}</label>
+    <!-- 字段级描述（可选）：label 下方副文案 -->
+    <p v-if="desc" class="settings-field__desc">{{ desc }}</p>
     <div
       class="settings-select__trigger"
       :class="{ 'settings-select__trigger--open': open, 'settings-select__trigger--disabled': disabled }"
@@ -81,10 +85,17 @@ function pick(v: string) {
 /* 字段容器：label 行 + 控件 */
 .settings-field__label {
   display: block;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   margin-bottom: 6px;
   color: var(--text-secondary);
+}
+/* 字段级描述：label 下方（label 自带 6px 下边距，负 margin 拉近为视觉 3px，对齐 SettingsToggle desc 风格） */
+.settings-field__desc {
+  display: block;
+  margin: -3px 0 8px;
+  font-size: 0.714rem;
+  color: var(--text-muted);
 }
 
 .settings-select__trigger {
@@ -114,7 +125,7 @@ function pick(v: string) {
 
 .settings-select__value {
   flex: 1;
-  font-size: 14px;
+  font-size: 1rem;
   font-weight: 500;
   white-space: nowrap;
   overflow: hidden;
@@ -152,7 +163,7 @@ function pick(v: string) {
   width: 100%;
   text-align: left;
   padding: 8px 12px;
-  font-size: 14px;
+  font-size: 1rem;
   border: none;
   background: transparent;
   cursor: pointer;
@@ -175,7 +186,7 @@ function pick(v: string) {
 .settings-select__item-desc {
   display: block;
   margin-top: 2px;
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-secondary);
 }
 

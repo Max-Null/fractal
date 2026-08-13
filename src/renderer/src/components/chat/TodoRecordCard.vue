@@ -137,14 +137,14 @@ function statusIcon(s: string): string {
 /* 标题：与 NodeCard thinking 标题（node-card-label）同规格——11px/600/主题色
    （2026-08-10 反馈：原 10px muted 与思考过程标题不一致） */
 .todo-record-card__title {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   color: var(--accent);
   flex-shrink: 0;
 }
 
 .todo-record-card__count {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-variant-numeric: tabular-nums;
   color: var(--accent);
   flex-shrink: 0;
@@ -152,7 +152,7 @@ function statusIcon(s: string): string {
 
 /* 摘要覆盖（todo 更新节点「正在：xxx」）：accent 强调进行中任务，省略超长 */
 .todo-record-card__summary {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--accent);
   flex-shrink: 0;
   max-width: 220px;
@@ -163,7 +163,7 @@ function statusIcon(s: string): string {
 
 /* 完成态标记：ok ✓ 绿 / error ✗ 珊瑚（与时间线节点状态一致） */
 .todo-record-card__status {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--accent);
   flex-shrink: 0;
 }
@@ -193,7 +193,7 @@ function statusIcon(s: string): string {
 }
 
 .todo-record-card__time {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   opacity: 0.7;
@@ -203,7 +203,7 @@ function statusIcon(s: string): string {
 /* 箭头右对齐；展开时旋转 180° */
 .todo-record-card__arrow {
   margin-left: auto;
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
   transition: transform 0.2s ease;
 }
@@ -226,7 +226,7 @@ function statusIcon(s: string): string {
   gap: 0.25rem;
   padding: 0.15rem 0.5rem;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: 0.714rem;
   max-width: 100%;
   overflow: hidden;
   white-space: nowrap;
@@ -264,7 +264,7 @@ function statusIcon(s: string): string {
 
 .todo-record-chip__status {
   flex-shrink: 0;
-  font-size: 8px;
+  font-size: 0.571rem;
 }
 
 .todo-record-chip__text {

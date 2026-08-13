@@ -329,7 +329,7 @@ describe("MessageBubble", () => {
 
   it("avatar 为 lucide 图标 id → 渲染 svg 图标（.msg-avatar-icon，无 emoji class）", () => {
     const settings = useSettingsStore();
-    settings.avatar = "cat";
+    settings.avatar = "bot";
     const wrapper = mount(MessageBubble, {
       props: { message: makeMsg({ role: "user", content: "hi" }) },
       global: { plugins: [i18n] },
@@ -389,8 +389,7 @@ describe("MessageBubble", () => {
   // ── 5.2 头像图片渲染（avatarImage 非空 → img file:// URL；空 → emoji 兜底）──
   // 图片头像优先级高于 emoji：avatarImage 设置后无论 ui.avatar 是否有值都显示图片
 
-  it("avatarImage 非空 → 渲染 img（file:// + getAvatarPath + 文件名拼接）", async () => {
-    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+  it("avatarImage 非空 → 渲染 img（avatar:// 协议 + 文件名）", async () => {
     const settings = useSettingsStore();
     settings.avatarImage = "avatar.png";
     const wrapper = mount(MessageBubble, {
@@ -400,7 +399,7 @@ describe("MessageBubble", () => {
     await flushPromises();
     const img = wrapper.find(".msg-avatar-img");
     expect(img.exists()).toBe(true);
-    expect(img.attributes("src")).toContain("file:///");
+    expect(img.attributes("src")).toContain("avatar:///");
     expect(img.attributes("src")).toContain("avatar.png");
     // 图片模式下不显示文字 emoji 头像
     expect(wrapper.find(".msg-avatar--user").text()).toBe("");
@@ -418,21 +417,7 @@ describe("MessageBubble", () => {
     expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
   });
 
-  it("getAvatarPath 失败 → 回退 emoji 文字头像（图片不可用不显示破图）", async () => {
-    getAvatarPathMock.mockRejectedValue(new Error("IPC 失败"));
-    const settings = useSettingsStore();
-    settings.avatarImage = "avatar.png";
-    const wrapper = mount(MessageBubble, {
-      props: { message: makeMsg({ role: "user", content: "hi" }) },
-      global: { plugins: [i18n] },
-    });
-    await flushPromises();
-    expect(wrapper.find(".msg-avatar-img").exists()).toBe(false);
-    expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
-  });
-
-  it("avatarImage 非法值（路径遍历）→ 回退 emoji 不构造 file:// URL", async () => {
-    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+  it("avatarImage 非法值（路径遍历）→ 回退 emoji 不构造 avatar:// URL", async () => {
     const settings = useSettingsStore();
     settings.avatarImage = "../../provider-configs.json";
     const wrapper = mount(MessageBubble, {

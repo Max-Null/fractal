@@ -265,7 +265,7 @@ const tokenLabel = computed(() => {
   align-items: center;
   gap: 6px;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
   opacity: 0.7;
   user-select: none;
@@ -277,7 +277,7 @@ const tokenLabel = computed(() => {
 }
 .node-timeline-done-token {
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
-  font-size: 10px;
+  font-size: 0.714rem;
   opacity: 0.7;
   margin-left: 4px;
 }

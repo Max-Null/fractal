@@ -688,7 +688,7 @@ async function polishInput() {
   gap: 5px;
   padding: 4px 9px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   background: transparent;
   border: none;
@@ -732,14 +732,14 @@ async function polishInput() {
 .chip-x {
   margin-left: 4px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 0.857rem;
   padding: 0 2px;
 }
 .chip-x:hover { color: var(--coral); }
 /* office/二进制附件弱提示：amber 警告三角不占位置（flex 内 shrink-0），title 已带说明 */
 .chip-warn {
   margin-left: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--amber);
   flex-shrink: 0;
 }
@@ -755,7 +755,7 @@ async function polishInput() {
   box-shadow: none;
   /* padding-bottom 6px 与右侧按钮底部对齐（cf-right padding-bottom 同为 6px——用户反馈底部距离不一致） */
   padding: 8px 10px 6px;
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1.7;
   min-height: 42px;
   max-height: 160px;
@@ -855,7 +855,7 @@ async function polishInput() {
   gap: 6px;
   padding: 4px 9px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   border: 1px solid var(--border-dim);
   cursor: pointer;
@@ -867,7 +867,7 @@ async function polishInput() {
   background: var(--bg-hover);
   border-color: var(--border-bright);
 }
-.pill-star { color: var(--accent); font-size: 12px; line-height: 1; }
+.pill-star { color: var(--accent); font-size: 0.857rem; line-height: 1; }
 .pill-dot {
   width: 6px;
   height: 6px;
@@ -877,7 +877,7 @@ async function polishInput() {
 }
 .pill-caret {
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: 0.714rem;
   line-height: 1;
 }
 
@@ -889,7 +889,7 @@ async function polishInput() {
   gap: 6px;
   padding: 4px 9px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   border: 1px solid var(--border-dim);
   cursor: pointer;
@@ -901,8 +901,8 @@ async function polishInput() {
   background: var(--bg-hover);
   border-color: var(--border-bright);
 }
-.pill-shield { font-size: 11px; line-height: 1; }
-.pill-bolt { font-size: 11px; line-height: 1; }
+.pill-shield { font-size: 0.786rem; line-height: 1; }
+.pill-bolt { font-size: 0.786rem; line-height: 1; }
 
 /* 命令小图标按钮（＋/ / ☰，对齐原型 icon-btn：26px 边框按钮） */
 .composer-icon-btn {
@@ -914,7 +914,7 @@ async function polishInput() {
   height: 26px;
   padding: 0;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   flex-shrink: 0;
   color: var(--text-secondary);
   background: transparent;
@@ -945,7 +945,7 @@ async function polishInput() {
   white-space: normal;
 }
 .d-label {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -962,14 +962,14 @@ async function polishInput() {
 }
 .d-item:hover { background: var(--bg-hover); }
 .d-item--sel { background: var(--accent-glow); }
-.d-name { font-size: 12px; color: var(--text-primary); font-weight: 500; }
+.d-name { font-size: 0.857rem; color: var(--text-primary); font-weight: 500; }
 .d-item--sel .d-name { color: var(--accent); }
-.d-desc { font-size: 10px; color: var(--text-muted); }
+.d-desc { font-size: 0.714rem; color: var(--text-muted); }
 .dropdown-item {
   width: 100%;
   text-align: left;
   padding: 6px 12px;
-  font-size: 11px;
+  font-size: 0.786rem;
   background: transparent;
   border: none;
   color: var(--text-secondary);
@@ -986,7 +986,7 @@ async function polishInput() {
   overflow-y: auto;
 }
 .slash-section-header {
-  font-size: 10px;
+  font-size: 0.714rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1000,7 +1000,7 @@ async function polishInput() {
 }
 .slash-browse-all { color: var(--accent); font-weight: 500; }
 .slash-empty {
-  font-size: 11px;
+  font-size: 0.786rem;
   padding: 12px;
   text-align: center;
   color: var(--text-muted);
@@ -1018,7 +1018,7 @@ async function polishInput() {
   background: var(--accent);
   color: #fff;
   font-weight: 600;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   border: 1px solid var(--accent-line);
   cursor: pointer;
   transition: all 0.2s;
@@ -1046,7 +1046,7 @@ async function polishInput() {
 
 /* hint：mono 10.5px faint（原型 .composer-hint） */
 .composer-hint {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   font-family: var(--font-mono);
   white-space: nowrap;
@@ -1102,7 +1102,7 @@ async function polishInput() {
   max-width: 70%;
   padding: 3px 8px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: color-mix(in srgb, var(--danger) 90%, #fff);
   background: color-mix(in srgb, var(--danger) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
@@ -1133,7 +1133,7 @@ async function polishInput() {
   width: 100%;
   text-align: left;
   padding: 6px 12px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-family: ui-monospace, monospace;
   color: var(--text-secondary);
   background: transparent;

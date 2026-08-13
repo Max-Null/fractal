@@ -45,7 +45,7 @@ function onBlur() {
 <style scoped>
 .settings-field__label {
   display: block;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   margin-bottom: 6px;
   color: var(--text-secondary);
@@ -53,7 +53,8 @@ function onBlur() {
 
 .settings-input-row {
   display: flex;
-  align-items: center;
+  /* stretch 让 suffix 按钮撑满输入框高度（等高对齐，而非 center 下按钮矮一截） */
+  align-items: stretch;
   gap: 8px;
 }
 
@@ -64,7 +65,7 @@ function onBlur() {
   width: 100%;
   padding: 8px 14px;
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 1rem;
   outline: none;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);

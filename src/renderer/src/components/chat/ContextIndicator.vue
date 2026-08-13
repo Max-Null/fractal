@@ -99,7 +99,7 @@ const barSegments = 10;
   display: flex;
   align-items: center;
   gap: 0.375rem;
-  font-size: 10px;
+  font-size: 0.714rem;
   flex-shrink: 0;
   cursor: pointer;
   color: var(--text-muted);

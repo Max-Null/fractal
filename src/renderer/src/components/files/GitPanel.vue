@@ -222,13 +222,13 @@ watch(() => props.repoPath, () => {
 </template>
 
 <style scoped>
-.git-panel { font-size: 11px; color: var(--text-secondary); }
+.git-panel { font-size: 0.786rem; color: var(--text-secondary); }
 .git-branch-bar {
   display: flex; align-items: center; gap: 6px;
   padding: 6px 10px; flex-shrink: 0;
   border-bottom: 1px solid var(--border-dim);
 }
-.git-branch-icon { color: var(--accent); font-size: 13px; }
+.git-branch-icon { color: var(--accent); font-size: 0.929rem; }
 .git-branch-name { font-weight: 600; color: var(--text-bright); }
 .git-refresh-btn {
   margin-left: auto; width: 20px; height: 20px;
@@ -239,13 +239,13 @@ watch(() => props.repoPath, () => {
 .git-refresh-btn:hover { background: var(--bg-hover); }
 
 .git-error-bar {
-  padding: 4px 10px; font-size: 10px; flex-shrink: 0;
+  padding: 4px 10px; font-size: 0.714rem; flex-shrink: 0;
   color: var(--coral); background: var(--coral-glow);
   border-bottom: 1px solid var(--border-dim);
   white-space: pre-wrap; word-break: break-all;
 }
 .git-push-ok {
-  padding: 4px 10px; font-size: 10px; flex-shrink: 0;
+  padding: 4px 10px; font-size: 0.714rem; flex-shrink: 0;
   color: var(--accent); background: var(--accent-glow);
   border-bottom: 1px solid var(--border-dim);
 }
@@ -253,7 +253,7 @@ watch(() => props.repoPath, () => {
 .git-section { padding: 2px 0; }
 .git-section-header {
   padding: 4px 10px; font-weight: 600; color: var(--text-muted);
-  text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px;
+  text-transform: uppercase; font-size: 0.714rem; letter-spacing: 0.5px;
 }
 .git-file-row {
   display: flex; align-items: center; gap: 6px;
@@ -263,7 +263,7 @@ watch(() => props.repoPath, () => {
 .git-file-row:hover { background: var(--bg-hover); }
 .git-file-row--active { background: var(--accent-glow); }
 .git-file-status {
-  width: 14px; text-align: center; font-weight: 700; font-size: 10px;
+  width: 14px; text-align: center; font-weight: 700; font-size: 0.714rem;
 }
 .git-file-status.staged { color: var(--accent); }
 .git-file-status.modified { color: var(--amber); }
@@ -271,7 +271,7 @@ watch(() => props.repoPath, () => {
 .git-file-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .git-file-action {
   width: 16px; height: 16px; border-radius: 3px;
-  font-size: 12px; font-weight: 700; text-align: center;
+  font-size: 0.857rem; font-weight: 700; text-align: center;
   color: var(--text-muted); cursor: pointer; opacity: 0;
   transition: opacity 100ms, background 100ms;
 }
@@ -282,7 +282,7 @@ watch(() => props.repoPath, () => {
 .git-empty-text { margin-bottom: 12px; }
 .git-init-btn {
   padding: 6px 16px; border-radius: 6px;
-  font-size: 12px; font-weight: 600;
+  font-size: 0.857rem; font-weight: 600;
   background: var(--accent); color: var(--bg-root);
   cursor: pointer; transition: opacity 150ms;
 }
@@ -298,19 +298,19 @@ watch(() => props.repoPath, () => {
 }
 .git-commit-input {
   flex: 1; background: transparent; border: 1px solid var(--border-dim);
-  border-radius: 4px; padding: 4px 8px; font-size: 11px;
+  border-radius: 4px; padding: 4px 8px; font-size: 0.786rem;
   color: var(--text-primary); outline: none;
 }
 .git-commit-input:focus { border-color: var(--accent-dim); }
 .git-commit-btn {
-  padding: 4px 12px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  padding: 4px 12px; border-radius: 4px; font-size: 0.786rem; font-weight: 600;
   background: var(--accent); color: var(--bg-root);
   transition: opacity 150ms; cursor: pointer;
 }
 .git-commit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .git-push-btn {
   width: 28px; height: 28px; border-radius: 4px;
-  font-size: 13px; display: flex; align-items: center; justify-content: center;
+  font-size: 0.929rem; display: flex; align-items: center; justify-content: center;
   color: var(--text-secondary); cursor: pointer;
   transition: background 150ms;
 }
@@ -322,7 +322,7 @@ watch(() => props.repoPath, () => {
 }
 .git-option-label {
   display: flex; align-items: center; gap: 4px;
-  font-size: 10px; color: var(--text-muted); cursor: pointer;
+  font-size: 0.714rem; color: var(--text-muted); cursor: pointer;
   user-select: none;
 }
 .git-option-checkbox {

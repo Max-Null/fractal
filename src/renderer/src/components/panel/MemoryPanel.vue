@@ -209,7 +209,7 @@ onUnmounted(() => {
   border: 1px solid var(--border-dim);
   border-radius: var(--radius-sm);
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.857rem;
   outline: none;
   transition: border-color 0.2s;
 }
@@ -221,7 +221,7 @@ onUnmounted(() => {
 .chip {
   padding: 4px 11px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   border: 1px solid var(--border-dim);
   cursor: pointer;
@@ -241,8 +241,8 @@ onUnmounted(() => {
   align-items: baseline;
   gap: 8px;
 }
-.mem-group-head span:first-child { font-size: 12px; font-weight: 600; color: var(--text-bright); }
-.mem-group-desc { font-size: 10.5px; color: var(--text-muted); }
+.mem-group-head span:first-child { font-size: 0.857rem; font-weight: 600; color: var(--text-bright); }
+.mem-group-desc { font-size: 0.75rem; color: var(--text-muted); }
 .mem-empty {
   display: flex;
   flex-direction: column;
@@ -254,10 +254,10 @@ onUnmounted(() => {
   border-radius: var(--radius-md);
   background: var(--bg-surface);
   color: var(--text-muted);
-  font-size: 11.5px;
+  font-size: 0.821rem;
 }
-.mem-empty-big { font-size: 22px; opacity: 0.6; }
-.mem-empty-sub { font-size: 10.5px; }
+.mem-empty-big { font-size: 1.571rem; opacity: 0.6; }
+.mem-empty-sub { font-size: 0.75rem; }
 
 /* 记忆条目卡片 */
 .mem-item {
@@ -276,7 +276,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .mem-item-title {
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--text-bright);
   white-space: nowrap;
@@ -284,12 +284,12 @@ onUnmounted(() => {
   text-overflow: ellipsis;
 }
 .mem-item-desc {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   line-height: 1.5;
 }
 .mem-item-preview {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   line-height: 1.5;
   display: -webkit-box;
@@ -304,7 +304,7 @@ onUnmounted(() => {
 }
 .mem-badge {
   flex-shrink: 0;
-  font-size: 10px;
+  font-size: 0.714rem;
   padding: 1px 8px;
   border-radius: 999px;
   font-weight: 500;
@@ -318,7 +318,7 @@ onUnmounted(() => {
 .mini-btn {
   padding: 3px 10px;
   border-radius: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   border: 1px solid var(--border-dim);
   background: transparent;
@@ -337,7 +337,7 @@ onUnmounted(() => {
   min-width: 0;
 }
 .mem-detail-file {
-  font-size: 10.5px;
+  font-size: 0.75rem;
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -351,7 +351,7 @@ onUnmounted(() => {
   overflow-y: auto;
 }
 .mem-detail-desc {
-  font-size: 11.5px;
+  font-size: 0.821rem;
   color: var(--text-secondary);
   line-height: 1.6;
   padding: 8px 12px;
@@ -363,7 +363,7 @@ onUnmounted(() => {
 .mem-detail-error {
   padding: 24px 0;
   text-align: center;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-muted);
 }
 .mem-detail-error { color: var(--coral); }

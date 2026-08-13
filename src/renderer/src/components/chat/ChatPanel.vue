@@ -619,30 +619,6 @@ watch(() => chatCommand.value.ts, async (ts) => {
           content: data,
           label: `[D] ${fullPath.split(/[\\/]/).pop() || fullPath} · <${htmlLines.match(/<(\w+)/)?.[1] || "element"}>`,
         };
-      } else if (action.startsWith("switch-workspace:")) {
-        const newPath = action.slice("switch-workspace:".length);
-        // 先停止当前会话的引擎进程（避免旧 cwd 的进程继续 emit 事件到新会话）
-        const sid = session.activeSessionId;
-        if (sid) {
-          try { await stopSession(sid); } catch { /* 无进程 */ }
-        }
-        chat.clearMessages();
-        isNearBottom.value = true;
-        autoScroll.value = true;
-        // 最新会话若是空会话则复用，避免堆积"新会话"
-        const sorted = [...session.sessions].sort((a, b) => b.createdAt - a.createdAt);
-        const latestEmpty = sorted.find(s => s.messageCount === 0 && s.id !== session.activeSessionId);
-        if (latestEmpty) {
-          session.setActiveSession(latestEmpty.id);
-          showStatus(t('status.workspaceSwitched', { path: newPath }));
-        } else {
-          try {
-            await session.createSession(settings.model, newPath, undefined, settings.locale);
-            showStatus(t('status.workspaceSwitched', { path: newPath }));
-          } catch {
-            showStatus(t('status.sessionCreateFailed'));
-          }
-        }
       } else if (action.startsWith("show-status:")) {
         showStatus(action.slice("show-status:".length));
       } else if (action.startsWith("excel-selection:") || action.startsWith("selection:") || action.startsWith("md-selection:")) {
@@ -1239,20 +1215,20 @@ watch(
       </Transition>
       <div ref="scrollContainer" class="chat-messages" @scroll="onScrollThrottled">
       <!-- 🧪 Ctrl+Shift+T -->
-      <details v-if="showTestPanel" class="mx-auto mb-3 text-[11px]" style="color:var(--text-muted); max-width:760px; position:sticky; top:0; z-index:5; background:var(--bg-root)">
+      <details v-if="showTestPanel" class="mx-auto mb-3 text-[0.786rem]" style="color:var(--text-muted); max-width:760px; position:sticky; top:0; z-index:5; background:var(--bg-root)">
         <summary class="cursor-pointer py-1 hover:text-[var(--accent)]">🧪 测试弹窗</summary>
         <div class="flex flex-wrap gap-1.5 mt-2 ml-2">
-          <button @click="runTest(testQuestion)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">AskUserQuestion</button>
-          <button @click="runTest(testApprove)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ApprovalBar</button>
-          <button @click="runTest(() => { showContextModal = true; })" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ContextUsage</button>
-          <button @click="runTest(() => emitChatCommand('export-session'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ExportPreview</button>
-          <button @click="runTest(() => emitChatCommand('rename-session'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">RenameSession</button>
-          <button @click="runTest(() => emitChatCommand('about'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">About</button>
-          <button @click="runTest(() => emitChatCommand('manage-plugins'))" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">ManagePanel</button>
-          <button @click="runTest(testTodos)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">TodoWrite</button>
-          <button @click="runTest(testStatusOk)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">Notify OK</button>
-          <button @click="runTest(testStatusWarn)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">Notify Warn</button>
-          <button @click="runTest(testStatusErr)" class="btn-ghost" style="font-size:11px; padding:0.15rem 0.5rem">Notify Err</button>
+          <button @click="runTest(testQuestion)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">AskUserQuestion</button>
+          <button @click="runTest(testApprove)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">ApprovalBar</button>
+          <button @click="runTest(() => { showContextModal = true; })" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">ContextUsage</button>
+          <button @click="runTest(() => emitChatCommand('export-session'))" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">ExportPreview</button>
+          <button @click="runTest(() => emitChatCommand('rename-session'))" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">RenameSession</button>
+          <button @click="runTest(() => emitChatCommand('about'))" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">About</button>
+          <button @click="runTest(() => emitChatCommand('manage-plugins'))" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">ManagePanel</button>
+          <button @click="runTest(testTodos)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">TodoWrite</button>
+          <button @click="runTest(testStatusOk)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">Notify OK</button>
+          <button @click="runTest(testStatusWarn)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">Notify Warn</button>
+          <button @click="runTest(testStatusErr)" class="btn-ghost" style="font-size: 0.786rem; padding:0.15rem 0.5rem">Notify Err</button>
         </div>
       </details>
       <!-- Welcome -->
@@ -1306,7 +1282,7 @@ watch(
         <div class="flex items-center justify-end">
           <button
             @click="prepareExport"
-            class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] transition-colors hover:bg-[var(--bg-hover)]"
+            class="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[0.786rem] transition-colors hover:bg-[var(--bg-hover)]"
             style="color: var(--text-secondary)"
             :title="$t('chat.exportTitle')"
           >
@@ -1373,11 +1349,11 @@ watch(
           class="attach-bar"
         >
           <div class="system-msg-bar" style="background: var(--bg-surface); border: 1px solid var(--border-dim); box-shadow: 0 2px 6px rgba(0,0,0,0.15)">
-            <span class="text-[11px]" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
+            <span class="text-[0.786rem]" :style="{ color: 'var(--text-bright)' }">{{ $t('chat.debugTitle') }} ({{ debugLog.lines.value.length }})</span>
             <span class="flex-1"></span>
             <!-- 复制诊断信息：应用名 + 版本 + serve.log 尾部打包（用户反馈通道，含隐私提示） -->
             <!-- icon-btn-sm 固定 14×14px，不适用于文本按钮（汉字塞入窄容器 → 逐字竖排，2026-08-11 修复） -->
-            <button @click="copyDiagnostics" class="cursor-pointer px-1.5 py-0.5 rounded text-[11px] transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugCopyDiag')">
+            <button @click="copyDiagnostics" class="cursor-pointer px-1.5 py-0.5 rounded text-[0.786rem] transition-colors hover:bg-[var(--bg-hover)]" :style="{ color: 'var(--text-muted)' }" :title="$t('chat.debugCopyDiag')">
               {{ $t('chat.debugCopyDiag') }}
             </button>
             <!-- 复制当前标签页内容 -->
@@ -1390,17 +1366,17 @@ watch(
           <div class="flex items-center gap-1 px-3 pt-2" style="border-bottom: 1px solid var(--border-dim)">
             <button
               @click="switchDebugTab('events')"
-              class="text-[11px] px-2 py-0.5 rounded transition-colors"
+              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
               :style="debugTab === 'events' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
             >{{ $t('chat.debugLabel') }}</button>
             <button
               @click="switchDebugTab('serve')"
-              class="text-[11px] px-2 py-0.5 rounded transition-colors"
+              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
               :style="debugTab === 'serve' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
             >{{ $t('chat.debugServeTab') }}</button>
             <button
               @click="switchDebugTab('renderer')"
-              class="text-[11px] px-2 py-0.5 rounded transition-colors"
+              class="text-[0.786rem] px-2 py-0.5 rounded transition-colors"
               :style="debugTab === 'renderer' ? { color: 'var(--text-bright)', background: 'var(--bg-hover)' } : { color: 'var(--text-muted)' }"
             >{{ $t('chat.debugRendererTab') }}</button>
             <span class="flex-1"></span>
@@ -1412,7 +1388,7 @@ watch(
           <pre v-if="debugTab === 'events'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); color:var(--text-muted); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">{{ debugLog.lines.value.join('\n') }}</pre>
           <div v-else-if="debugTab === 'serve'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
             <pre v-if="serveLogLines.length > 0" ref="serveLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ serveLogLines.join('\n') }}</pre>
-            <div v-else class="px-3 py-3 text-[11px]" style="color:var(--text-muted)">
+            <div v-else class="px-3 py-3 text-[0.786rem]" style="color:var(--text-muted)">
               <span v-if="serveLogLoading">{{ $t('chat.loading') }}</span>
               <span v-else-if="serveLogError">{{ serveLogError }}</span>
               <span v-else>{{ $t('chat.debugNoServeLog') }}</span>
@@ -1421,14 +1397,14 @@ watch(
           <!-- 控制台日志：渲染层 console 桥落盘（仅调试模式有内容——--debug 启动后 renderer.log） -->
           <div v-else-if="debugTab === 'renderer'" class="code-block max-h-48 overflow-y-auto" style="background:var(--bg-elevated); border:1px solid var(--border-dim); box-shadow: 0 4px 12px rgba(0,0,0,0.4); border-radius:0">
             <pre v-if="rendererLogLines.length > 0" ref="rendererLogPre" class="code-block" style="margin:0; color:var(--text-muted)">{{ rendererLogLines.join('\n') }}</pre>
-            <div v-else class="px-3 py-3 text-[11px]" style="color:var(--text-muted)">
+            <div v-else class="px-3 py-3 text-[0.786rem]" style="color:var(--text-muted)">
               <span v-if="rendererLogLoading">{{ $t('chat.loading') }}</span>
               <span v-else-if="rendererLogError">{{ rendererLogError }}</span>
               <span v-else>{{ $t('chat.debugNoRendererLog') }}</span>
             </div>
           </div>
           <!-- 底部提示：日志用于排查，可复制发给开发者 -->
-          <div class="px-3 py-1.5 text-[10px]" style="color:var(--text-muted)">{{ $t('chat.debugFooter') }}</div>
+          <div class="px-3 py-1.5 text-[0.714rem]" style="color:var(--text-muted)">{{ $t('chat.debugFooter') }}</div>
         </div>
       </div>
     </Teleport>
@@ -1596,13 +1572,13 @@ watch(
       <div class="text-center py-4 space-y-3">
         <div class="text-lg font-bold" :style="{ color: 'var(--text-bright)' }">{{ $t('app.title') }}</div>
         <div class="text-xs" :style="{ color: 'var(--text-secondary)' }">{{ $t('chat.aboutSubtitle') }}</div>
-        <div class="text-[11px] font-mono" :style="{ color: 'var(--text-muted)' }">v{{ appVersion }}</div>
-        <div class="text-[11px]" :style="{ color: 'var(--text-muted)' }">
+        <div class="text-[0.786rem] font-mono" :style="{ color: 'var(--text-muted)' }">v{{ appVersion }}</div>
+        <div class="text-[0.786rem]" :style="{ color: 'var(--text-muted)' }">
           Tauri 2 + Vue 3 + TypeScript<br/>
           Rust 后端 · SQLite 持久化<br/>
           多厂商 API 兼容
         </div>
-        <div class="text-[10px] pt-2" :style="{ color: 'var(--text-muted)' }">
+        <div class="text-[0.714rem] pt-2" :style="{ color: 'var(--text-muted)' }">
           © 2026 分形 contributors · MIT
         </div>
       </div>
@@ -1731,13 +1707,13 @@ watch(
 /* 审批条主文本（原 text-xs flex-1） */
 .approval-msg {
   flex: 1;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
 }
-/* 审批条「总是允许」建议文案（原 block text-[10px] mt-0.5） */
+/* 审批条「总是允许」建议文案（原 block text-[0.714rem] mt-0.5） */
 .approval-hint {
   display: block;
-  font-size: 10px;
+  font-size: 0.714rem;
   margin-top: 2px;
   color: var(--text-muted);
 }

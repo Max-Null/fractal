@@ -211,16 +211,16 @@ const expandedText = computed(() => {
   gap: 0.5rem;
 }
 .subtask-badge {
-  font-size: 14px;
+  font-size: 1rem;
   line-height: 1;
 }
 .subtask-agent {
   font-weight: 600;
   color: var(--violet);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 .subtask-status {
-  font-size: 10px;
+  font-size: 0.714rem;
   white-space: nowrap;
 }
 .subtask-status--running {
@@ -243,11 +243,11 @@ const expandedText = computed(() => {
 }
 .subtask-stale-note {
   margin-top: 0.35rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-muted);
 }
 .subtask-detail-btn {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-dim);
@@ -262,7 +262,7 @@ const expandedText = computed(() => {
 }
 .subtask-live {
   margin-top: 0.35rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -270,7 +270,7 @@ const expandedText = computed(() => {
 }
 .subtask-summary {
   margin-top: 0.35rem;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: pre-line;
   overflow: hidden;

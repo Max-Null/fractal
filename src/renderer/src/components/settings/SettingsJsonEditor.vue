@@ -98,8 +98,8 @@ onBeforeUnmount(() => {
           opacity: saving || loading ? 0.6 : 1,
         }"
       >{{ saving ? $t('settings.saving') : $t('settings.save') }}</button>
-      <span v-if="dirty" class="text-[10px]" style="color: var(--amber)">{{ $t('settings.jsonUnsaved') }}</span>
-      <span v-if="savedAt" class="text-[10px] font-mono" style="color: var(--text-muted)">{{ $t('settings.jsonSavedAt') }} {{ savedAt }}</span>
+      <span v-if="dirty" class="text-[0.714rem]" style="color: var(--amber)">{{ $t('settings.jsonUnsaved') }}</span>
+      <span v-if="savedAt" class="text-[0.714rem] font-mono" style="color: var(--text-muted)">{{ $t('settings.jsonSavedAt') }} {{ savedAt }}</span>
     </div>
 
     <!-- 校验 warnings（非法值回退提示） -->
@@ -107,7 +107,7 @@ onBeforeUnmount(() => {
       <div
         v-for="(w, i) in warnings"
         :key="i"
-        class="px-3 py-1.5 rounded-lg text-[10px] break-all"
+        class="px-3 py-1.5 rounded-lg text-[0.714rem] break-all"
         style="background: var(--amber-glow); color: var(--amber); border: 1px solid var(--amber)"
       >⚠ {{ w }}</div>
     </div>
@@ -120,6 +120,6 @@ onBeforeUnmount(() => {
       <div v-if="loading" class="p-4 text-xs" style="color: var(--text-muted)">{{ $t('settings.loading') }}</div>
     </div>
 
-    <p class="text-[10px]" style="color: var(--text-muted); opacity: 0.7">{{ $t('settings.jsonHint') }}</p>
+    <p class="text-[0.714rem]" style="color: var(--text-muted); opacity: 0.7">{{ $t('settings.jsonHint') }}</p>
   </div>
 </template>

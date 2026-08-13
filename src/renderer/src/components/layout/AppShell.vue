@@ -928,7 +928,7 @@ async function openFilePanelTo(_path: string) {
 }
 /* 正面：品牌名——字体 15px 时居中占满 40px 宽，与 logo 对齐 */
 .brand-face--name {
-  font-size: 15px;
+  font-size: 1.071rem;
   font-weight: 700;
   letter-spacing: 0.02em;
   color: var(--text-hi);
@@ -978,7 +978,7 @@ async function openFilePanelTo(_path: string) {
   border-radius: 999px;
   border: none;
   background: transparent;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
   max-width: 300px;
   min-width: 0;
@@ -998,7 +998,7 @@ async function openFilePanelTo(_path: string) {
   border-radius: 999px;
   background: var(--bg-root);
   border: 1px solid var(--border-dim);
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: nowrap;
   flex-shrink: 0;
@@ -1042,7 +1042,7 @@ async function openFilePanelTo(_path: string) {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 0.821rem;
 }
 
 /* ── 顶栏右区（原型 app-bar-right）：icon-btn 32px 圆角 8px ── */
@@ -1084,7 +1084,7 @@ async function openFilePanelTo(_path: string) {
   z-index: 300;
   background: var(--accent);
   color: #fff;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   padding: 7px 16px;
   border-radius: 9px;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
@@ -1146,7 +1146,7 @@ async function openFilePanelTo(_path: string) {
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 0.929rem;
   transition: all 0.15s;
 }
 .rail-expand-btn:hover {
@@ -1169,7 +1169,7 @@ async function openFilePanelTo(_path: string) {
   align-items: center;
   justify-content: center;
   color: var(--accent);
-  font-size: 15px;
+  font-size: 1.071rem;
   border: 1px solid var(--accent-line);
   background: var(--accent-soft);
   flex-shrink: 0;
@@ -1239,7 +1239,7 @@ async function openFilePanelTo(_path: string) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12.5px;
+  font-size: 0.893rem;
   font-weight: 600;
   color: var(--text-low);
   cursor: pointer;
@@ -1263,7 +1263,7 @@ async function openFilePanelTo(_path: string) {
   background: var(--bg-root);
   border: 1px solid var(--border-strong);
   border-radius: 7px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
   white-space: nowrap;
   max-width: 240px;
@@ -1325,7 +1325,7 @@ async function openFilePanelTo(_path: string) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -1336,7 +1336,7 @@ async function openFilePanelTo(_path: string) {
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  font-size: 16px;
+  font-size: 1.143rem;
   color: var(--text-muted);
   cursor: pointer;
   transition: background 150ms;
@@ -1345,7 +1345,7 @@ async function openFilePanelTo(_path: string) {
 .git-diff-panel-col-content {
   flex: 1;
   overflow-y: auto;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-family: ui-monospace, monospace;
   line-height: 1.6;
 }
