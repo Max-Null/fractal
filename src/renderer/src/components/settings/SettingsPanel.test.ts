@@ -30,14 +30,17 @@ const i18n = createI18n({
     en: {
       settings: {
         title: "Settings",
-        engineTitle: "Engine Settings",
         uiTitle: "Interface Settings",
+        mainModelApi: "Main Model API",
+        multimodalApi: "Multimodal API",
         baseUrl: "API Base URL",
-        apiKey: "API Key",
+        apiKey: "DeepSeek API Key",
+        apiKeyDesc: "Used by the main model and most sub-agents (DeepSeek)",
         model: "Model",
         test: "Test Connection",
         testing: "Testing…",
         save: "Save",
+        saveAndRestart: "Save & Restart Engine",
         language: "Language",
         theme: "Theme",
         defaultMode: "Permission Mode",
@@ -50,9 +53,6 @@ const i18n = createI18n({
         fontSizeSmall: "Small",
         fontSizeMedium: "Medium",
         fontSizeLarge: "Large",
-        llmApiUrl: "LLM API URL",
-        llmApiUrlPlaceholder: "Full URL",
-        llmApiUrlLookup: "Lookup",
         changelog: "Changelog",
         engineVersion: "OC Engine",
         presetVersion: "Preset",
@@ -70,8 +70,10 @@ const i18n = createI18n({
         smallModelFlash: "deepseek-v4-flash · fast",
         smallModelPro: "deepseek-v4-pro · stronger reasoning",
         smallModelDesc: "Used for lightweight tasks (titles, summaries, message polish); empty = follow main model",
-        kimiApiKey: "Multimodal Model (Cartographer) API Key",
+        kimiApiKey: "Kimi K3 API Key",
         kimiApiKeyDesc: "Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty",
+        kimiTest: "Test Connection",
+        kimiTesting: "Testing…",
         kimiKeySaved: "Saved and engine restarted",
         showKey: "Show API Key",
         hideKey: "Hide API Key",
@@ -89,10 +91,6 @@ const i18n = createI18n({
         reopenOnboarding: "Reopen onboarding",
         loading: "Loading…",
         jsonHint: "VSCode-style JSONC",
-        workspaceTitle: "Workspace",
-        workspaceLabel: "Current workspace",
-        workspacePlaceholder: "Not selected (defaults to user home)",
-        workspaceHint: "The AI assistant works in this directory; new sessions take effect after switching",
         logLevel: "Engine Log Level",
         logLevelDesc: "Verbosity of serve output",
         presetSkills: "Preset Skills Pack",
@@ -115,7 +113,6 @@ const i18n = createI18n({
         },
         backToChat: "Back to chat",
         keyPlaceholder: "sk-...",
-        workspacePickTitle: "Select workspace directory",
         testConnectionOk: "✓ serve connected",
         balance: "Account Balance",
         balanceQueryFailed: "Failed to query balance",
@@ -123,9 +120,7 @@ const i18n = createI18n({
         refreshBalance: "Refresh balance",
         upload: "Upload",
         clearAvatar: "Clear",
-        avatarImageSet: "Image avatar: {path}",
-        avatarImageEmpty: "No image avatar ({value})",
-        defaultMe: "Me",
+        changeAvatar: "Change",
         langZh: "中文",
         langEn: "English",
         defaultMainAgent: "Default Main Agent",
@@ -289,22 +284,21 @@ describe("SettingsPanel", () => {
     expect(settings.locale).toBe("en");
   });
 
-  it("avatar pick button calls store pickAvatar and shows avatarImage status", async () => {
+  it("avatar uploader empty box calls store pickAvatar and shows preview+clear", async () => {
     const wrapper = mountPanel();
     const settings = useSettingsStore();
-    // spy store.pickAvatar：确认按钮绑定 store 方法（TDD：上传按钮触发 pickAvatar）
+    // spy store.pickAvatar：确认上传占位框绑定 store 方法
     const pickSpy = vi.spyOn(settings, "pickAvatar").mockResolvedValue({ ok: true, filename: "avatar.png" });
-    const pickBtn = wrapper.find("[data-tab='general'] button.f-settings-btn");
-    expect(pickBtn.text()).toContain("Upload");
+    const pickBtn = wrapper.find("[data-tab='general'] .avatar-uploader__empty");
+    expect(pickBtn.exists()).toBe(true);
     await pickBtn.trigger("click");
     expect(pickSpy).toHaveBeenCalledTimes(1);
-    // avatarImage 状态展示：初始无图片显示空态提示
-    expect(wrapper.find(".avatar-image-status").text()).toContain("No image avatar");
-    // spy 后手动模拟成功写入 avatarImage → 状态变为文件名 + 清除按钮出现
+    // 模拟成功写入 avatarImage → 预览容器 + 清除按钮出现（占位框消失）
     settings.avatarImage = "avatar.png";
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".avatar-image-status").text()).toContain("Image avatar: avatar.png");
-    expect(wrapper.find("button.f-settings-btn--danger").exists()).toBe(true);
+    expect(wrapper.find(".avatar-uploader__preview").exists()).toBe(true);
+    expect(wrapper.find(".avatar-uploader__clear").exists()).toBe(true);
+    expect(wrapper.find(".avatar-uploader__empty").exists()).toBe(false);
   });
 
   it("avatar clear button calls store clearAvatar", async () => {
@@ -313,32 +307,32 @@ describe("SettingsPanel", () => {
     settings.avatarImage = "avatar.png";
     await wrapper.vm.$nextTick();
     const clearSpy = vi.spyOn(settings, "clearAvatar").mockResolvedValue({ ok: true });
-    const clearBtn = wrapper.find("button.f-settings-btn--danger");
+    const clearBtn = wrapper.find(".avatar-uploader__clear");
     expect(clearBtn.exists()).toBe(true);
     await clearBtn.trigger("click");
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 
-  // ── 5.3 头像图片预览（avatarImage 非空 → .avatar-preview img；空 → 不渲染）──
+  // ── 5.3 头像图片预览（avatarImage 非空 → .avatar-uploader__img；空 → 占位框）──
 
-  it("avatarImage 非空且 getAvatarPath 成功 → 渲染 .avatar-preview 预览图（file:// + 文件名）", async () => {
-    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+  it("avatarImage 非空 → 渲染 .avatar-uploader__img 预览图（avatar:// 协议 + 文件名）", async () => {
     const wrapper = mountPanel();
     const settings = useSettingsStore();
     settings.avatarImage = "avatar.png";
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    const preview = wrapper.find(".avatar-preview");
+    await wrapper.vm.$nextTick();
+    const preview = wrapper.find(".avatar-uploader__img");
     expect(preview.exists()).toBe(true);
-    expect(preview.attributes("src")).toContain("file:///");
+    expect(preview.attributes("src")).toContain("avatar:///");
     expect(preview.attributes("src")).toContain("avatar.png");
   });
 
-  it("avatarImage 为空 → 不渲染 .avatar-preview 预览图", async () => {
+  it("avatarImage 为空 → 显示上传占位框，不渲染预览图", async () => {
     const wrapper = mountPanel();
     const settings = useSettingsStore();
     settings.avatarImage = "";
     await wrapper.vm.$nextTick();
-    expect(wrapper.find(".avatar-preview").exists()).toBe(false);
+    expect(wrapper.find(".avatar-uploader__preview").exists()).toBe(false);
+    expect(wrapper.find(".avatar-uploader__empty").exists()).toBe(true);
   });
 
   it("avatar icon click sets avatar and clears avatarImage", async () => {
@@ -354,14 +348,6 @@ describe("SettingsPanel", () => {
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("workspace pick button is wired", async () => {
-    const wrapper = mountPanel();
-    // 工作目录输入框 readonly + 后缀选择按钮（lucide FolderOpen）
-    const tab = wrapper.find("[data-tab='general']");
-    expect(tab.find("input[readonly]").exists()).toBe(true);
-    expect(tab.find(".f-settings-btn--suffix svg").exists()).toBe(true);
-  });
-
   // ── 模型与API tab ──
 
   /** 切到模型与API tab（索引 1）并返回该 tab 容器 */
@@ -370,15 +356,32 @@ describe("SettingsPanel", () => {
     return wrapper.find("[data-tab='model']");
   }
 
-  it("model tab renders api key, kimi key, baseUrl, model select and test button", async () => {
+  it("model tab renders two key groups: main model API + multimodal API + session", async () => {
     const wrapper = mountPanel();
     const tab = await switchToModelTab(wrapper);
-    expect(tab.text()).toContain("API Key");
-    expect(tab.text()).toContain("Multimodal Model (Cartographer) API Key");
-    expect(tab.text()).toContain("API Base URL");
-    expect(tab.text()).toContain("Model");
-    expect(tab.text()).toContain("Test Connection");
-    expect(tab.text()).toContain("Account Balance");
+    // 三分组：主模型 API / 多模态 API / 会话（标题来自 SettingsSection）
+    const sections = tab.findAll(".settings-section");
+    expect(sections.length).toBe(3);
+    const titles = sections.map((s) => s.find(".settings-section__title").text());
+    expect(titles).toEqual(["Main Model API", "Multimodal API", "Session"]);
+    // 主模型 API section：DeepSeek API Key + 说明 + 余额 + baseUrl + 模型 + 测试连接 + 保存并重启（与 kimi 对称）
+    const mainSection = sections[0];
+    expect(mainSection.text()).toContain("DeepSeek API Key");
+    expect(mainSection.text()).toContain("Used by the main model and most sub-agents (DeepSeek)");
+    expect(mainSection.text()).toContain("Account Balance");
+    expect(mainSection.text()).toContain("API Base URL");
+    expect(mainSection.text()).toContain("Model");
+    expect(mainSection.text()).toContain("Test Connection");
+    expect(mainSection.text()).toContain("Save & Restart Engine");
+    // 多模态 API section：Kimi K3 Key + 说明（制图师不可用提示）+ 测试连接 + 保存并重启（与 DeepSeek 对称）
+    const multiSection = sections[1];
+    expect(multiSection.text()).toContain("Kimi K3 API Key");
+    expect(multiSection.text()).toContain("Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty");
+    expect(multiSection.text()).toContain("Test Connection");
+    expect(multiSection.text()).toContain("Save & Restart Engine");
+    // 会话 section：上下文窗口
+    const sessionSection = sections[2];
+    expect(sessionSection.text()).toContain("Context Limit");
   });
 
   it("model tab main model select switches settings.model", async () => {
@@ -409,11 +412,26 @@ describe("SettingsPanel", () => {
     }
   });
 
+  it("deepseek key eye toggles password to text (明文切换)", async () => {
+    const wrapper = mountPanel();
+    const tab = await switchToModelTab(wrapper);
+    const sections = tab.findAll(".settings-section");
+    // DeepSeek key 明文切换按钮（aria-label = Show API Key）
+    const eye = sections[0].find("button[aria-label='Show API Key']");
+    expect(eye.exists()).toBe(true);
+    await eye.trigger("click");
+    const dsInput = wrapper
+      .findAll("input")
+      .find((i) => i.attributes("placeholder") === "sk-..." && i.attributes("type") === "text");
+    expect(dsInput).toBeTruthy();
+  });
+
   it("kimi key eye toggles password to text (明文切换)", async () => {
     const wrapper = mountPanel();
-    await switchToModelTab(wrapper);
+    const tab = await switchToModelTab(wrapper);
+    const sections = tab.findAll(".settings-section");
     // kimi key 明文切换按钮（aria-label = Show API Key）
-    const eye = wrapper.find("button[aria-label='Show API Key']");
+    const eye = sections[1].find("button[aria-label='Show API Key']");
     expect(eye.exists()).toBe(true);
     await eye.trigger("click");
     const kimiInput = wrapper
@@ -432,12 +450,13 @@ describe("SettingsPanel", () => {
       if (channel === "settings:saveProviderConfig") return Promise.resolve({ ok: true });
       return Promise.resolve({});
     });
-    // 填入 kimi key：密码输入框有两个（API Key / kimi Key，均 sk-...），取第二个（模型 tab 顺序固定）
+    // 填入 kimi key：密码输入框有两个（DeepSeek / kimi Key，均 sk-...），取第二个（模型 tab 顺序固定）
     const passwordInputs = wrapper.findAll("input").filter((i) => i.attributes("type") === "password" && i.attributes("placeholder") === "sk-...");
     expect(passwordInputs.length).toBe(2);
     await passwordInputs[1].setValue("sk-kimi-123");
-    // 保存按钮：kimi 区保存（文案 Save，非禁用）
-    const saveBtn = wrapper.findAll("button").find((b) => b.text() === "Save" && !(b.element as HTMLButtonElement).disabled);
+    // 保存按钮：限定多模态 section（DeepSeek 也有同名 Save & Restart Engine 按钮，全页 find 会命中第一个）
+    const multiSection = wrapper.find("[data-tab='model']").findAll(".settings-section")[1];
+    const saveBtn = multiSection.findAll("button").find((b) => b.text() === "Save & Restart Engine" && !(b.element as HTMLButtonElement).disabled);
     expect(saveBtn).toBeTruthy();
     await saveBtn!.trigger("click");
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -449,12 +468,18 @@ describe("SettingsPanel", () => {
     expect(arg.restart).toBe(true);
   });
 
-  it("test connection button exists", async () => {
+  it("test connection buttons exist for both providers", async () => {
     const wrapper = mountPanel();
-    await switchToModelTab(wrapper);
-    const testBtn = wrapper.findAll("button").find((b) => b.text().includes("Test Connection"));
-    expect(testBtn).toBeTruthy();
-    expect(testBtn!.attributes("disabled")).toBeUndefined();
+    const tab = await switchToModelTab(wrapper);
+    const sections = tab.findAll(".settings-section");
+    // 主模型区（DeepSeek）测试连接按钮：默认文案 Test Connection，非禁用
+    const dsTest = sections[0].findAll("button").find((b) => b.text().includes("Test Connection"));
+    expect(dsTest).toBeTruthy();
+    expect(dsTest!.attributes("disabled")).toBeUndefined();
+    // 多模态区（Kimi）测试连接按钮：对称存在
+    const kimiTest = sections[1].findAll("button").find((b) => b.text().includes("Test Connection"));
+    expect(kimiTest).toBeTruthy();
+    expect(kimiTest!.attributes("disabled")).toBeUndefined();
   });
 
   // ── AI行为 tab：默认主 Agent / 子 agent 模型 / 权限模式 / 思考深度 / 思考节点 / 轻量模型 ──

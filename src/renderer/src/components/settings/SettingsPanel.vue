@@ -2,14 +2,11 @@
 import { ref, computed, onMounted, onUnmounted, watch, type Component } from "vue";
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
-import { useChatStore } from "@/stores/chat";
 import { useI18n } from "vue-i18n";
-import { testConnection, sendMessage, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
-import { emitChatCommand } from "@/composables/useCommandPalette";
+import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
-import { useSessionStore } from "@/stores/session";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
-import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff, Search } from "lucide-vue-next";
+import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-vue-next";
 
 const appVersion = __APP_VERSION__;
 import { translateError } from "@/lib/utils";
@@ -30,8 +27,6 @@ const changelogContent = changelogRaw.replace(/\r\n/g, "\n");
 const router = useRouter();
 const { t } = useI18n();
 const settings = useSettingsStore();
-const chat = useChatStore();
-const sessionStore = useSessionStore();
 /** 图片头像预览 URL（与消息区共用 composable）；空 = 未设置/路径获取失败 → 不渲染预览 */
 const { avatarImageUrl } = useAvatarImageUrl();
 
@@ -64,16 +59,6 @@ function formatTokens(n: number): string {
   return String(n);
 }
 
-// 选择工作目录：写 store + 通知会话侧收面板；serve 侧目录切换待阶段 6 配置体系
-async function handleWorkspacePick() {
-  const selected = await openDialog({ directory: true, title: t("settings.workspacePickTitle") });
-  if (!selected) return;
-  const p = Array.isArray(selected) ? selected[0] : selected;
-  settings.cwd = p;
-  settings.addRecentWorkspace(p);
-  emitChatCommand(`switch-workspace:${p}`);
-}
-
 function parseContextLimit() {
   const raw = contextLimitInput.value.trim().toUpperCase();
   // 空或 0 → 自动检测
@@ -89,55 +74,6 @@ function parseContextLimit() {
   // 解析失败 → 回退为当前有效值
   contextLimitInput.value = settings.contextLimit > 0 ? formatTokens(settings.contextLimit) : "";
 }
-
-// ── 聊天 API 地址静默查询 ──
-const isLookingUpUrl = ref(false);
-
-async function startLookupUrl() {
-  const prompt = t("settings.urlLookupPrompt", { model: settings.model });
-  isLookingUpUrl.value = true;
-  let sid = sessionStore.activeSessionId;
-  if (!sid) {
-    // cwd 绑当前工作区：与 ChatPanel 创建会话一致，否则会话列表按工作区过滤后找不到该会话
-    sid = await sessionStore.createSession(settings.model, settings.cwd, undefined, settings.locale);
-    chat.clearMessages();  // 新建会话时清空旧消息记录
-  }
-  chat.addUserMessage(prompt);
-  // 非中途发送才新建 assistant 消息位
-  if (!chat.isProcessing) chat.startAssistantMessage();
-  chat.isProcessing = true;
-  sendMessage(sid, prompt, {
-    planMode: false,
-    autoMode: false,
-    permissionMode: "bypassPermissions",  // 静默查询不能卡权限弹窗
-    variant: settings.modelVariants.includes("low") ? "low" : undefined,
-    model: settings.model,
-  }).catch((e) => {
-    isLookingUpUrl.value = false;
-    console.error("URL 查询失败:", e);
-  });
-}
-
-// 标志位打开时，监听新完成的 assistant 消息，提取 URL 自动填入
-watch(() => chat.messages.map(m => m.isStreaming), () => {
-  if (!isLookingUpUrl.value) return;
-  const msgs = chat.messages;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i];
-    if (m.role === "assistant" && !m.isStreaming && m.content) {
-      const match = m.content.match(/https?:\/\/[^\s"'`<>]+/i);
-      if (match) {
-        const url = match[0].replace(/[.,;!?。，；！？)]+$/, '');
-        // 仅接受 https URL，防止幻觉或响应被篡改时注入危险地址
-        if (url.startsWith("https://")) {
-          settings.optimizeApiUrl = url;
-        }
-        isLookingUpUrl.value = false;
-        return;
-      }
-    }
-  }
-});
 
 // ── 权限模式 computed（与工具栏 activeMode 逻辑一致）──
 // auto/dontAsk 已从选项移除（CC 遗留）——旧配置值归并到 bypassPermissions（全自动语义）
@@ -360,6 +296,26 @@ async function handleTest() {
   finally { isTesting.value = false; }
 }
 
+// ── 主模型（DeepSeek）key 明文切换 + 保存反馈（与 kimi 区对称：密码可见性独立 state，互不干扰）──
+const showDeepSeekKey = ref(false);
+// 保存反馈（成功提示，失败静默——saveCurrentConfig 内部 catch）
+const deepseekSaveMsg = ref<string | null>(null);
+let deepseekSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** 保存主模型 key → 重启 serve 使新 key 生效（用户显式操作；key 变化才重启，主进程判断） */
+async function handleDeepSeekSave() {
+  deepseekSaveMsg.value = null;
+  try {
+    await settings.saveCurrentConfig(true);
+    deepseekSaveMsg.value = t("settings.kimiKeySaved");
+    // 成功提示 2s 后消失（不常驻遮挡表单）
+    if (deepseekSaveTimer) clearTimeout(deepseekSaveTimer);
+    deepseekSaveTimer = setTimeout(() => { deepseekSaveMsg.value = null; }, 2000);
+  } catch {
+    // saveCurrentConfig 内部已静默，此处不重复报错
+  }
+}
+
 // ── DeepSeek 账户余额（计费迭代：API Key 区下方显示，随 key 变化自动刷新）──
 const balance = ref<DeepSeekBalanceResult | null>(null);
 const balanceLoading = ref(false);
@@ -392,8 +348,11 @@ watch(() => settings.apiKey, () => {
   if (balanceTimer) clearTimeout(balanceTimer);
   balanceTimer = setTimeout(() => { refreshBalance(); }, 600);
 });
-// 路由离开时清理防抖定时器（否则卸载后仍可能触发 refreshBalance 改已卸载 ref）
-onUnmounted(() => { if (balanceTimer) clearTimeout(balanceTimer); });
+// 路由离开时清理定时器（否则卸载后仍可能触发改已卸载 ref）
+onUnmounted(() => {
+  if (balanceTimer) clearTimeout(balanceTimer);
+  if (deepseekSaveTimer) clearTimeout(deepseekSaveTimer);
+});
 // 挂载即查询一次（设置页打开时直接显示余额，不依赖 key 变化事件）
 onMounted(() => { refreshBalance(); });
 
@@ -416,6 +375,22 @@ async function handleKimiKeySave() {
   } catch {
     // saveKimiKey 内部已静默，此处不重复报错
   }
+}
+
+// ── Kimi 多模态 key 测试连接（与 DeepSeek 测试对称：主进程直接校验 key，不依赖 serve）──
+const kimiTestResult = ref<{ ok: boolean; message: string } | null>(null);
+const kimiTestError = ref<string | null>(null);
+const isKimiTesting = ref(false);
+
+async function handleKimiTest() {
+  kimiTestResult.value = null; kimiTestError.value = null; isKimiTesting.value = true;
+  try {
+    const r = await testKimiConnection(settings.kimiApiKey);
+    if (r.ok) kimiTestResult.value = r;
+    else kimiTestError.value = r.message;
+  }
+  catch (err) { kimiTestError.value = String(err); }  // 桥异常直接展示文本（无翻译需求）
+  finally { isKimiTesting.value = false; }
 }
 
 // ── 更新日志弹窗 ──
@@ -497,9 +472,27 @@ onMounted(async () => {
                   :label="$t('settings.nickname')"
                   :placeholder="$t('settings.nicknamePlaceholder')"
                 />
-                <!-- 头像：lucide 图标候选 + 图片上传/清除（avatarImage 图片优先于图标显示） -->
+                <!-- 头像：图片上传/清除 + lucide 图标候选（avatarImage 图片优先于图标显示） -->
                 <div class="settings-field">
                   <label class="settings-field__label">{{ $t('settings.avatar') }}</label>
+                  <!-- 头像上传器：无图片=虚线占位框（点击上传）；有图片=预览图（点击更换 + 右上角清除） -->
+                  <div class="avatar-uploader">
+                    <button v-if="!avatarImageUrl" type="button" class="avatar-uploader__empty" @click="handleAvatarPick">
+                      <ImagePlus :size="20" />
+                      <span>{{ $t('settings.upload') }}</span>
+                    </button>
+                    <div v-else class="avatar-uploader__preview">
+                      <img class="avatar-uploader__img" :src="avatarImageUrl" alt="" />
+                      <div class="avatar-uploader__overlay">
+                        <button type="button" class="avatar-uploader__change" :title="$t('settings.changeAvatar')" @click.stop="handleAvatarPick">
+                          <ImagePlus :size="18" />
+                        </button>
+                        <button type="button" class="avatar-uploader__clear" :title="$t('settings.clearAvatar')" @click.stop="settings.clearAvatar()">
+                          <Trash2 :size="18" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   <div class="avatar-icon-grid">
                     <button
                       v-for="item in AVATAR_ICONS"
@@ -512,61 +505,33 @@ onMounted(async () => {
                       <component :is="item.icon" :size="24" />
                     </button>
                   </div>
-                  <div class="avatar-image-row">
-                    <img v-if="avatarImageUrl" class="avatar-preview" :src="avatarImageUrl" alt="" />
-                    <span v-if="settings.avatarImage" class="avatar-image-status">
-                      {{ $t('settings.avatarImageSet', { path: settings.avatarImage }) }}
-                    </span>
-                    <span v-else class="avatar-image-status avatar-image-status--empty">
-                      {{ $t('settings.avatarImageEmpty', { value: settings.avatar.trim() || $t('settings.defaultMe') }) }}
-                    </span>
-                    <button type="button" class="f-settings-btn" @click="handleAvatarPick">
-                      <ImagePlus :size="14" /> {{ $t('settings.upload') }}
-                    </button>
-                    <button
-                      v-if="settings.avatarImage"
-                      type="button"
-                      class="f-settings-btn f-settings-btn--danger"
-                      @click="settings.clearAvatar()"
-                    >
-                      <Trash2 :size="14" /> {{ $t('settings.clearAvatar') }}
-                    </button>
-                  </div>
                 </div>
-              </div>
-            </SettingsSection>
-
-            <SettingsSection :title="$t('settings.workspaceTitle')">
-              <div class="f-settings-fields">
-                <SettingsInput
-                  :model-value="settings.cwd"
-                  :label="$t('settings.workspaceLabel')"
-                  :placeholder="$t('settings.workspacePlaceholder')"
-                  readonly
-                >
-                  <template #suffix>
-                    <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleWorkspacePick">
-                      <FolderOpen :size="14" />
-                    </button>
-                  </template>
-                </SettingsInput>
-                <p class="f-settings-hint">{{ $t('settings.workspaceHint') }}</p>
               </div>
             </SettingsSection>
           </section>
 
-          <!-- 模型与API：API Key 含余额/kimi Key/baseUrl/主模型/测试连接/聊天 API 地址/上下文窗口 -->
+          <!-- 模型与API：主模型 API（DeepSeek）/ 多模态 API（制图师）/ 会话（上下文窗口）三分组 -->
           <section v-else-if="activeTab === 'model'" data-tab="model" class="f-settings-tab">
-            <SettingsSection :title="$t('settings.engineTitle')">
+            <!-- 主模型 API（DeepSeek）：API Key + 余额 + baseUrl + 模型 + 测试连接 -->
+            <SettingsSection :title="$t('settings.mainModelApi')">
               <div class="f-settings-fields">
-                <!-- API Key：password 输入 + 余额状态行（刷新按钮旁路调用） -->
+                <!-- API Key：password 输入 + 明文切换（Eye/EyeOff）+ 余额刷新（RefreshCw），操作按钮并排 -->
                 <SettingsInput
                   v-model="settings.apiKey"
                   :label="$t('settings.apiKey')"
-                  type="password"
+                  :type="showDeepSeekKey ? 'text' : 'password'"
                   :placeholder="$t('settings.keyPlaceholder')"
                 >
                   <template #suffix>
+                    <button
+                      type="button"
+                      class="f-settings-btn f-settings-btn--suffix"
+                      :aria-label="showDeepSeekKey ? $t('settings.hideKey') : $t('settings.showKey')"
+                      @click="showDeepSeekKey = !showDeepSeekKey"
+                    >
+                      <Eye v-if="!showDeepSeekKey" :size="14" />
+                      <EyeOff v-else :size="14" />
+                    </button>
                     <button
                       type="button"
                       class="f-settings-btn f-settings-btn--suffix"
@@ -578,12 +543,50 @@ onMounted(async () => {
                     </button>
                   </template>
                 </SettingsInput>
+                <p class="f-settings-hint">{{ $t('settings.apiKeyDesc') }}</p>
                 <!-- 余额展示：CNY 总余额或失败原因；无 key 时显示 -- -->
                 <div class="balance-row">
                   <span class="balance-label">{{ $t('settings.balance') }}</span>
                   <span class="balance-value">{{ balanceText }}</span>
                 </div>
 
+                <SettingsInput
+                  v-model="settings.baseUrl"
+                  :label="$t('settings.baseUrl')"
+                  placeholder="https://api.deepseek.com"
+                />
+
+                <SettingsSelect v-model="settings.model" :label="$t('settings.model')" :options="modelPresets" />
+
+                <!-- 测试连接 + 保存并重启：调 engine:testConnection / saveCurrentConfig(true)；成功显示 ✓ 详情，失败显示 translateError -->
+                <div class="f-settings-actions">
+                  <button
+                    type="button"
+                    class="f-settings-btn f-settings-btn--test"
+                    :disabled="isTesting"
+                    @click="handleTest"
+                  >
+                    <span v-if="!isTesting">{{ $t('settings.test') }}</span>
+                    <span v-else>{{ $t('settings.testing') }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="f-settings-btn"
+                    :disabled="isTesting"
+                    @click="handleDeepSeekSave"
+                  >
+                    {{ $t('settings.saveAndRestart') }}
+                  </button>
+                </div>
+                <p v-if="deepseekSaveMsg" class="f-settings-hint f-settings-hint--ok">{{ deepseekSaveMsg }}</p>
+                <div v-if="testResult" class="test-result test-result--ok">{{ testResult.chat }}</div>
+                <div v-else-if="translatedTestError" class="test-result test-result--err">{{ translatedTestError }}</div>
+              </div>
+            </SettingsSection>
+
+            <!-- 多模态 API（制图师）：Kimi Key + 保存（saveKimiKey 重启 serve）+ 说明 -->
+            <SettingsSection :title="$t('settings.multimodalApi')">
+              <div class="f-settings-fields">
                 <!-- kimi Key：多模态模型专用，独立明文切换 + 保存按钮（saveKimiKey 重启 serve） -->
                 <SettingsInput
                   v-model="settings.kimiApiKey"
@@ -602,56 +605,30 @@ onMounted(async () => {
                       <EyeOff v-else :size="14" />
                     </button>
                     <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleKimiKeySave">
-                      {{ $t('settings.save') }}
+                      {{ $t('settings.saveAndRestart') }}
                     </button>
                   </template>
                 </SettingsInput>
-                <p v-if="kimiSaveMsg" class="f-settings-hint">{{ kimiSaveMsg }}</p>
-
-                <SettingsInput
-                  v-model="settings.baseUrl"
-                  :label="$t('settings.baseUrl')"
-                  placeholder="https://api.deepseek.com"
-                />
-
-                <SettingsSelect v-model="settings.model" :label="$t('settings.model')" :options="modelPresets" />
-
-                <!-- 测试连接：调 engine:testConnection；成功显示 ✓ + chat 详情，失败显示 translateError -->
+                <p class="f-settings-hint">{{ $t('settings.kimiApiKeyDesc') }}</p>
+                <!-- Kimi 测试连接（与 DeepSeek 对称）：主进程直接校验 key，不重启 serve -->
                 <button
                   type="button"
                   class="f-settings-btn f-settings-btn--test"
-                  :disabled="isTesting"
-                  @click="handleTest"
+                  :disabled="isKimiTesting"
+                  @click="handleKimiTest"
                 >
-                  <span v-if="!isTesting">{{ $t('settings.test') }}</span>
-                  <span v-else>{{ $t('settings.testing') }}</span>
+                  <span v-if="!isKimiTesting">{{ $t('settings.kimiTest') }}</span>
+                  <span v-else>{{ $t('settings.kimiTesting') }}</span>
                 </button>
-                <div v-if="testResult" class="test-result test-result--ok">{{ testResult.chat }}</div>
-                <div v-else-if="translatedTestError" class="test-result test-result--err">{{ translatedTestError }}</div>
+                <div v-if="kimiTestResult" class="test-result test-result--ok">{{ kimiTestResult.message }}</div>
+                <div v-else-if="kimiTestError" class="test-result test-result--err">{{ kimiTestError }}</div>
+                <p v-if="kimiSaveMsg" class="f-settings-hint">{{ kimiSaveMsg }}</p>
               </div>
             </SettingsSection>
 
+            <!-- 会话：上下文窗口（聊天 API 地址已移除） -->
             <SettingsSection :title="$t('settings.section.session')">
               <div class="f-settings-fields">
-                <!-- 聊天 API 地址：optimizeApiUrl 语义（旧 llmApiUrl）；🔍 按钮自动查询 URL（阶段 3 已有逻辑） -->
-                <SettingsInput
-                  v-model="settings.optimizeApiUrl"
-                  :label="$t('settings.llmApiUrl')"
-                  :placeholder="$t('settings.llmApiUrlPlaceholder')"
-                >
-                  <template #suffix>
-                    <button
-                      type="button"
-                      class="f-settings-btn f-settings-btn--suffix"
-                      :disabled="isLookingUpUrl"
-                      :aria-label="$t('settings.llmApiUrlLookup')"
-                      @click="startLookupUrl"
-                    >
-                      <Search :size="14" />
-                    </button>
-                  </template>
-                </SettingsInput>
-
                 <!-- 上下文窗口：blur 时解析简写（128K/1M），输入由本地 ref 缓冲 -->
                 <SettingsInput
                   v-model="contextLimitInput"
@@ -955,6 +932,15 @@ onMounted(async () => {
   gap: 14px;
 }
 
+/* 字段标签：与 SettingsInput/SettingsSelect 内 scoped 的 .settings-field__label 保持一致（头像等直接写在 SettingsPanel 的字段复用此样式，避免裸 label 样式不一致） */
+.settings-field__label {
+  display: block;
+  font-size: 0.857rem;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+}
+
 /* 通用按钮：lucide 图标 + 文字（上传/清除/后缀按钮共用） */
 .f-settings-btn {
   display: inline-flex;
@@ -979,19 +965,18 @@ onMounted(async () => {
   color: var(--danger, #ef4444);
 }
 
-/* 头像 lucide 图标快捷选择：12 宫格，选中项 accent-glow 高亮（图标尺寸由 size prop 控制，无需 font-size） */
+/* 头像 lucide 图标快捷选择：24 宫格（56px 圆形与预览框一致），选中项 accent-glow 高亮 */
 .avatar-icon-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 4px;
-  margin-bottom: 12px;
+  grid-template-columns: repeat(8, 56px);
+  gap: 6px;
 }
 .avatar-icon-item {
   aspect-ratio: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: 50%;
   border: 1px solid var(--border-dim);
   background: transparent;
   color: var(--text-secondary);
@@ -1008,33 +993,78 @@ onMounted(async () => {
   color: var(--accent);
 }
 
-/* 图片头像状态行：文件名 + 上传/清除按钮 */
-.avatar-image-row {
+/* 头像上传器：无图片=虚线占位框，有图片=预览图 + hover 覆盖操作（点击更换 + 右上角清除） */
+.avatar-uploader {
+  margin-bottom: 12px;
+}
+/* 无图片：虚线圆形占位框，点击上传 */
+.avatar-uploader__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 1px dashed var(--border-default);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.714rem;
+  cursor: pointer;
+  transition: border-color 150ms, color 150ms;
+}
+.avatar-uploader__empty:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* 有图片：圆形预览容器（relative 承载 hover 覆盖层与清除按钮） */
+.avatar-uploader__preview {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  cursor: pointer;
+  overflow: hidden;
+}
+.avatar-uploader__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+/* hover 覆盖层：左右分两半操作（更换/清除），各占一半大热区，易点击 */
+.avatar-uploader__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  opacity: 0;
+  transition: opacity 150ms;
+}
+.avatar-uploader__preview:hover .avatar-uploader__overlay {
+  opacity: 1;
+}
+.avatar-uploader__change,
+.avatar-uploader__clear {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 10px;
+  justify-content: center;
+  border: none;
+  cursor: pointer;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  transition: background 150ms;
 }
-/* 头像图片预览：圆形 40px 缩略图，object-fit 裁剪适配方形原图 */
-.avatar-preview {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid var(--border-dim);
-  flex-shrink: 0;
+.avatar-uploader__change:hover {
+  background: rgba(0, 0, 0, 0.78);
 }
-.avatar-image-status {
-  flex: 1;
-  min-width: 0;
-  font-size: 0.857rem;
-  color: var(--text-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* 清除用红色系遮罩，与「更换」区分（危险操作） */
+.avatar-uploader__clear {
+  background: rgba(220, 38, 38, 0.55);
 }
-.avatar-image-status--empty {
-  color: var(--text-muted);
+.avatar-uploader__clear:hover {
+  background: rgba(220, 38, 38, 0.8);
 }
 
 /* 提示文案（工作目录说明等）：12px 次级色 */
@@ -1045,6 +1075,13 @@ onMounted(async () => {
 }
 
 /* ── 模型与API tab ── */
+/* 操作行：测试连接 + 保存并重启 并排（测试按钮 accent 描边突出主操作，保存按钮常规样式） */
+.f-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 余额行：label 12px 次级 + 值 14px 加粗；与 API Key 输入框间距由 fields 容器控制 */
 .balance-row {
   display: flex;

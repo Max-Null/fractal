@@ -759,6 +759,36 @@ describe('saveProviderConfig（多 provider 持久化）', () => {
     expect(cfg.provider.deepseek.options?.apiKey).toBe('sk-ds')
   })
 
+  it('key 变化 + restart=true → 重启 serve（基准 = getServedApiKey，非 provider-configs.json 旧值）', async () => {
+    // 前置：provider-configs.json 已含新 key（模拟 store watch 防抖提前落盘，restart=false 那次保存）
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-new', baseUrl: '', model: '' } }), 'utf-8')
+    const stopServer = vi.fn(async () => {})
+    const ready = vi.fn(async () => ({ baseURL: 'http://127.0.0.1:1', username: 'u', password: 'p', port: 1 }))
+    const getServerInfo = vi.fn(() => ({ running: true }))
+    // serve 实际加载的 key 仍是失效旧值——这是重启判断的正确基准
+    const getServedApiKey = vi.fn(() => 'sk-old')
+    registerIpcHandlers({ stopServer, ready, getServerInfo, getServedApiKey } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveProviderConfig')
+    expect(h).toBeDefined()
+    await h!.handler({}, { providerId: 'deepseek', apiKey: 'sk-new', baseUrl: '', model: '', restart: true })
+    expect(stopServer).toHaveBeenCalled()
+    expect(ready).toHaveBeenCalled()
+  })
+
+  it('key 未变化 + restart=true → 不重启 serve（避免无谓杀掉健康 serve）', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-same', baseUrl: '', model: '' } }), 'utf-8')
+    const stopServer = vi.fn(async () => {})
+    const ready = vi.fn(async () => ({}))
+    const getServerInfo = vi.fn(() => ({ running: true }))
+    const getServedApiKey = vi.fn(() => 'sk-same')
+    registerIpcHandlers({ stopServer, ready, getServerInfo, getServedApiKey } as never)
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveProviderConfig')
+    expect(h).toBeDefined()
+    await h!.handler({}, { providerId: 'deepseek', apiKey: 'sk-same', baseUrl: '', model: '', restart: true })
+    expect(stopServer).not.toHaveBeenCalled()
+    expect(ready).not.toHaveBeenCalled()
+  })
+
   it('loadProviderConfigs：返回全部条目（含 moonshotai-cn 仅 apiKey）', async () => {
     await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-ds', baseUrl: '', model: '' }, 'moonshotai-cn': { apiKey: 'sk-kimi' } }), 'utf-8')
     registerIpcHandlers()
@@ -914,6 +944,52 @@ describe('engine:testConnection（真实校验 API Key）', () => {
       const r = (await h!.handler({}, { apiKey: 'sk-valid' })) as { ok: boolean; message?: string }
       expect(r.ok).toBe(false)
       expect(r.message).toContain('serve down')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+// ── engine:testKimiConnection（2026-08-13：与 DeepSeek 对称，moonshotai-cn 校验走 api.moonshot.cn，纯 fetch 不依赖 serve）──
+describe('engine:testKimiConnection（真实校验 Kimi API Key）', () => {
+  it('空 key → ok:false 提示（不发起请求）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testKimiConnection')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, { apiKey: '  ' })) as { ok: boolean; message?: string }
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('API Key')
+  })
+
+  it('key 有效（GET /v1/models 2xx）→ ok:true', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ object: 'list', data: [{ id: 'kimi-k3' }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testKimiConnection')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { apiKey: 'sk-valid' })) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(true)
+      expect(r.message).toContain('有效')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('key 无效（401）→ ok:false + 认证失败提示', async () => {
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'engine:testKimiConnection')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { apiKey: 'sk-bad' })) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(false)
+      expect(r.message).toContain('401')
     } finally {
       globalThis.fetch = originalFetch
     }

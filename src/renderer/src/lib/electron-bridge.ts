@@ -562,6 +562,11 @@ export async function testConnection(apiKey: string): Promise<{ ok: boolean; mes
   return invoke<{ ok: boolean; message: string }>("engine:testConnection", { apiKey });
 }
 
+/** 测试 Kimi 多模态 Key：GET api.moonshot.cn/v1/models 轻量校验（无 serve 依赖），返回 {ok, message}（设置面板「测试连接」） */
+export async function testKimiConnection(apiKey: string): Promise<{ ok: boolean; message: string }> {
+  return invoke<{ ok: boolean; message: string }>("engine:testKimiConnection", { apiKey });
+}
+
 /** 刷新引擎：重启 serve 进程（右上角刷新按钮 / 数据模式切换；配置/预置包变更立即生效）。error 存在 = 重启失败（不抛） */
 export async function refreshEngine(): Promise<{ ok: boolean; error?: string }> {
   return invoke<{ ok: boolean; error?: string }>("engine:refresh");
@@ -675,9 +680,8 @@ export async function generateMcpDescriptions(
   names: string[],
   apiKey: string,
   baseUrl: string,
-  optimizeApiUrl?: string,
 ): Promise<DescriptionItem[]> {
-  void names; void apiKey; void baseUrl; void optimizeApiUrl;
+  void names; void apiKey; void baseUrl;
   return [];
 }
 
@@ -688,9 +692,8 @@ export async function ensureItemDescriptions(
   items: DescriptionItem[],
   apiKey: string,
   baseUrl: string,
-  optimizeApiUrl?: string,
 ): Promise<DescriptionItem[]> {
-  void apiKey; void baseUrl; void optimizeApiUrl;
+  void apiKey; void baseUrl;
   return items;
 }
 

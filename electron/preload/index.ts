@@ -31,6 +31,7 @@ const ALLOWED_INVOKE = [
   'provider:modelVariants',
   'engine:getStatus',
   'engine:testConnection',
+  'engine:testKimiConnection',
   'engine:refresh',
   'ai:polishMessage',
   'memory:list', 'memory:confirm', 'memory:remove', 'memory:read',

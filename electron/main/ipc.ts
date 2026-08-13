@@ -525,10 +525,13 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
         // 仅用户主动保存（SettingsPanel/Onboarding 传 restart=true）且 key 确实变化时才重启 serve：
         // 启动时 store watch 自动保存会命中刚起来的 serve——重启会杀掉健康中的 serve 导致
         // 并发请求 ECONNRESET + 会话列表加载失败（2026-08-09 实测 stopping=true 日志）
-        // moonshotai-cn 例外：watch 防抖已把 key 落盘 → prevKey===新 key，但 serve 启动时加载的配置
-        // 里没有该 provider（新增 provider 必须重启 serve 才被识别）——key 非空即重启，保证制图师可用
-        const prevKey = (cfg as Record<string, { apiKey?: string }>)?.[providerId]?.apiKey
-        const keyChanged = providerId === 'moonshotai-cn' ? true : prevKey !== args.apiKey.trim()
+        // keyChanged 基准 = serve 实际加载的 key（getServedApiKey）——不能用 provider-configs.json 旧值：
+        // store watch 防抖（restart=false）已提前把新 key 落盘，prevKey===新 key 恒 false 导致永不重启
+        // （2026-08-13 bug 根因：key 失效换新后发消息无响应，重启应用才生效）
+        // moonshotai-cn 例外：serve 启动时加载的配置里没有该 provider（新增 provider 必须重启 serve 才被识别）——
+        // key 非空即重启，保证制图师可用
+        const servedKey = serverManager?.getServedApiKey?.() ?? ''
+        const keyChanged = providerId === 'moonshotai-cn' ? true : servedKey !== args.apiKey.trim()
         if (args.restart && keyChanged && serverManager?.getServerInfo().running) {
           await serverManager.stopServer()
           await serverManager.ready()
@@ -1020,6 +1023,27 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       // ③ 验证 serve 可达（provider.list 成功即 serve 就绪）
       await (await requireClient()).config.providers()
       return { ok: true, message: 'API Key 有效，serve 就绪' }
+    } catch (err) {
+      return { ok: false, message: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle('engine:testKimiConnection', async (_e, args: { apiKey: string }) => {
+    // 校验 moonshotai（Kimi）key：GET /v1/models 轻量无计费，401 即 key 无效
+    if (typeof args?.apiKey !== 'string' || !args.apiKey.trim()) {
+      return { ok: false, message: 'Kimi API Key 不能为空' }
+    }
+    const apiKey = args.apiKey.trim()
+    try {
+      // moonshotai-cn 是国内 provider，base URL 用 api.moonshot.cn（非 .ai 国际）
+      const resp = await fetch('https://api.moonshot.cn/v1/models', {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+      })
+      if (!resp.ok) {
+        if (resp.status === 401) return { ok: false, message: 'Kimi API Key 无效或已失效（HTTP 401）' }
+        return { ok: false, message: `Kimi API 校验失败（HTTP ${resp.status}）` }
+      }
+      return { ok: true, message: 'Kimi API Key 有效' }
     } catch (err) {
       return { ok: false, message: err instanceof Error ? err.message : String(err) }
     }
