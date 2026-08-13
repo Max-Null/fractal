@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { createI18n } from "vue-i18n";
@@ -6,6 +6,15 @@ import MessageBubble from "./MessageBubble.vue";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore } from "@/stores/settings";
 import type { Message } from "@/stores/chat";
+
+// 头像图片路径 IPC（5.2）：mock getAvatarPath——渲染 avatarImage 时拼 file:// URL 的路径来源
+const { getAvatarPathMock } = vi.hoisted(() => ({
+  getAvatarPathMock: vi.fn(),
+}));
+vi.mock("@/lib/electron-bridge", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/electron-bridge")>("@/lib/electron-bridge");
+  return { ...actual, getAvatarPath: getAvatarPathMock };
+});
 
 const i18n = createI18n({
   legacy: false,
@@ -27,6 +36,7 @@ beforeEach(() => {
   setActivePinia(createPinia());
   // 重置 useSlashCommands 模块级 recentCommands（localStorage 清理不重置 ref——测试间状态隔离）
   useSlashCommands().recentCommands.value = [];
+  getAvatarPathMock.mockReset();
 });
 
 function makeMsg(overrides: Partial<Message> = {}): Message {
@@ -359,4 +369,54 @@ describe("MessageBubble", () => {
     expect(wrapper.find(".msg-row").classes()).not.toContain("msg-row--left");
     expect(wrapper.find(".msg-row--user .flex-1").classes()).toContain("items-end");
   });
+
+  // ── 5.2 头像图片渲染（avatarImage 非空 → img file:// URL；空 → emoji 兜底）──
+  // 图片头像优先级高于 emoji：avatarImage 设置后无论 ui.avatar 是否有值都显示图片
+
+  it("avatarImage 非空 → 渲染 img（file:// + getAvatarPath + 文件名拼接）", async () => {
+    getAvatarPathMock.mockResolvedValue("C:\\Users\\MaxNull\\AppData\\Roaming\\分形\\avatar");
+    const settings = useSettingsStore();
+    settings.avatarImage = "avatar.png";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    const img = wrapper.find(".msg-avatar-img");
+    expect(img.exists()).toBe(true);
+    expect(img.attributes("src")).toContain("file:///");
+    expect(img.attributes("src")).toContain("avatar.png");
+    // 图片模式下不显示文字 emoji 头像
+    expect(wrapper.find(".msg-avatar--user").text()).toBe("");
+  });
+
+  it("avatarImage 空 → 保留 emoji 文字头像（'我'兜底）", () => {
+    const settings = useSettingsStore();
+    settings.avatarImage = "";
+    settings.avatar = "";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    expect(wrapper.find(".msg-avatar-img").exists()).toBe(false);
+    expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
+  });
+
+  it("getAvatarPath 失败 → 回退 emoji 文字头像（图片不可用不显示破图）", async () => {
+    getAvatarPathMock.mockRejectedValue(new Error("IPC 失败"));
+    const settings = useSettingsStore();
+    settings.avatarImage = "avatar.png";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    await flushPromises();
+    expect(wrapper.find(".msg-avatar-img").exists()).toBe(false);
+    expect(wrapper.find(".msg-avatar--user").text()).toBe("我");
+  });
 });
+
+/** 等待异步 getAvatarPath IPC 返回（mockResolvedValue 链） */
+function flushPromises(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}

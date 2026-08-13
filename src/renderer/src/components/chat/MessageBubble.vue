@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { Message } from "@/stores/chat";
-import { ref, computed, nextTick } from "vue";
+import { ref, computed, nextTick, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { isImageFile, useFilePreview } from "@/composables/useFilePreview";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore } from "@/stores/settings";
+import { getAvatarPath } from "@/lib/electron-bridge";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 
 const { t } = useI18n();
@@ -17,6 +18,26 @@ const settings = useSettingsStore();
 const messageLayoutLeft = computed(() => settings.messageLayout === "left");
 const userDisplayName = computed(() => settings.nickname.trim() || "我");
 const userAvatar = computed(() => settings.avatar.trim() || "我");
+/** 图片头像 file:// URL（异步取 getAvatarPath 后拼接）；空 = 未设置/路径获取失败 → 回退 emoji 文字头像 */
+const avatarImageUrl = ref("");
+watch(
+  () => settings.avatarImage,
+  async () => {
+    if (!settings.avatarImage) {
+      avatarImageUrl.value = "";
+      return;
+    }
+    try {
+      // Windows 路径 → file:/// URL：反斜杠转正斜杠 + encodeURI 编码空格/中文（冒号/斜杠保留，供 file 协议解析）
+      const dir = await getAvatarPath();
+      avatarImageUrl.value = "file:///" + encodeURI(dir.replace(/\\/g, "/") + "/" + settings.avatarImage);
+    } catch {
+      // 路径 IPC 失败（开发/测试环境）→ 回退 emoji，不显示破图
+      avatarImageUrl.value = "";
+    }
+  },
+  { immediate: true },
+);
 /** 用户名标签：昵称非空时「昵称 · 时间」，空则只显示时间（避免「我 · 时间」冗余前缀） */
 const userNameLabel = computed(() =>
   settings.nickname.trim() ? `${userDisplayName.value} · ${timeLabel.value}` : timeLabel.value,
@@ -119,13 +140,14 @@ const badgeVariant = computed(() => {
   <!-- 根节点不再携带 data-message-id/data-role：锚点职责由 ChatPanel 回合容器 .msg-entry 承载
        （修复锚点 bug #8：双份相同锚点属性导致 ChatTimelineNav scroll spy 定位错位） -->
   <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant', messageLayoutLeft ? 'msg-row--left' : '']">
-    <!-- Avatar：用户头像（settings.avatar emoji 优先，空 → '我' 字兜底）；assistant 固定 logo -->
+    <!-- Avatar：用户头像（图片 avatarImage 优先 → img；否则 emoji → '我' 字兜底）；assistant 固定 logo -->
     <div
       v-if="message.role === 'user'"
       class="msg-avatar msg-avatar--user"
-      :class="settings.avatar.trim() ? 'msg-avatar--emoji' : ''"
+      :class="!avatarImageUrl && settings.avatar.trim() ? 'msg-avatar--emoji' : ''"
     >
-      {{ userAvatar }}
+      <img v-if="avatarImageUrl" class="msg-avatar-img" :src="avatarImageUrl" alt="" />
+      <span v-else>{{ userAvatar }}</span>
     </div>
     <img
       v-else
@@ -353,6 +375,12 @@ const badgeVariant = computed(() => {
 .msg-avatar--emoji {
   font-size: 16px;
   font-weight: 400;
+}
+/* 图片头像（5.2）：img 填满 2rem 圆 + 圆形裁切；父容器渐变背景被覆盖（object-fit: cover） */
+.msg-avatar-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 .msg-avatar--assistant {
   /* logo 头像：img 替换元素，无文字/背景——圆形裁切由 .msg-avatar 的 border-radius 承担 */
