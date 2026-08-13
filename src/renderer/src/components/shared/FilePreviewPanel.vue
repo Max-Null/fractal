@@ -3,6 +3,7 @@ import { ref, watch, computed, onMounted, onUnmounted, shallowRef, nextTick, inj
 
 import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged, htmlToPdf } from "@/lib/electron-bridge";
 import { isImageFile, mimeType } from "@/composables/useFilePreview";
+import { buildInspectorScript, resolveLinkTarget, isIgnorableHref } from "@/lib/inspector-script";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import MarkdownRenderer from "./MarkdownRenderer.vue";
 import ConfirmDialog from "./ConfirmDialog.vue";
@@ -145,9 +146,11 @@ function toggleInspector() {
 }
 
 function onIframeMessage(e: MessageEvent) {
-  if (e.data?.type !== "dom-selected") return;
   // 只处理来自当前实例 iframe 的消息，避免多实例同时响应
   if (e.source !== previewIframe.value?.contentWindow) return;
+  // 链接点击（检查模式关闭时由注入脚本上报）：分流处理，避免 iframe 内部导航白屏
+  if (e.data?.type === "link-click") { handleLinkClick(String(e.data.href)); return; }
+  if (e.data?.type !== "dom-selected") return;
   const info = e.data.info as DomInfo;
   // iframe 内坐标 → 页面坐标（加上 iframe 偏移）
   const ir = previewIframe.value?.getBoundingClientRect();
@@ -160,6 +163,32 @@ function onIframeMessage(e: MessageEvent) {
 }
 onMounted(() => window.addEventListener("message", onIframeMessage));
 onUnmounted(() => window.removeEventListener("message", onIframeMessage));
+
+/** iframe 内链接点击分流（2026-08-12 防白屏）：绝对 URL → 系统浏览器（主进程 setWindowOpenHandler 拦截 window.open → shell.openExternal）；
+ * 相对路径 → 基于源文件目录拼本地绝对路径，开预览窗口加载相邻文件 */
+function handleLinkClick(href: string) {
+  // 非导航协议（javascript:void(0) 等占位链接）直接忽略，不打开预览窗口
+  if (isIgnorableHref(href)) return;
+  if (/^(https?:|mailto:|tel:)/i.test(href)) {
+    window.open(href, "_blank");
+    return;
+  }
+  const raw = props.file?.path;
+  if (!raw || !href) return;
+  const baseDir = raw.replace(/[\\/][^\\/]*$/, "");
+  const target = resolveLinkTarget(baseDir, href);
+  if (target) void openPreviewWindow(target);
+}
+
+/** iframe 加载兜底：若被导航到非 blob 内容（JS location 跳转等注入脚本拦不到的漏网），自动恢复预览。
+ * 跨源导航读 location 抛 SecurityError → url 空 → 同样触发恢复 */
+function onIframeLoad() {
+  const w = previewIframe.value?.contentWindow;
+  if (!w) return;
+  let url = "";
+  try { url = w.location.href; } catch { /* 跨源：已导航到外部页面 */ }
+  if (!url.startsWith("blob:")) void reloadFile(true);
+}
 
 // OC 修改文件后自动重载（silent：不闪 loading、保持滚动位置）
 function onOcFileChanged() {
@@ -301,53 +330,6 @@ function sendMdToChat() {
   selTip.hideTip();
   editorView.value?.dispatch({ selection: { anchor: 0, head: 0 } });
 }
-
-// ── 注入到 HTML 预览 iframe 的选择器脚本 ──
-// 内联注入（sandbox iframe 的 blob 文档不能再加载 blob 子资源——Playwright 实证 2026-08-12，
-// 故弃 blob 外部脚本方案，恢复 cc-gui 原版内联注入；CSP script-src 需 'unsafe-inline'，见 index.html）
-// \x3C 转义：vue SFC 编译器扫描 <script> 块时把字面闭合标签当块结束
-const INSPECTOR_SCRIPT = `\x3Cscript\x3E
-// 检查模式开关：父窗口 postMessage 切换（关闭=页面可交互，动态元素可操作——2026-08-12）
-window.__inspectEnabled=true;
-window.addEventListener('message',function(ev){
-if(ev.data&&ev.data.type==='set-inspect-enabled'){window.__inspectEnabled=!!ev.data.enabled;if(!window.__inspectEnabled){__o.style.display='none';}}
-});
-var __o=document.createElement('div');
-__o.style.cssText='position:fixed;pointer-events:none;z-index:99999;border:2px solid #3b82f6;background:rgba(59,130,246,0.08);display:none;border-radius:2px;';
-document.body.appendChild(__o);
-var __last=null;
-document.addEventListener('mouseover',function(e){
-if(!window.__inspectEnabled){__o.style.display='none';return;}
-var el=e.target;
-if(el===__o||el===document.body||el===document.documentElement)return;
-if(el===__last)return;
-__last=el;
-var r=el.getBoundingClientRect();
-__o.style.display='block';__o.style.left=r.left+'px';__o.style.top=r.top+'px';
-__o.style.width=r.width+'px';__o.style.height=r.height+'px';
-});
-document.addEventListener('click',function(e){
-// 检查模式关闭时不拦截——点击交给页面正常响应（按钮/菜单/下拉可操作）
-if(!window.__inspectEnabled)return;
-e.preventDefault();e.stopPropagation();
-__last=null;__o.style.display='none';
-var el=e.target,a={};
-for(var i=0;i<el.attributes.length;i++){
-var at=el.attributes[i];
-if(at.name==='class'||at.name==='id'||at.name==='style')continue;
-a[at.name]=at.value;
-}
-var r=el.getBoundingClientRect();
-window.parent.postMessage({type:'dom-selected',info:{
-tag:el.tagName.toLowerCase(),
-id:el.id||'',
-classes:Array.from(el.classList).join(' '),
-text:(el.textContent||'').trim().slice(0,300),
-attrs:a,
-left:r.left,top:r.top,bottom:r.bottom
-}},'*');
-});
-\x3C\/script\x3E`;
 
 // ── 文件类型检测 ──
 
@@ -554,9 +536,11 @@ async function reloadFile(silent = false) {
     const raw = await readFileContent(f.path);
     content.value = raw;
     if (kind === "html") {
+      // 注入脚本初始值 = 父窗口当前检查模式状态：刷新/重建 blob 后 iframe 重新加载执行脚本，
+      // 若不随当前状态初始化，关闭检查模式后刷新会重置为开启（点击被拦截）——2026-08-12 修复
       const injected = raw.includes("<body>")
-        ? raw.replace("<body>", "<body>" + INSPECTOR_SCRIPT)
-        : raw + INSPECTOR_SCRIPT;
+        ? raw.replace("<body>", "<body>" + buildInspectorScript(inspectorEnabled.value))
+        : raw + buildInspectorScript(inspectorEnabled.value);
       updateHtmlBlob(injected);
     }
     // markdown 预览由 MarkdownRenderer 处理，不需要 previewHtml
@@ -1049,6 +1033,7 @@ function handleClose() {
                 sandbox="allow-scripts"
                 :src="previewHtmlBlob"
                 :style="{ background: '#fff', width: htmlWidth > 0 ? htmlWidth + 'px' : '' }"
+                @load="onIframeLoad"
               />
             </div>
           </div>
