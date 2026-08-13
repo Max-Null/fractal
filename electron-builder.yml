@@ -73,7 +73,9 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  url: https://example.com/auto-updates
+  # 自动更新：GitHub Releases（仓库已转 public，electron-updater 零 token 直读；打包自动生成 latest.yml，--publish always 上传）
+  provider: github
+  owner: Max-Null
+  repo: fractal
 electronDownload:
   mirror: https://npmmirror.com/mirrors/electron/
