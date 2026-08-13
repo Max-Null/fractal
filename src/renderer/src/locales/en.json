@@ -271,7 +271,21 @@
     "notificationPermissionTitle": "Permission request",
     "notificationPermissionBody": "A new permission request is pending",
     "notificationSubtaskTitle": "Subtask complete",
-    "notificationSubtaskBody": "Subtask finished"
+    "notificationSubtaskBody": "Subtask finished",
+    "update": {
+      "check": "Check for Updates",
+      "checking": "Checking…",
+      "latest": "You're up to date",
+      "found": "New version available",
+      "download": "Update Now",
+      "downloading": "Downloading…",
+      "restart": "Restart and Install",
+      "error": "Update check failed",
+      "noNotes": "No release notes",
+      "devMode": "Unavailable in dev mode",
+      "confirmTitle": "New version available",
+      "confirmDesc": "Download and install now?"
+    }
   },
   "session": {
     "new": "New Session",

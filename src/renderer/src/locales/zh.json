@@ -271,7 +271,21 @@
     "notificationPermissionTitle": "权限请求",
     "notificationPermissionBody": "有新的权限请求待处理",
     "notificationSubtaskTitle": "子任务完成",
-    "notificationSubtaskBody": "子任务已完成"
+    "notificationSubtaskBody": "子任务已完成",
+    "update": {
+      "check": "检查更新",
+      "checking": "检查中…",
+      "latest": "已是最新版本",
+      "found": "发现新版本",
+      "download": "立即更新",
+      "downloading": "正在下载",
+      "restart": "重启并安装",
+      "error": "检查失败",
+      "noNotes": "本次更新无变更说明",
+      "devMode": "开发模式下不可用",
+      "confirmTitle": "发现新版本",
+      "confirmDesc": "是否立即下载并安装？"
+    }
   },
   "session": {
     "new": "新会话",
