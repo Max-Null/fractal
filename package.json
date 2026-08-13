@@ -1,6 +1,6 @@
 {
   "name": "fractal",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "分形（fractal）——面向非编程人员的 OpenCode 桌面 GUI",
   "main": "./out/main/index.js",
   "author": "fractal",

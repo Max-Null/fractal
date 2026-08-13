@@ -32,6 +32,36 @@ export const APP_VERSION: string = appPackage.version;
 // 按版本降序排列（最新在第一个）
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.1.2",
+    date: "2026-08-14",
+    sections: [
+      {
+        titleZh: "通道安全",
+        titleEn: "Channel Security",
+        itemsZh: [
+          "IPC 白名单防回归：preload 白名单抽取独立模块 + 静态扫描测试，新增通道漏白名单会自动红",
+          "修复会话压缩（session:compact）通道漏白名单，渲染层调用原本会报错",
+        ],
+        itemsEn: [
+          "IPC whitelist regression guard: whitelist extracted into a standalone module with static scan tests",
+          "Fixed session:compact channel missing from whitelist, which errored at runtime",
+        ],
+      },
+      {
+        titleZh: "更新体验",
+        titleEn: "Update UX",
+        itemsZh: [
+          "开发模式点击「检查更新」显示「开发模式不可用」，不再报内部错误",
+          "关于页「更新日志」「检查更新」按钮并排对齐",
+        ],
+        itemsEn: [
+          "Check for updates in dev mode shows \"Unavailable in dev mode\" instead of an internal error",
+          "Changelog and check-update buttons aligned side by side on the About tab",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.1",
     date: "2026-08-14",
     sections: [
