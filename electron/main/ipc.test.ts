@@ -1070,3 +1070,36 @@ describe('pdf:htmlToPdf（HTML 转 PDF）', () => {
     expect(electronMock.browserWindowInstances[0].destroy).toHaveBeenCalled()
   })
 })
+
+describe('settings:saveSettings handler（保存设置联动 applyModelAliases）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    // 每个用例独立 userData 目录（saveSettings 写 settings.json + ensureConfig 写 opencode.json，防跨用例串扰）
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-settings-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('保存设置 → 联动 applyModelAliases（覆盖表变化 → agents model 行更新）', async () => {
+    // 前置：agents 目录 + 双星.md（high 槽位，部署产物 model 写死）
+    const agentsDir = join(userDataDir, 'config', 'opencode', 'agents')
+    await fsp.mkdir(agentsDir, { recursive: true })
+    await fsp.writeFile(join(agentsDir, '双星.md'), '---\nmode: primary\nmodel: "ds/deepseek-v4-pro"\n---\n', 'utf-8')
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'settings:saveSettings')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({}, {
+      jsoncText: JSON.stringify({ agentModelOverrides: { '双星': 'deepseek/deepseek-v4-flash' } }),
+    })) as { ok: boolean; warnings: string[] }
+    expect(r.ok).toBe(true)
+    // applyModelAliases 联动生效：双星.md 的 model 行更新为覆盖值（不再停留在部署产物旧值）
+    const md = await fsp.readFile(join(agentsDir, '双星.md'), 'utf-8')
+    expect(md).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+})

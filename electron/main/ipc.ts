@@ -619,7 +619,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       throw new Error(`settings:saveSettings jsoncText 参数非法: ${String(args?.jsoncText)}`)
     }
     // saveSettings 内部：写盘 + 校验 + 引擎联动（ensureConfig 增量同步 opencode.json）+ 广播 config-changed
-    return saveSettings(app.getPath('userData'), args.jsoncText)
+    const result = await saveSettings(app.getPath('userData'), args.jsoncText)
+    // 子 agent 模型覆盖表变更 → 同步 agents/*.md 的 model 行（覆盖优先/槽位默认/白名单约束）
+    // 放 ipc 层而非 settings.ts：settings/preset 互相 import 会循环依赖（preset 依赖 settings 的 parseAndValidate）
+    // applyModelAliases 内部幂等（值不变不写盘），重复调用无副作用
+    await applyModelAliases(app.getPath('userData'))
+    return result
   })
 
   ipcMain.handle('settings:getSchema', async () => {
