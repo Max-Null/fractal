@@ -17,6 +17,14 @@ export const DEFAULT_SETTINGS: Record<string, unknown> = {
   'ui.messageLayout': 'split',
   'ui.nickname': '',
   'ui.avatar': '',
+  // 思考节点开关：false=时间线隐藏 thinking 节点（数据不删，切回即恢复，见阶段 5.1）
+  'ui.showThinking': true,
+  // 头像图片：空=使用 emoji 头像；非空=图片文件名（avatar/*.png 等，见 avatar IPC）
+  'ui.avatarImage': '',
+  // 子 agent 模型覆盖：agent 名 → 模型全名（优先级高于槽位默认，白名单过滤见 preset.applyModelAliases）
+  'agentModelOverrides': {},
+  // 系统通知开关：enabled 总开关 + 4 场景独立开关（见阶段 5.3 触发点）
+  'ui.notifications': { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
   'deepseek.model': 'deepseek-v4-flash',
   'agent.permissionMode': 'default',
   'agent.effort': 'high',

@@ -17,13 +17,23 @@ import {
 import { getConfigPath } from './oc-config'
 
 describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
-  it('包含全部 15 个字段与默认值', () => {
+  it('包含全部 19 个字段与默认值', () => {
     expect(DEFAULT_SETTINGS).toEqual({
       'ui.theme': 'dark',
       'ui.language': 'zh',
       'ui.messageLayout': 'split',
       'ui.nickname': '',
       'ui.avatar': '',
+      'ui.showThinking': true,
+      'ui.avatarImage': '',
+      'ui.notifications': {
+        enabled: false,
+        replyDone: true,
+        engineError: false,
+        permissionPending: false,
+        subtaskDone: false,
+      },
+      'agentModelOverrides': {},
       'deepseek.model': 'deepseek-v4-flash',
       'agent.permissionMode': 'default',
       'agent.effort': 'high',
@@ -60,6 +70,21 @@ describe('DEFAULT_SETTINGS（方案 3.8.2 字段全集）', () => {
     expect(props['smallModel']).toBeDefined()
     expect(props['smallModel'].enum).toEqual(['', 'deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'])
     expect(props['smallModel'].default).toBe('')
+  })
+
+  it('getSchema 含 4 个新字段（思考开关/头像图/子agent覆盖/通知场景，default 与 DEFAULT_SETTINGS 一致）', () => {
+    const schema = getSchema()
+    const props = schema.properties as Record<
+      string,
+      { type?: string; default?: unknown; properties?: Record<string, unknown> }
+    >
+    expect(props['ui.showThinking']).toMatchObject({ type: 'boolean', default: true })
+    expect(props['ui.avatarImage']).toMatchObject({ type: 'string', default: '' })
+    expect(props['agentModelOverrides']).toMatchObject({ type: 'object', default: {} })
+    expect(props['ui.notifications']).toMatchObject({
+      type: 'object',
+      default: { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+    })
   })
 })
 
@@ -151,6 +176,45 @@ describe('parseAndValidate（JSONC 解析 + schema 校验）', () => {
     // effort "turbo" 不在枚举 → 回退默认 high
     expect(config['agent.effort']).toBe('high')
     expect(warnings.some((w) => w.includes('agent.effort'))).toBe(true)
+  })
+
+  it('parseAndValidate 保留 4 个新字段（思考开关/头像图/子agent覆盖/通知场景）', () => {
+    const text = JSON.stringify({
+      'ui.showThinking': false,
+      'ui.avatarImage': 'avatar.webp',
+      'agentModelOverrides': { '双星': 'deepseek/deepseek-v4-pro' },
+      'ui.notifications': { enabled: true, replyDone: false, engineError: true, permissionPending: false, subtaskDone: true },
+    })
+    const { config, warnings } = parseAndValidate(text)
+    expect(warnings).toEqual([])
+    expect(config['ui.showThinking']).toBe(false)
+    expect(config['ui.avatarImage']).toBe('avatar.webp')
+    expect(config['agentModelOverrides']).toEqual({ '双星': 'deepseek/deepseek-v4-pro' })
+    expect(config['ui.notifications']).toEqual({
+      enabled: true,
+      replyDone: false,
+      engineError: true,
+      permissionPending: false,
+      subtaskDone: true,
+    })
+  })
+
+  it('agentModelOverrides 非对象值 → 回退默认 {} + warning（子agent覆盖只接受对象）', () => {
+    const { config, warnings } = parseAndValidate('{ "agentModelOverrides": "not-an-object" }')
+    expect(config['agentModelOverrides']).toEqual({})
+    expect(warnings.some((w) => w.includes('agentModelOverrides'))).toBe(true)
+  })
+
+  it('ui.notifications 嵌套字段类型错误 → 整字段回退默认 + warning', () => {
+    const { config, warnings } = parseAndValidate('{ "ui.notifications": { "enabled": "yes" } }')
+    expect(config['ui.notifications']).toEqual({
+      enabled: false,
+      replyDone: true,
+      engineError: false,
+      permissionPending: false,
+      subtaskDone: false,
+    })
+    expect(warnings.some((w) => w.includes('ui.notifications'))).toBe(true)
   })
 })
 

@@ -11,6 +11,21 @@
     "ui.messageLayout": { "type": "string", "enum": ["left", "split"], "default": "split", "description": "消息排布：left=全部靠左 / split=左右分列" },
     "ui.nickname": { "type": "string", "default": "", "description": "用户昵称（会话区展示）" },
     "ui.avatar": { "type": "string", "default": "", "description": "用户头像（base64 或图片路径）" },
+    "ui.showThinking": { "type": "boolean", "default": true, "description": "思考节点开关：false=时间线隐藏 thinking 节点" },
+    "ui.avatarImage": { "type": "string", "default": "", "description": "用户头像图片文件名（avatar/ 目录，空=使用 emoji 头像）" },
+    "agentModelOverrides": { "type": "object", "default": {}, "additionalProperties": { "type": "string" }, "description": "子 agent 模型覆盖：agent 名 → 模型全名（白名单限定，优先级高于槽位默认）" },
+    "ui.notifications": {
+      "type": "object",
+      "default": { "enabled": false, "replyDone": true, "engineError": false, "permissionPending": false, "subtaskDone": false },
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "replyDone": { "type": "boolean" },
+        "engineError": { "type": "boolean" },
+        "permissionPending": { "type": "boolean" },
+        "subtaskDone": { "type": "boolean" }
+      },
+      "description": "系统通知开关：enabled 总开关 + 4 场景独立开关"
+    },
     "deepseek.model": { "type": "string", "enum": ["deepseek-v4-flash", "deepseek-v4-pro"], "default": "deepseek-v4-flash", "description": "DeepSeek 默认模型（同步到 opencode.json）" },
     "agent.permissionMode": { "type": "string", "enum": ["default", "acceptEdits", "plan", "auto"], "default": "default", "description": "权限模式（同步到 opencode.json permission）" },
     "agent.effort": { "type": "string", "enum": ["low", "high", "max", "medium", "xhigh", "ultracode"], "default": "high", "description": "思考强度 variant（低/高/最大；旧档位 medium/xhigh/ultracode 读入自动归一）" },
