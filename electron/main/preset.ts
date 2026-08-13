@@ -414,11 +414,54 @@ export async function readAgentsManifest(presetRoot: string): Promise<AgentsMani
 }
 
 /**
+ * 子 agent 模型覆盖白名单（2026-08-13 设置页重构定案）：
+ * 设置页「子 agent 模型」选择仅允许列表内模型——防止任意模型名写入 agents（OC 加载失败 / 资源误用）。
+ * 与各 agent 槽位能力匹配：双星/工匠/助理/参谋/军师走 DeepSeek 主链路；侦查兵走 Anthropic 兼容链路；制图师固定视觉模型。
+ */
+const AGENT_MODEL_WHITELIST: Record<string, string[]> = {
+  双星: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+  工匠: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+  助理: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+  参谋: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+  军师: ['deepseek/deepseek-v4-flash', 'deepseek/deepseek-v4-pro'],
+  侦查兵: ['ds-anthropic/deepseek-v4-flash', 'ds-anthropic/deepseek-v4-pro'],
+  制图师: ['moonshotai-cn/kimi-k3'],
+}
+
+/**
+ * 读设置页「子 agent 模型覆盖」表：<userDataDir>/settings.json 的 agentModelOverrides 字段。
+ * 容错：BOM 去除（Windows 编辑器可能带）；非对象 / 解析失败 → {}（读取失败不阻断启动，回退槽位默认）。
+ */
+export async function readAgentModelOverrides(userDataDir: string): Promise<Record<string, string>> {
+  try {
+    const raw = await fsp.readFile(join(userDataDir, 'settings.json'), 'utf-8')
+    // BOM 会导致 JSON.parse 抛错（UTF-8 BOM 字节在文本前），剥离后再解析
+    const parsed = JSON.parse(raw.replace(/^\uFEFF/, '')) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const table = (parsed as Record<string, unknown>).agentModelOverrides
+      if (table && typeof table === 'object' && !Array.isArray(table)) {
+        const result: Record<string, string> = {}
+        for (const [name, model] of Object.entries(table as Record<string, unknown>)) {
+          // 只保留字符串值（设置页只会写入 string；防御脏数据）
+          if (typeof model === 'string' && model) result[name] = model
+        }
+        return result
+      }
+    }
+    return {}
+  } catch {
+    return {}
+  }
+}
+
+/**
  * 按槽位规则替换预置 agents 的 model 字段——模型槽位统一由分形配置管理（2026-08-09 定案）：
  * 预置包内的 agent 来自 oc-plus 部署产物（model 写死），设置页改模型后不跟随；这里每次启动幂等覆盖为目标值。
  * 槽位来源：优先 agents-manifest.json 契约清单（oc-plus 声明），缺失回退 MODEL_SLOT_RULES 硬编码（兼容旧包）。
  * 值解析：high 取 cfg.model（设置页选择经 ensureConfig 写入）；low 取 resolveSmallModel（设置页「轻量模型」选择，
  * 空=跟随主模型 → SMALL_MODEL 兜底）；vision 取 oc-config 常量；anthropic 取 oc-config 常量；inherit 跳过（不写 model 行）。
+ * 覆盖表：settings.json 的 agentModelOverrides（agent 名 → 模型全名）优先于槽位默认，但仅限 AGENT_MODEL_WHITELIST——
+ * 白名单外忽略回退槽位；inherit 槽位被覆盖时在 mode: 行后插入 model 行（原本无 model 行）。
  * 内容一致时不写盘（避免无谓刷盘）；agents 目录缺失/文件损坏 → 跳过不抛错（预置损坏不阻断启动）。
  */
 export async function applyModelAliases(
@@ -461,9 +504,17 @@ export async function applyModelAliases(
   } catch {
     return
   }
+  // 覆盖表一次读入（settings.json 读取失败 → {}，全走槽位逻辑）
+  const overrides = await readAgentModelOverrides(userDataDir)
   for (const rule of rules) {
-    // inherit 槽位 = 无 model 行继承主模型，跳过不写盘
-    if (rule.slot === 'inherit') continue
+    // agent 名 = rule.file 去 .md 后缀（与设置页配置 key 对齐）
+    const agentName = rule.file.replace(/\.md$/, '')
+    const override = overrides[agentName]
+    // 覆盖命中白名单才生效；白名单外 → 回退槽位逻辑
+    const overrideOk =
+      typeof override === 'string' && !!override && AGENT_MODEL_WHITELIST[agentName]?.includes(override) === true
+    // inherit 槽位且无有效覆盖 → 无 model 行继承主模型，跳过不写盘
+    if (!overrideOk && rule.slot === 'inherit') continue
     const file = join(agentsDir, rule.file)
     let raw: string
     try {
@@ -472,9 +523,13 @@ export async function applyModelAliases(
       // agent 文件不存在（用户删除预置 agent）→ 跳过
       continue
     }
-    const value = slotValues[rule.slot]
-    // 整行替换 model 字段（agents md 的 model 行顶格无缩进）；值不变时跳过写盘
-    const next = raw.replace(/^model:.*$/m, `model: "${value}"`)
+    const value = overrideOk ? override : slotValues[rule.slot]
+    // 已有 model 行 → 整行替换（agents md 的 model 行顶格无缩进）；
+    // 无 model 行（inherit 被覆盖）→ 以 mode: 行为锚点在其后插入一行，保持 frontmatter 字段顺序
+    const next = /^model:.*$/m.test(raw)
+      ? raw.replace(/^model:.*$/m, `model: "${value}"`)
+      : raw.replace(/^(mode:.*)$/m, `$1\nmodel: "${value}"`)
+    // 值不变时跳过写盘（幂等：重复启动/重复触发不刷盘）
     if (next !== raw) await fsp.writeFile(file, next, 'utf-8')
   }
 }

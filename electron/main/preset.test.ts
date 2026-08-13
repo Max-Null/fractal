@@ -671,6 +671,90 @@ describe('applyModelAliases', () => {
     const mtime2 = (await fsp.stat(file)).mtimeMs
     expect(mtime2).toBe(mtime1)
   })
+
+  it('agentModelOverrides 覆盖优先于槽位：双星 override flash → 用 flash（无视 highModel 参数）', async () => {
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      JSON.stringify({ agentModelOverrides: { '双星': 'deepseek/deepseek-v4-flash' } }),
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const shuang = await fsp.readFile(join(getPresetTarget(userData), 'agents', '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+
+  it('agentModelOverrides 白名单外值忽略 → 回退槽位默认（双星 override gpt-4o 无效，用 high 槽位 pro）', async () => {
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      JSON.stringify({ agentModelOverrides: { '双星': 'gpt-4o' } }),
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const shuang = await fsp.readFile(join(getPresetTarget(userData), 'agents', '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-pro"')
+  })
+
+  it('agentModelOverrides 覆盖 inherit 槽位：军师无 model 行 → 在 mode 行后插入 model 行', async () => {
+    // 真实军师.md frontmatter 形态：有 mode 行无 model 行（inherit 槽位继承主模型）
+    await fsp.writeFile(
+      join(getPresetTarget(userData), 'agents', '军师.md'),
+      '---\ndescription: 战略远见\nmode: subagent\ntemperature: 0.3\npermission:\n  read: allow\n---\n',
+      'utf-8'
+    )
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      JSON.stringify({ agentModelOverrides: { '军师': 'deepseek/deepseek-v4-pro' } }),
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const teacher = await fsp.readFile(join(getPresetTarget(userData), 'agents', '军师.md'), 'utf-8')
+    // 插入位置：mode: 行之后（保持 frontmatter 字段顺序，description/mode/temperature 不被破坏）
+    expect(teacher).toContain('mode: subagent\nmodel: "deepseek/deepseek-v4-pro"')
+  })
+
+  it('agentModelOverrides 无覆盖 → inherit agent 保持继承（不写 model 行）', async () => {
+    // 无 settings.json（无 override）→ 军师.md 不被触碰
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-flash')
+    const teacher = await fsp.readFile(join(getPresetTarget(userData), 'agents', '军师.md'), 'utf-8')
+    expect(teacher).not.toContain('model:')
+  })
+
+  it('agentModelOverrides 覆盖幂等：值不变不写盘（mtime 不变）', async () => {
+    const agentsDir = join(getPresetTarget(userData), 'agents')
+    // 第一次：双星 override flash（替换部署产物 ds/deepseek-v4-pro → flash）写盘
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      JSON.stringify({ agentModelOverrides: { '双星': 'deepseek/deepseek-v4-flash' } }),
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const file = join(agentsDir, '双星.md')
+    expect(await fsp.readFile(file, 'utf-8')).toContain('model: "deepseek/deepseek-v4-flash"')
+    const mtime1 = (await fsp.stat(file)).mtimeMs
+    await new Promise((r) => setTimeout(r, 20))
+    // 第二次：值已一致 → 不写盘
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const mtime2 = (await fsp.stat(file)).mtimeMs
+    expect(mtime2).toBe(mtime1)
+  })
+
+  it('agentModelOverrides 读 settings.json 容错 BOM：带 BOM 的覆盖表仍生效', async () => {
+    await fsp.writeFile(
+      join(userData, 'settings.json'),
+      `\uFEFF${JSON.stringify({ agentModelOverrides: { '双星': 'deepseek/deepseek-v4-flash' } })}`,
+      'utf-8'
+    )
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const shuang = await fsp.readFile(join(getPresetTarget(userData), 'agents', '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-flash"')
+  })
+
+  it('agentModelOverrides 读取失败（settings.json 损坏）→ 空表回退槽位，不抛错', async () => {
+    await fsp.writeFile(join(userData, 'settings.json'), '{broken', 'utf-8')
+    await applyModelAliases(userData, 'deepseek/deepseek-v4-pro')
+    const shuang = await fsp.readFile(join(getPresetTarget(userData), 'agents', '双星.md'), 'utf-8')
+    expect(shuang).toContain('model: "deepseek/deepseek-v4-pro"')
+  })
 })
 
 // 契约清单（agents-manifest.json）驱动：oc-plus sync-to-fractal.mjs 生成，fractal 只消费
