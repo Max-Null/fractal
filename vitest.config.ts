@@ -24,6 +24,6 @@ export default defineConfig({
     environmentMatchGlobs: [['electron/**', 'node']],
     globals: true,
     setupFiles: ['./src/renderer/src/test-setup.ts'],
-    include: ['src/renderer/src/**/*.{test,spec}.{ts,js}', 'electron/main/**/*.test.ts']
+    include: ['src/renderer/src/**/*.{test,spec}.{ts,js}', 'electron/main/**/*.test.ts', 'electron/preload/**/*.test.ts']
   }
 })

@@ -1,5 +1,6 @@
 ﻿import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
+import { ALLOWED_INVOKE, ALLOWED_ON } from './channels'
 
 // Custom APIs for renderer
 const api = {}
@@ -9,46 +10,9 @@ const api = {}
  * - invoke: 请求-响应式 IPC（fs/git/settings/logs/dialog/pdf/chat/session/message/permission 等）
  * - on: 主进程 → 渲染进程事件订阅（引擎事件流等），返回取消订阅函数
  *
- * 安全：invoke/on 通道白名单——渲染进程只能调已注册的本地能力通道，
- * 新增通道时同步追加对应白名单（阶段 4：引擎通道 chat:/session:/message:/permission: + engine:event/status）。
+ * 安全：invoke/on 通道白名单（定义见 channels.ts，主进程新增通道必须同步白名单，由 channels.test.ts 静态扫描兜底）——
+ * 渲染进程只能调已注册的本地能力通道。
  */
-const ALLOWED_INVOKE = [
-  'fs:listDir', 'fs:readFileContent', 'fs:writeFile', 'fs:saveFileContent',
-  'fs:deleteFile', 'fs:renameFile', 'fs:moveFile', 'fs:copyFile',
-  'fs:createDir', 'fs:readFileBase64', 'fs:getWorkspaceRoot', 'fs:revealInExplorer',
-  'git:status', 'git:diff', 'git:stage', 'git:unstage', 'git:commit', 'git:push',
-  'settings:saveUiSettings', 'settings:loadUiSettings',
-  'settings:saveProviderConfig', 'settings:loadProviderConfigs',
-  'settings:getConfig', 'settings:saveSettings', 'settings:getSchema',
-  'deepseek:getBalance', // 计费迭代：设置面板/上下文面板余额查询（主进程读 key，渲染层零接触）
-  'kimi:getBalance', // 计费迭代：Kimi 多模态余额查询（与 deepseek:getBalance 对称，复用 DeepSeekBalanceResult）
-  'logs:saveSessionDebugLog', 'logs:readServeLog', 'logs:loadSessionLogs', 'logs:readRendererLog',
-  'app:getInfo',
-  'dialog:openDialog', 'dialog:saveDialog',
-  'chat:sendMessage', 'chat:stopSession',
-  'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork', 'session:setActive',
-  'message:list', 'permission:respond',
-  'question:reply', 'question:reject',
-  'provider:modelVariants',
-  'engine:getStatus',
-  'engine:testConnection',
-  'engine:testKimiConnection',
-  'engine:refresh',
-  'ai:polishMessage',
-  'memory:list', 'memory:confirm', 'memory:remove', 'memory:read',
-  'plans:list', 'plans:read',
-  'status:get',
-  'capabilities:list',
-  'window:openWorkspace',
-  'window:registerWorkspace',
-  'preview:open',
-  'pdf:htmlToPdf',
-  'avatar:pick', 'avatar:clear', 'avatar:getPath', 'notification:show'
-] as const
-
-/** 主进程 → 渲染进程事件通道白名单（engine:event=SSE 映射事件流 / engine:status=serve 运行状态 / config-changed=settings.json 变更广播 / engine:panel-update=面板数据源变更） */
-const ALLOWED_ON = ['engine:event', 'engine:status', 'config-changed', 'engine:panel-update'] as const
-
 const electronBridge = {
   invoke: (channel: string, ...args: unknown[]) => {
     if (!ALLOWED_INVOKE.includes(channel as (typeof ALLOWED_INVOKE)[number])) {
