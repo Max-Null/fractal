@@ -1,6 +1,6 @@
 {
   "name": "fractal",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "分形（fractal）——面向非编程人员的 OpenCode 桌面 GUI",
   "main": "./out/main/index.js",
   "author": "fractal",
@@ -28,6 +28,7 @@
     "@electron-toolkit/utils": "^3.0.0",
     "@opencode-ai/sdk": "^1.18.16",
     "ajv": "^6.15.0",
+    "electron-updater": "^6.8.9",
     "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
@@ -58,7 +59,7 @@
     "daisyui": "^5.7.16",
     "diff": "^9.0.0",
     "electron": "^43.3.0",
-    "electron-builder": "^24.9.1",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^2.0.0",
     "eslint": "^8.56.0",
     "eslint-plugin-vue": "^9.20.1",
