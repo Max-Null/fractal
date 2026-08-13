@@ -319,6 +319,11 @@ export async function getBalance(): Promise<DeepSeekBalanceResult> {
   return invoke("deepseek:getBalance");
 }
 
+/** 查询 Kimi 多模态账户余额（与 getBalance 对称；主进程读 moonshotai-cn 槽位 key） */
+export async function getKimiBalance(): Promise<DeepSeekBalanceResult> {
+  return invoke("kimi:getBalance");
+}
+
 // ── settings.json 配置体系（阶段 6，方案 3.8）：类 VSCode settings.json + agent 可自检自改 ──
 
 export interface SettingsJsonConfig {

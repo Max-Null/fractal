@@ -548,6 +548,50 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     return cfg as Record<string, { apiKey: string; baseUrl?: string; model?: string }>
   })
 
+  ipcMain.handle('kimi:getBalance', async (): Promise<DeepSeekBalanceResult> => {
+    // 计费迭代（2026-08-13）：查询 Kimi 多模态账户余额，与 deepseek:getBalance 对称。
+    // API Key 复用 provider-configs.json 的 moonshotai-cn 槽位（渲染进程不直接持有 key，主进程读取避免泄露）。
+    // 返回结构与 DeepSeek 一致（DeepSeekBalanceResult），前端 balance 解析逻辑直接复用。
+    const cfg = (await readJsonFile(
+      join(app.getPath('userData'), 'provider-configs.json'),
+      {}
+    )) as Record<string, { apiKey?: string }>
+    const apiKey = cfg?.['moonshotai-cn']?.apiKey?.trim() ?? ''
+    if (!apiKey) return { ok: false, message: '未配置 Kimi API Key（设置 → 多模态 API）' }
+    try {
+      const res = await fetch('https://api.moonshot.cn/v1/users/me/balance', {
+        headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' }
+      })
+      if (!res.ok) {
+        // 401 → key 无效/失效；其他状态码给出具体值便于排查
+        return {
+          ok: false,
+          message:
+            res.status === 401
+              ? 'Kimi API Key 无效或已失效（HTTP 401）'
+              : `余额查询失败（HTTP ${res.status}）`
+        }
+      }
+      const data = (await res.json()) as {
+        code?: number
+        data?: { available_balance?: number; voucher_balance?: number; cash_balance?: number }
+      }
+      const available = data?.data?.available_balance
+      return {
+        ok: true,
+        // isAvailable = 可用余额 > 0（≤0 无法调用推理 API）
+        isAvailable: (data?.code ?? -1) === 0 && (available ?? 0) > 0,
+        balanceInfos: [{ currency: 'CNY', totalBalance: String(available ?? '0') }]
+      }
+    } catch (err) {
+      // 网络层失败（无网/代理/超时）——区别于业务错误，前端可提示重试
+      return {
+        ok: false,
+        message: `余额查询失败：${err instanceof Error ? err.message : String(err)}`
+      }
+    }
+  })
+
   ipcMain.handle('deepseek:getBalance', async (): Promise<DeepSeekBalanceResult> => {
     // 计费迭代（2026-08-12）：查询 DeepSeek 账户余额，设置面板 + 上下文面板两处显示。
     // API Key 复用 provider-configs.json 的 deepseek 槽位（渲染进程不直接持有 key，主进程读取避免泄露）。

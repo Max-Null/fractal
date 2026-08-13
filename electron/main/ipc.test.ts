@@ -863,6 +863,90 @@ describe('deepseek:getBalance（计费迭代：DeepSeek 余额查询）', () => 
   })
 })
 
+describe('kimi:getBalance（计费迭代：Kimi 多模态余额查询，与 DeepSeek 对称）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-kimi-balance-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('未配置 API Key → 返回 ok:false 提示（不发起网络请求）', async () => {
+    // userData 目录无 provider-configs.json → 空 key
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'kimi:getBalance')
+    expect(h).toBeDefined()
+    const r = (await h!.handler({})) as { ok: boolean; message?: string }
+    expect(r.ok).toBe(false)
+    expect(r.message).toContain('API Key')
+  })
+
+  it('已配置 API Key → 调 moonshot /users/me/balance 并归一化返回', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ 'moonshotai-cn': { apiKey: 'sk-kimi-test' } }), 'utf-8')
+    // 注入 fetch mock：Kimi 返回真实结构（available_balance 数值 49.58）
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 0, data: { available_balance: 49.58, voucher_balance: 46.58, cash_balance: 3.0 }, scode: '0x0', status: true }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'kimi:getBalance')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({})) as { ok: boolean; isAvailable: boolean; balanceInfos: Array<{ currency: string; totalBalance: string }> }
+      expect(r.ok).toBe(true)
+      expect(r.isAvailable).toBe(true)
+      expect(r.balanceInfos).toEqual([{ currency: 'CNY', totalBalance: '49.58' }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('可用余额 ≤0（code:0 但 available_balance 为 0）→ ok:true 但 isAvailable:false', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ 'moonshotai-cn': { apiKey: 'sk-kimi-empty' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ code: 0, data: { available_balance: 0, voucher_balance: 0, cash_balance: 0 } }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'kimi:getBalance')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({})) as { ok: boolean; isAvailable: boolean; balanceInfos: Array<{ currency: string; totalBalance: string }> }
+      expect(r.ok).toBe(true)
+      expect(r.isAvailable).toBe(false)
+      expect(r.balanceInfos).toEqual([{ currency: 'CNY', totalBalance: '0' }])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('HTTP 401（key 失效）→ ok:false + 认证失败提示', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ 'moonshotai-cn': { apiKey: 'sk-kimi-bad' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'kimi:getBalance')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({})) as { ok: boolean; message?: string }
+      expect(r.ok).toBe(false)
+      expect(r.message).toContain('401')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
 // ── engine:testConnection（2026-08-13：真实验证 key 有效性，不再「假通过」）──
 describe('engine:testConnection（真实校验 API Key）', () => {
   let userDataDir: string

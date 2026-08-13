@@ -373,10 +373,14 @@ describe("SettingsPanel", () => {
     expect(mainSection.text()).toContain("Model");
     expect(mainSection.text()).toContain("Test Connection");
     expect(mainSection.text()).toContain("Save & Restart Engine");
-    // 多模态 API section：Kimi K3 Key + 说明（制图师不可用提示）+ 测试连接 + 保存并重启（与 DeepSeek 对称）
+    // 多模态 API section：Kimi K3 Key + 说明（制图师不可用提示）+ 余额行 + 刷新按钮 + 测试连接 + 保存并重启（与 DeepSeek 对称）
     const multiSection = sections[1];
     expect(multiSection.text()).toContain("Kimi K3 API Key");
     expect(multiSection.text()).toContain("Used for the cartographer (kimi-k3) multimodal recognition; cartographer unavailable if empty");
+    expect(multiSection.text()).toContain("Account Balance");
+    // 多模态区余额刷新按钮（aria-label 复用 refreshBalance，与 DeepSeek 对称）
+    const kimiRefresh = multiSection.find("button[aria-label='Refresh balance']");
+    expect(kimiRefresh.exists()).toBe(true);
     expect(multiSection.text()).toContain("Test Connection");
     expect(multiSection.text()).toContain("Save & Restart Engine");
     // 会话 section：上下文窗口
@@ -480,6 +484,27 @@ describe("SettingsPanel", () => {
     const kimiTest = sections[1].findAll("button").find((b) => b.text().includes("Test Connection"));
     expect(kimiTest).toBeTruthy();
     expect(kimiTest!.attributes("disabled")).toBeUndefined();
+  });
+
+  it("mount with non-empty kimiApiKey queries kimi balance (getKimiBalance invoked)", async () => {
+    // 预置 Kimi key → 挂载时 onMounted 直接查一次余额（未配置时不应发起查询）
+    const settings = useSettingsStore();
+    settings.kimiApiKey = "sk-kimi-123";
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn>; on: () => () => void } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "kimi:getBalance") return Promise.resolve({ ok: true, isAvailable: true, balanceInfos: [{ currency: "CNY", totalBalance: "49.58" }] });
+      return Promise.resolve({});
+    });
+    const wrapper = mountPanel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const kimiCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "kimi:getBalance");
+    expect(kimiCalls.length).toBeGreaterThanOrEqual(1);
+    // 多模态区展示 Kimi 余额（¥49.58）
+    const tab = await switchToModelTab(wrapper);
+    const multiSection = tab.findAll(".settings-section")[1];
+    expect(multiSection.text()).toContain("¥49.58");
   });
 
   // ── AI行为 tab：默认主 Agent / 子 agent 模型 / 权限模式 / 思考深度 / 思考节点 / 轻量模型 ──

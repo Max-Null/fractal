@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, type Component } from "vu
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useI18n } from "vue-i18n";
-import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
+import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
 import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-vue-next";
@@ -348,13 +348,57 @@ watch(() => settings.apiKey, () => {
   if (balanceTimer) clearTimeout(balanceTimer);
   balanceTimer = setTimeout(() => { refreshBalance(); }, 600);
 });
+
+// ── Kimi 多模态账户余额（计费迭代：与 DeepSeek 余额对称，多模态区显示；未配置不展示文案）──
+const kimiBalance = ref<DeepSeekBalanceResult | null>(null);
+const kimiBalanceLoading = ref(false);
+
+/** 查询 Kimi 余额；无 API Key 或失败时静默降级（不阻断设置面板渲染） */
+async function refreshKimiBalance() {
+  if (kimiBalanceLoading.value) return;
+  kimiBalanceLoading.value = true;
+  try {
+    kimiBalance.value = await getKimiBalance();
+  } catch {
+    kimiBalance.value = { ok: false, message: t("settings.balanceQueryFailed") };
+  } finally {
+    kimiBalanceLoading.value = false;
+  }
+}
+
+/** Kimi 余额展示文本：CNY 可用余额；失败显示原因；未配置 key 显示空（常态，不展示告警） */
+const kimiBalanceText = computed(() => {
+  if (!settings.kimiApiKey.trim()) return "";
+  if (!kimiBalance.value) return "";
+  if (!kimiBalance.value.ok) return kimiBalance.value.message ?? t("settings.balanceQueryFailedShort");
+  const cny = kimiBalance.value.balanceInfos?.find((b) => b.currency === "CNY")
+    ?? kimiBalance.value.balanceInfos?.[0];
+  return cny ? `¥${Number(cny.totalBalance).toFixed(2)}` : "--";
+});
+
+// Kimi key 变化后自动刷新余额（保存即触发；防抖避免输入过程反复请求；key 清空 → 直接清空展示不请求）
+let kimiBalanceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(() => settings.kimiApiKey, () => {
+  if (kimiBalanceTimer) clearTimeout(kimiBalanceTimer);
+  if (!settings.kimiApiKey.trim()) {
+    kimiBalance.value = null;
+    return;
+  }
+  kimiBalanceTimer = setTimeout(() => { refreshKimiBalance(); }, 600);
+});
+
 // 路由离开时清理定时器（否则卸载后仍可能触发改已卸载 ref）
 onUnmounted(() => {
   if (balanceTimer) clearTimeout(balanceTimer);
+  if (kimiBalanceTimer) clearTimeout(kimiBalanceTimer);
   if (deepseekSaveTimer) clearTimeout(deepseekSaveTimer);
 });
 // 挂载即查询一次（设置页打开时直接显示余额，不依赖 key 变化事件）
-onMounted(() => { refreshBalance(); });
+onMounted(() => {
+  refreshBalance();
+  // Kimi 仅配置了 key 才查（未配置不请求，避免无意义网络调用）
+  if (settings.kimiApiKey.trim()) refreshKimiBalance();
+});
 
 // ── 多模态模型（制图师 kimi-k3）API Key ──
 // password 明文切换（独立 state，与 DeepSeek key 互不干扰——DeepSeek 输入框无切换，沿用 Onboarding 交互模式）
@@ -604,12 +648,26 @@ onMounted(async () => {
                       <Eye v-if="!showKimiKey" :size="14" />
                       <EyeOff v-else :size="14" />
                     </button>
+                    <button
+                      type="button"
+                      class="f-settings-btn f-settings-btn--suffix"
+                      :disabled="kimiBalanceLoading"
+                      :aria-label="$t('settings.refreshBalance')"
+                      @click="refreshKimiBalance"
+                    >
+                      <RefreshCw :size="14" />
+                    </button>
                     <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleKimiKeySave">
                       {{ $t('settings.saveAndRestart') }}
                     </button>
                   </template>
                 </SettingsInput>
                 <p class="f-settings-hint">{{ $t('settings.kimiApiKeyDesc') }}</p>
+                <!-- Kimi 余额展示：CNY 可用余额或失败原因；未配置 key 显示空（与 DeepSeek 余额对称） -->
+                <div class="balance-row">
+                  <span class="balance-label">{{ $t('settings.balance') }}</span>
+                  <span class="balance-value">{{ kimiBalanceText }}</span>
+                </div>
                 <!-- Kimi 测试连接（与 DeepSeek 对称）：主进程直接校验 key，不重启 serve -->
                 <button
                   type="button"
