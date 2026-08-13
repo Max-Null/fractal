@@ -7,6 +7,7 @@ import { useI18n } from "vue-i18n";
 import { testConnection, sendMessage, openDialog, getAppInfo, getBalance, type DeepSeekBalanceResult, type ConnectionTestResult } from "@/lib/electron-bridge";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { useSessionStore } from "@/stores/session";
+import { AVATAR_ICONS } from "@/lib/avatar-icons";
 import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff, Search } from "lucide-vue-next";
 
 const appVersion = __APP_VERSION__;
@@ -240,12 +241,10 @@ const layoutOptions = computed(() => [
 ]);
 const currentLayout = computed(() => layoutOptions.value.find(o => o.value === settings.messageLayout)!);
 
-// ── 头像 emoji 快捷选择（B1：ui.avatar，原型 v0.15 avatar-picker 简化版：常用 emoji 点选 + 手动输入）──
-const AVATAR_EMOJIS = ["🐱", "🐶", "🦊", "🐼", "🐸", "🐙", "🦋", "🌻", "🚀", "⭐", "🌈", "🍀"];
-
-// 选择 emoji 头像：写入 store（图片头像优先于 emoji——选择 emoji 时同时清除已存图片，避免显示歧义）
-async function handleAvatarEmoji(e: string) {
-  settings.avatar = e;
+// ── 头像 lucide 图标快捷选择（ui.avatar 存图标 id；候选表见 lib/avatar-icons，消息区渲染共用同一映射）──
+// 选择图标头像：写入 store（图片头像优先于图标——选择图标时同时清除已存图片，避免显示歧义）
+async function handleAvatarIcon(id: string) {
+  settings.avatar = id;
   if (settings.avatarImage) await settings.clearAvatar();
 }
 
@@ -495,26 +494,21 @@ onMounted(async () => {
                   :label="$t('settings.nickname')"
                   :placeholder="$t('settings.nicknamePlaceholder')"
                 />
-                <!-- 头像：emoji 快捷选择 + 手动输入 + 图片上传/清除（avatarImage 图片优先于 emoji 显示） -->
+                <!-- 头像：lucide 图标候选 + 图片上传/清除（avatarImage 图片优先于图标显示） -->
                 <div class="settings-field">
                   <label class="settings-field__label">{{ $t('settings.avatar') }}</label>
-                  <div class="avatar-emoji-grid">
+                  <div class="avatar-icon-grid">
                     <button
-                      v-for="e in AVATAR_EMOJIS"
-                      :key="e"
+                      v-for="item in AVATAR_ICONS"
+                      :key="item.id"
                       type="button"
-                      class="avatar-emoji-item"
-                      :class="{ 'avatar-emoji-item--active': settings.avatar === e && !settings.avatarImage }"
-                      @click="handleAvatarEmoji(e)"
+                      class="avatar-icon-item"
+                      :class="{ 'avatar-icon-item--active': settings.avatar === item.id && !settings.avatarImage }"
+                      @click="handleAvatarIcon(item.id)"
                     >
-                      {{ e }}
+                      <component :is="item.icon" :size="24" />
                     </button>
                   </div>
-                  <SettingsInput
-                    v-model="settings.avatar"
-                    :label="$t('settings.avatarEmojiLabel')"
-                    :placeholder="$t('settings.avatarPlaceholder')"
-                  />
                   <div class="avatar-image-row">
                     <span v-if="settings.avatarImage" class="avatar-image-status">
                       {{ $t('settings.avatarImageSet', { path: settings.avatarImage }) }}
@@ -981,14 +975,14 @@ onMounted(async () => {
   color: var(--danger, #ef4444);
 }
 
-/* 头像 emoji 快捷选择：12 宫格，选中项 accent-glow 高亮 */
-.avatar-emoji-grid {
+/* 头像 lucide 图标快捷选择：12 宫格，选中项 accent-glow 高亮（图标尺寸由 size prop 控制，无需 font-size） */
+.avatar-icon-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: 4px;
   margin-bottom: 12px;
 }
-.avatar-emoji-item {
+.avatar-icon-item {
   aspect-ratio: 1;
   display: flex;
   align-items: center;
@@ -996,17 +990,18 @@ onMounted(async () => {
   border-radius: 6px;
   border: 1px solid var(--border-dim);
   background: transparent;
-  font-size: 16px;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: border-color 150ms, background 150ms;
 }
-.avatar-emoji-item:hover {
+.avatar-icon-item:hover {
   border-color: var(--border-default);
   background: var(--bg-hover);
 }
-.avatar-emoji-item--active {
+.avatar-icon-item--active {
   background: var(--accent-glow);
   border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* 图片头像状态行：文件名 + 上传/清除按钮 */

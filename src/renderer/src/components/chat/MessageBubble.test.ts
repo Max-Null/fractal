@@ -327,7 +327,21 @@ describe("MessageBubble", () => {
     expect(wrapper.text()).toMatch(/\d{2}:\d{2}:\d{2}/);
   });
 
-  it("avatar 设置 → 头像显示 emoji + emoji 字号 class", () => {
+  it("avatar 为 lucide 图标 id → 渲染 svg 图标（.msg-avatar-icon，无 emoji class）", () => {
+    const settings = useSettingsStore();
+    settings.avatar = "cat";
+    const wrapper = mount(MessageBubble, {
+      props: { message: makeMsg({ role: "user", content: "hi" }) },
+      global: { plugins: [i18n] },
+    });
+    const avatar = wrapper.find(".msg-avatar--user");
+    // lucide 组件渲染为 svg（size=16），不走字符兜底
+    expect(avatar.find("svg.msg-avatar-icon").exists()).toBe(true);
+    expect(avatar.text()).toBe("");
+    expect(avatar.classes()).not.toContain("msg-avatar--emoji");
+  });
+
+  it("avatar 为旧 emoji 字符 → 仍渲染字符 + emoji 字号 class（旧数据兼容）", () => {
     const settings = useSettingsStore();
     settings.avatar = "🐱";
     const wrapper = mount(MessageBubble, {
@@ -335,8 +349,10 @@ describe("MessageBubble", () => {
       global: { plugins: [i18n] },
     });
     const avatar = wrapper.find(".msg-avatar--user");
+    // 旧 emoji 不在 lucide 图标表 → avatarIcon 为 null → 字符兜底
     expect(avatar.text()).toBe("🐱");
     expect(avatar.classes()).toContain("msg-avatar--emoji");
+    expect(avatar.find("svg").exists()).toBe(false);
   });
 
   it("avatar 空 → 头像兜底「我」（无 emoji class）", () => {

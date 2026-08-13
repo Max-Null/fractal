@@ -71,7 +71,6 @@ const i18n = createI18n({
         nickname: "Nickname",
         nicknamePlaceholder: "Empty = show \"Me\"",
         avatar: "Avatar",
-        avatarPlaceholder: "Empty = show \"Me\"; emoji supported",
         opencodePath: "OC Executable Path",
         opencodePathPlaceholder: "Empty = bundled engine",
         opencodePathDesc: "Full path to opencode.exe; empty = auto-resolve",
@@ -114,7 +113,6 @@ const i18n = createI18n({
         refreshBalance: "Refresh balance",
         upload: "Upload",
         clearAvatar: "Clear",
-        avatarEmojiLabel: "Avatar (emoji)",
         avatarImageSet: "Image avatar: {path}",
         avatarImageEmpty: "No image avatar ({value})",
         defaultMe: "Me",
@@ -310,16 +308,16 @@ describe("SettingsPanel", () => {
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("avatar emoji click sets avatar and clears avatarImage", async () => {
+  it("avatar icon click sets avatar and clears avatarImage", async () => {
     const wrapper = mountPanel();
     const settings = useSettingsStore();
     settings.avatarImage = "avatar.png";
     const clearSpy = vi.spyOn(settings, "clearAvatar").mockResolvedValue({ ok: true });
     await wrapper.vm.$nextTick();
-    // 点击第一个 emoji（🐱）
-    await wrapper.find(".avatar-emoji-item").trigger("click");
-    expect(settings.avatar).toBe("🐱");
-    // 选 emoji 时图片头像被清除（图片优先于 emoji，避免显示歧义）
+    // 点击第一个 lucide 图标（cat → ui.avatar 存图标 id）
+    await wrapper.find(".avatar-icon-item").trigger("click");
+    expect(settings.avatar).toBe("cat");
+    // 选图标时图片头像被清除（图片优先于图标，避免显示歧义）
     expect(clearSpy).toHaveBeenCalledTimes(1);
   });
 

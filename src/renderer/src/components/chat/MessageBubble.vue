@@ -7,6 +7,7 @@ import { isImageFile, useFilePreview } from "@/composables/useFilePreview";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore } from "@/stores/settings";
 import { getAvatarPath } from "@/lib/electron-bridge";
+import { avatarIconMap } from "@/lib/avatar-icons";
 import MarkdownRenderer from "../shared/MarkdownRenderer.vue";
 
 const { t } = useI18n();
@@ -18,6 +19,8 @@ const settings = useSettingsStore();
 const messageLayoutLeft = computed(() => settings.messageLayout === "left");
 const userDisplayName = computed(() => settings.nickname.trim() || "我");
 const userAvatar = computed(() => settings.avatar.trim() || "我");
+/** 图标头像：ui.avatar 是 lucide 图标 id 时解析为组件；否则 null（旧 emoji 字符走字符兜底） */
+const avatarIcon = computed(() => avatarIconMap[settings.avatar.trim()] ?? null);
 /** 图片头像 file:// URL（异步取 getAvatarPath 后拼接）；空 = 未设置/路径获取失败 → 回退 emoji 文字头像 */
 const avatarImageUrl = ref("");
 watch(
@@ -146,13 +149,14 @@ const badgeVariant = computed(() => {
   <!-- 根节点不再携带 data-message-id/data-role：锚点职责由 ChatPanel 回合容器 .msg-entry 承载
        （修复锚点 bug #8：双份相同锚点属性导致 ChatTimelineNav scroll spy 定位错位） -->
   <div :class="['msg-row', message.role === 'user' ? 'msg-row--user' : 'msg-row--assistant', messageLayoutLeft ? 'msg-row--left' : '']">
-    <!-- Avatar：用户头像（图片 avatarImage 优先 → img；否则 emoji → '我' 字兜底）；assistant 固定 logo -->
+    <!-- Avatar：用户头像（图片 avatarImage 优先 → img；lucide 图标 id → 组件；旧 emoji 字符 → 字符兜底 → '我'）；assistant 固定 logo -->
     <div
       v-if="message.role === 'user'"
       class="msg-avatar msg-avatar--user"
-      :class="!avatarImageUrl && settings.avatar.trim() ? 'msg-avatar--emoji' : ''"
+      :class="!avatarImageUrl && !avatarIcon && settings.avatar.trim() ? 'msg-avatar--emoji' : ''"
     >
       <img v-if="avatarImageUrl" class="msg-avatar-img" :src="avatarImageUrl" alt="" />
+      <component v-else-if="avatarIcon" :is="avatarIcon" :size="16" class="msg-avatar-icon" />
       <span v-else>{{ userAvatar }}</span>
     </div>
     <img
