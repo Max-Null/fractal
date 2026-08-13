@@ -77,6 +77,9 @@ const i18n = createI18n({
         opencodePathDesc: "Full path to opencode.exe; empty = auto-resolve",
         opencodePathPick: "Select opencode executable",
         browseFile: "Browse…",
+        reopenOnboarding: "Reopen onboarding",
+        loading: "Loading…",
+        jsonHint: "VSCode-style JSONC",
         workspaceTitle: "Workspace",
         workspaceLabel: "Current workspace",
         workspacePlaceholder: "Not selected (defaults to user home)",
@@ -530,5 +533,64 @@ describe("SettingsPanel", () => {
     expect(settings.notifications.replyDone).toBe(false);
     await switches[1].trigger("click");
     expect(settings.notifications.replyDone).toBe(true);
+  });
+
+  // ── 高级 + 关于 tab ──
+
+  it("advanced tab renders data mode / opencode path / log level / preset skills / json editor", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[4].trigger("click");
+    const tab = wrapper.find("[data-tab='advanced']");
+    expect(tab.text()).toContain("Isolated session data");
+    expect(tab.text()).toContain("OC Executable Path");
+    expect(tab.text()).toContain("Engine Log Level");
+    expect(tab.text()).toContain("Preset Skills Pack");
+    expect(tab.text()).toContain("settings.json");
+  });
+
+  it("data mode toggle calls setDataMode and switches dataMode", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[4].trigger("click");
+    const settings = useSettingsStore();
+    // 默认 isolated（开关开）
+    expect(settings.dataMode).toBe("isolated");
+    const sw = wrapper.find("[data-tab='advanced'] .settings-toggle__switch");
+    await sw.trigger("click");
+    // flush setDataMode 异步链（saveSettings → refreshEngine → loadSessions）
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(settings.dataMode).toBe("shared");
+    expect(settings.isRestarting).toBe(false);
+  });
+
+  it("data mode switch disabled while isRestarting (防连点)", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[4].trigger("click");
+    const settings = useSettingsStore();
+    settings.isRestarting = true;
+    await wrapper.vm.$nextTick();
+    const sw = wrapper.find("[data-tab='advanced'] .settings-toggle__switch");
+    expect((sw.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("about tab renders version / engine / preset lines and changelog button", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));  // flush onMounted getAppInfo
+    const tab = wrapper.find("[data-tab='about']");
+    expect(tab.text()).toContain("Fractal");
+    expect(tab.text()).toContain(`v${__APP_VERSION__}`);
+    // label 与 value 分离（flex 布局拼接无空格），分别断言（第 2/3 行 = 引擎/预置版本）
+    const labels = tab.findAll(".about-label").map((l) => l.text());
+    expect(labels[1]).toContain("OC Engine");
+    expect(tab.text()).toContain("1.18.15");
+    expect(labels[2]).toContain("Preset");
+    expect(tab.text()).toContain("1.1.0");
+    // 变更记录按钮打开弹窗
+    const changelogBtn = tab.findAll("button").find((b) => b.text().includes("Changelog"));
+    expect(changelogBtn).toBeTruthy();
+    await changelogBtn!.trigger("click");
+    // ModalShell 用 Teleport 渲染到 body（不在组件 wrapper 内）
+    await wrapper.vm.$nextTick();
+    expect(document.body.querySelector(".modal-shell-overlay")).toBeTruthy();
   });
 });

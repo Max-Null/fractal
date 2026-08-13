@@ -753,14 +753,87 @@ onMounted(async () => {
             </SettingsSection>
           </section>
 
-          <!-- 高级（4.6 填充） -->
+          <!-- 高级：数据模式/OC路径/日志级别/预置技能/JSON编辑器/重开引导 -->
           <section v-else-if="activeTab === 'advanced'" data-tab="advanced" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">高级设置</p>
+            <SettingsSection :title="$t('settings.advanced')">
+              <div class="f-settings-fields">
+                <!-- 数据模式：独立会话数据开关（切换 → setDataMode 重启 serve + 清缓存；isRestarting 禁用防连点） -->
+                <SettingsToggle
+                  :model-value="settings.dataMode === 'isolated'"
+                  :label="$t('settings.dataModeLabel')"
+                  :desc="$t('settings.dataModeDesc')"
+                  :disabled="settings.isRestarting"
+                  @update:model-value="handleDataModeToggle($event ? 'isolated' : 'shared')"
+                />
+                <p v-if="dataModeMsg" class="f-settings-hint" :class="{ 'f-settings-hint--ok': dataModeMsg.type === 'ok', 'f-settings-hint--err': dataModeMsg.type === 'err' }">
+                  {{ dataModeMsg.text }}
+                </p>
+
+                <!-- OC 可执行文件路径：空=内置 sidecar/系统自动解析 -->
+                <SettingsInput
+                  v-model="settings.opencodePath"
+                  :label="$t('settings.opencodePath')"
+                  :placeholder="$t('settings.opencodePathPlaceholder')"
+                >
+                  <template #suffix>
+                    <button type="button" class="f-settings-btn f-settings-btn--suffix" @click="handleOpencodePathPick">
+                      <FolderOpen :size="14" />
+                    </button>
+                  </template>
+                </SettingsInput>
+                <p class="f-settings-hint">{{ $t('settings.opencodePathDesc') }}</p>
+
+                <!-- 引擎日志级别：spawn serve 时 --log-level -->
+                <SettingsSelect
+                  v-model="settings.logLevel"
+                  :label="$t('settings.logLevel')"
+                  :options="settings.LOG_LEVEL_OPTIONS.map((l) => ({ value: l, label: l }))"
+                />
+                <p class="f-settings-hint">{{ $t('settings.logLevelDesc') }}</p>
+
+                <!-- 预置技能包：关闭后下次启动不加载预设 skills -->
+                <SettingsToggle
+                  v-model="settings.presetSkillsEnabled"
+                  :label="$t('settings.presetSkills')"
+                  :desc="$t('settings.presetSkillsDesc')"
+                />
+              </div>
+            </SettingsSection>
+
+            <!-- JSON 编辑器：VSCode 风格 JSONC 配置（高级来源，B1 兜底） -->
+            <SettingsSection :title="'配置文件（settings.json）'">
+              <SettingsJsonEditor />
+            </SettingsSection>
+
+            <!-- 重开引导：清除 onboardingDismissed，下次启动重新显示引导页 -->
+            <SettingsSection :title="'引导'">
+              <div class="f-settings-fields">
+                <button type="button" class="f-settings-btn" @click="settings.resetOnboarding()">
+                  {{ $t('settings.reopenOnboarding') }}
+                </button>
+              </div>
+            </SettingsSection>
           </section>
 
-          <!-- 关于（4.6 填充） -->
+          <!-- 关于：版本/引擎版本/预置版本/变更记录（迁移自旧 footer 关于栏） -->
           <section v-else data-tab="about" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">关于</p>
+            <SettingsSection :title="'关于'">
+              <div class="about-row">
+                <span class="about-label">{{ $t('app.title') }}</span>
+                <span class="about-value">by MaxNull · v{{ appVersion }}</span>
+              </div>
+              <div class="about-row">
+                <span class="about-label">{{ $t('settings.engineVersion') }}</span>
+                <span class="about-value">{{ engineVersion }}</span>
+              </div>
+              <div class="about-row">
+                <span class="about-label">{{ $t('settings.presetVersion') }}</span>
+                <span class="about-value">{{ presetVersion }}</span>
+              </div>
+              <button type="button" class="f-settings-btn" @click="showChangelog = true">
+                {{ $t('settings.changelog') }}
+              </button>
+            </SettingsSection>
           </section>
         </main>
       </div>
@@ -1016,5 +1089,32 @@ onMounted(async () => {
   height: 1px;
   background: var(--border-dim);
   margin: 2px 0;
+}
+
+/* ── 高级 / 关于 tab ── */
+/* 数据模式提示条：成功绿 / 失败红（复用测试结果语义色） */
+.f-settings-hint--ok {
+  color: #22c55e;
+}
+.f-settings-hint--err {
+  color: #ef4444;
+}
+
+/* 关于信息行：label 12px 次级 + 值 14px 主色 */
+.about-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 0;
+}
+.about-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.about-value {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-bright);
 }
 </style>
