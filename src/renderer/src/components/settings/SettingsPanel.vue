@@ -855,20 +855,22 @@ async function handleCheckUpdates(): Promise<void> {
                 <span class="about-label">{{ $t('settings.presetVersion') }}</span>
                 <span class="about-value">{{ presetVersion }}</span>
               </div>
-              <button type="button" class="f-settings-btn f-settings-btn--about" @click="showChangelog = true">
-                {{ $t('settings.changelog') }}
-              </button>
-              <!-- 更新区块：检查更新按钮 + 状态区（自动更新 2026-08-14；dev 模式主进程不推送，无状态时按钮仍可点） -->
+              <!-- 关于操作行：更新日志 + 检查更新并排（2026-08-14 用户反馈：两按钮一左一右错位，改为同排统一左对齐） -->
               <div class="about-updater">
-                <button
-                  type="button"
-                  class="f-settings-btn about-updater-check"
-                  :disabled="updaterBusy"
-                  @click="handleCheckUpdates"
-                >
-                  <RefreshCw :size="14" :class="{ 'is-spinning': updaterBusy }" />
-                  {{ $t('settings.update.check') }}
-                </button>
+                <div class="about-updater-actions">
+                  <button type="button" class="f-settings-btn" @click="showChangelog = true">
+                    {{ $t('settings.changelog') }}
+                  </button>
+                  <button
+                    type="button"
+                    class="f-settings-btn about-updater-check"
+                    :disabled="updaterBusy"
+                    @click="handleCheckUpdates"
+                  >
+                    <RefreshCw :size="14" :class="{ 'is-spinning': updaterBusy }" />
+                    {{ $t('settings.update.check') }}
+                  </button>
+                </div>
                 <div v-if="updaterState" class="about-updater-status">
                   <span v-if="updaterState.type === 'checking'">{{ $t('settings.update.checking') }}</span>
                   <span v-else-if="updaterState.type === 'not-available'" class="about-updater-ok">
@@ -1075,19 +1077,18 @@ async function handleCheckUpdates(): Promise<void> {
   border-color: var(--accent);
   color: var(--accent);
 }
-/* 关于 tab 的更新日志按钮：独立一行右对齐（about-row 是左右分布行，按钮单独成行需 block 化 + margin-left auto，2026-08-14 用户反馈） */
-.f-settings-btn--about {
-  display: flex;
-  width: fit-content;
-  margin-left: auto;
-  margin-top: 8px;
-}
-/* 更新区块：检查按钮 + 状态区（自动更新 2026-08-14；按钮与状态纵向排列避免挤压版本行） */
+/* 更新区块：按钮行 + 状态区纵向排列（自动更新 2026-08-14；按钮并排左对齐，状态区显示在按钮下方不挤压版本行） */
 .about-updater {
   margin-top: 12px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
+  gap: 8px;
+}
+/* 关于操作行：更新日志 + 检查更新同排（2026-08-14 用户反馈：原来一左一右错位，统一左对齐并排） */
+.about-updater-actions {
+  display: flex;
+  align-items: center;
   gap: 8px;
 }
 .about-updater-status {
