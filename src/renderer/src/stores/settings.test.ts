@@ -487,4 +487,157 @@ describe("settings store", () => {
     expect(jsonc.smallModel).toBe("deepseek/deepseek-v4-flash");
     expect(jsonc["ui.theme"]).toBe("light"); // 保留文件其他字段
   });
+
+  // ── 设置页重构：showThinking / avatarImage / notifications / agentModelOverrides ──
+
+  it("新字段默认值：showThinking=true、avatarImage 空、notifications 5 子项、agentModelOverrides 空", () => {
+    const settings = useSettingsStore();
+    expect(settings.showThinking).toBe(true);
+    expect(settings.avatarImage).toBe("");
+    expect(settings.notifications).toEqual({
+      enabled: false,
+      replyDone: true,
+      engineError: false,
+      permissionPending: false,
+      subtaskDone: false,
+    });
+    expect(settings.agentModelOverrides).toEqual({});
+  });
+
+  it("applySettingsJson 解析 4 个新字段（部分 notifications 子项缺失保留默认）", () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({
+      "ui.showThinking": false,
+      "ui.avatarImage": "avatar.png",
+      "ui.notifications": { enabled: true, replyDone: false, engineError: true },
+      agentModelOverrides: { 双星: "deepseek/deepseek-v4-pro", 工匠: "deepseek/deepseek-v4-flash" },
+    });
+    expect(settings.showThinking).toBe(false);
+    expect(settings.avatarImage).toBe("avatar.png");
+    expect(settings.notifications.enabled).toBe(true);
+    expect(settings.notifications.replyDone).toBe(false);
+    expect(settings.notifications.engineError).toBe(true);
+    // 未提供的子项保留默认（config-changed 广播可能只带部分字段）
+    expect(settings.notifications.permissionPending).toBe(false);
+    expect(settings.notifications.subtaskDone).toBe(false);
+    expect(settings.agentModelOverrides).toEqual({
+      双星: "deepseek/deepseek-v4-pro",
+      工匠: "deepseek/deepseek-v4-flash",
+    });
+  });
+
+  it("applySettingsJson 非法新字段不覆盖（保持当前值）", () => {
+    const settings = useSettingsStore();
+    settings.showThinking = false;
+    settings.avatarImage = "avatar.png";
+    settings.applySettingsJson({ "ui.showThinking": "yes", "ui.avatarImage": 42, "ui.notifications": "on", agentModelOverrides: [] });
+    expect(settings.showThinking).toBe(false);
+    expect(settings.avatarImage).toBe("avatar.png");
+    expect(settings.notifications).toEqual({
+      enabled: false,
+      replyDone: true,
+      engineError: false,
+      permissionPending: false,
+      subtaskDone: false,
+    });
+    expect(settings.agentModelOverrides).toEqual({});
+  });
+
+  it("showThinking 变化持久化到 localStorage（ui 三写链第一链）", async () => {
+    const settings = useSettingsStore();
+    settings.showThinking = false;
+    await nextTick();
+    const parsed = JSON.parse(localStorage.getItem("sb-ui-settings")!);
+    expect(parsed.showThinking).toBe(false);
+  });
+
+  it("showThinking 变化同步写 settings.json（themeSync 防抖链，ui.showThinking 且保留其他字段）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:getConfig") return Promise.resolve({ config: { "ui.theme": "dark" } });
+      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
+      return Promise.resolve({});
+    });
+    settings.showThinking = false;
+    // themeSync 链 800ms 防抖，等待写盘完成
+    await new Promise((r) => setTimeout(r, 900));
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
+    expect(jsonc["ui.showThinking"]).toBe(false);
+    expect(jsonc["ui.theme"]).toBe("dark"); // 保留文件其他字段
+  });
+
+  it("setAgentModelOverride：设置覆盖 → 更新 ref + 合并写 settings.json（agentModelOverrides 顶层字段）", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:getConfig") return Promise.resolve({ config: { "ui.theme": "dark" } });
+      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
+      return Promise.resolve({});
+    });
+    await settings.setAgentModelOverride("双星", "deepseek/deepseek-v4-pro");
+    expect(settings.agentModelOverrides["双星"]).toBe("deepseek/deepseek-v4-pro");
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
+    expect(jsonc.agentModelOverrides).toEqual({ 双星: "deepseek/deepseek-v4-pro" });
+    expect(jsonc["ui.theme"]).toBe("dark"); // 保留文件其他字段
+  });
+
+  it("setAgentModelOverride(null)：删除覆盖，空表时移除 agentModelOverrides key", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "settings:getConfig") return Promise.resolve({ config: { "ui.theme": "dark" } });
+      if (channel === "settings:saveSettings") return Promise.resolve({ ok: true, warnings: [] });
+      return Promise.resolve({});
+    });
+    await settings.setAgentModelOverride("双星", "deepseek/deepseek-v4-pro");
+    await settings.setAgentModelOverride("双星", null);
+    expect(settings.agentModelOverrides["双星"]).toBeUndefined();
+    const saveCalls = bridge.invoke.mock.calls.filter((c) => c[0] === "settings:saveSettings");
+    const jsonc = JSON.parse(saveCalls.at(-1)![1].jsoncText);
+    expect(jsonc.agentModelOverrides).toBeUndefined();
+  });
+
+  it("pickAvatar：bridge 成功 → avatarImage 写入文件名", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "avatar:pick") return Promise.resolve({ ok: true, filename: "avatar.png" });
+      return Promise.resolve({});
+    });
+    await settings.pickAvatar();
+    expect(settings.avatarImage).toBe("avatar.png");
+  });
+
+  it("pickAvatar：用户取消 → avatarImage 不变", async () => {
+    const settings = useSettingsStore();
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "avatar:pick") return Promise.resolve({ ok: false });
+      return Promise.resolve({});
+    });
+    await settings.pickAvatar();
+    expect(settings.avatarImage).toBe("");
+  });
+
+  it("clearAvatar：bridge 成功 → avatarImage 清空（回退 emoji 兜底）", async () => {
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "ui.avatarImage": "avatar.png" });
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke.mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["high", "max"]);
+      if (channel === "avatar:clear") return Promise.resolve({ ok: true });
+      return Promise.resolve({});
+    });
+    await settings.clearAvatar();
+    expect(settings.avatarImage).toBe("");
+  });
 });

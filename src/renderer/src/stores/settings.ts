@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { ref, watch } from "vue";
-import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson, loadModelVariants, stopSession, refreshEngine } from "@/lib/electron-bridge";
+import { saveProviderConfig, loadProviderConfigs, saveUiSettings as saveUiSettingsDb, loadUiSettings as loadUiSettingsDb, listDir, onConfigChanged, getSettingsConfig, saveSettingsJson, loadModelVariants, stopSession, refreshEngine, pickAvatar as pickAvatarBridge, clearAvatar as clearAvatarBridge } from "@/lib/electron-bridge";
 import { useChatStore } from "./chat";
 import { useSessionStore } from "./session";
 
@@ -38,6 +38,20 @@ export function normalizeEffort(v: unknown): Effort {
   }
 }
 
+/** 系统通知场景配置（settings.json ui.notifications；全局开关 + 4 触发点，缺省按此补全） */
+export interface NotificationsConfig {
+  /** 全局通知开关：false 时全部场景静默 */
+  enabled: boolean;
+  /** AI 回答完成（assistant 流结束） */
+  replyDone: boolean;
+  /** 引擎异常退出（非主动停止且非零退出码） */
+  engineError: boolean;
+  /** 权限请求待审批 */
+  permissionPending: boolean;
+  /** 子任务完成 */
+  subtaskDone: boolean;
+}
+
 /** 仅存 localStorage 的 UI 偏好 */
 interface UiSettings {
   planMode: boolean;
@@ -55,6 +69,14 @@ interface UiSettings {
   nickname: string;
   /** 用户头像（emoji 字符串，空=「我」字兜底） */
   avatar: string;
+  /** 思考节点开关（时间线 thinking 节点显隐，v-show 不删数据，切回即恢复） */
+  showThinking: boolean;
+  /** 图片头像文件名（avatar.{png|jpg|jpeg|webp}，存 <userData>/avatar/；空=emoji 兜底） */
+  avatarImage: string;
+  /** 系统通知场景配置（全局开关 + 4 触发点） */
+  notifications: NotificationsConfig;
+  /** 子 agent 模型覆盖（agent 名 → 模型全名 provider/model；空表=全部跟随槽位） */
+  agentModelOverrides: Record<string, string>;
 }
 
 // ── DeepSeek 专属模型列表（分形固定模型 DeepSeek，方案 D16）──
@@ -75,6 +97,12 @@ function getUiDefaults(): UiSettings {
     messageLayout: "split",
     nickname: "",
     avatar: "",
+    // 思考节点默认显示（关闭仅隐藏时间线节点，不删数据）
+    showThinking: true,
+    avatarImage: "",
+    // 通知默认关闭全局开关（不打扰）；单场景勾选保留（全局开启时按场景决定）
+    notifications: { enabled: false, replyDone: true, engineError: false, permissionPending: false, subtaskDone: false },
+    agentModelOverrides: {},
   };
 }
 
@@ -168,6 +196,11 @@ export const useSettingsStore = defineStore("settings", () => {
   const messageLayout = ref<"left" | "split">(ui.messageLayout);
   const nickname = ref(ui.nickname);
   const avatar = ref(ui.avatar);
+  // 设置页重构新字段（同 ui.* 三写；notifications/agentModelOverrides 拷贝副本防共享引用）
+  const showThinking = ref(ui.showThinking);
+  const avatarImage = ref(ui.avatarImage);
+  const notifications = ref<NotificationsConfig>({ ...ui.notifications });
+  const agentModelOverrides = ref<Record<string, string>>({ ...ui.agentModelOverrides });
 
   // settings.json 是否真实存在于磁盘（默认态标记）：不存在时 applySettingsJson 的 ui.theme/ui.language 不覆盖表单（主题持久化）
   const settingsFileExists = ref(false);
@@ -206,6 +239,41 @@ export const useSettingsStore = defineStore("settings", () => {
     const r = await getSettingsConfig();
     const next: Record<string, unknown> = { ...r.config, smallModel: v };
     await saveSettingsJson(JSON.stringify(next, null, 2));
+  }
+
+  // ── 设置页重构：子 agent 模型覆盖 / 头像图片 ──
+
+  /**
+   * 设置/删除子 agent 模型覆盖（settings.json 顶层 agentModelOverrides）。
+   * model=null 删除该 agent 的覆盖（回退槽位默认）；删空后移除 key（settings.json 干净）。
+   * 生效时机：写盘 → config-changed 广播 → applySettingsJson 同步；引擎侧由 syncEngineConfig 联动 applyModelAliases（阶段 1）。
+   */
+  async function setAgentModelOverride(agentName: string, model: string | null) {
+    const next = { ...agentModelOverrides.value };
+    if (model === null) delete next[agentName];
+    else next[agentName] = model;
+    // 先更新 ref：localStorage/SQLite 三写链由 watch 自动触发
+    agentModelOverrides.value = next;
+    // settings.json 合并写（agentModelOverrides 是顶层字段，不走 ui.* 防抖链——独立写避免覆盖冲突）
+    const r = await getSettingsConfig();
+    const cfg: Record<string, unknown> = { ...r.config };
+    if (Object.keys(next).length === 0) delete cfg.agentModelOverrides;
+    else cfg.agentModelOverrides = next;
+    await saveSettingsJson(JSON.stringify(cfg, null, 2));
+  }
+
+  /** 选择头像图片（bridge 弹系统对话框）；成功后写 avatarImage（ui.* 三写链由 watch 自动同步） */
+  async function pickAvatar(): Promise<{ ok: boolean; filename?: string }> {
+    const r = await pickAvatarBridge();
+    if (r.ok && r.filename) avatarImage.value = r.filename;
+    return r;
+  }
+
+  /** 清除头像图片（bridge 删 avatar 目录）；成功后清空 avatarImage（回退 emoji/「我」字兜底） */
+  async function clearAvatar(): Promise<{ ok: boolean }> {
+    const r = await clearAvatarBridge();
+    if (r.ok) avatarImage.value = "";
+    return r;
   }
 
   // ── 引擎/预置配置（settings.json 字段；UI 补全方案 B1，生效时机=下次引擎启动）──
@@ -410,6 +478,32 @@ export const useSettingsStore = defineStore("settings", () => {
     if (typeof config["engine.opencodePath"] === "string") opencodePath.value = config["engine.opencodePath"];
     if (typeof config["engine.logLevel"] === "string" && LOG_LEVEL_OPTIONS.includes(config["engine.logLevel"])) logLevel.value = config["engine.logLevel"];
     if (typeof config["preset.skills.enabled"] === "boolean") presetSkillsEnabled.value = config["preset.skills.enabled"];
+    // 设置页重构新字段（ui.* 三写链同步）：
+    // 思考节点开关（布尔白名单，非法/缺失保持当前值）
+    if (typeof config["ui.showThinking"] === "boolean") showThinking.value = config["ui.showThinking"];
+    // 图片头像文件名（空=emoji 兜底）
+    if (typeof config["ui.avatarImage"] === "string") avatarImage.value = config["ui.avatarImage"];
+    // 通知场景（config-changed 广播可能只带部分子项——缺失子项保留当前值）
+    const notif = config["ui.notifications"];
+    if (notif && typeof notif === "object" && !Array.isArray(notif)) {
+      const n = notif as Record<string, unknown>;
+      notifications.value = {
+        enabled: typeof n.enabled === "boolean" ? n.enabled : notifications.value.enabled,
+        replyDone: typeof n.replyDone === "boolean" ? n.replyDone : notifications.value.replyDone,
+        engineError: typeof n.engineError === "boolean" ? n.engineError : notifications.value.engineError,
+        permissionPending: typeof n.permissionPending === "boolean" ? n.permissionPending : notifications.value.permissionPending,
+        subtaskDone: typeof n.subtaskDone === "boolean" ? n.subtaskDone : notifications.value.subtaskDone,
+      };
+    }
+    // 子 agent 模型覆盖（对象白名单：仅保留字符串值；非字符串条目丢弃——非法覆盖值由 applyModelAliases 白名单兜底）
+    const overrides = config["agentModelOverrides"];
+    if (overrides && typeof overrides === "object" && !Array.isArray(overrides)) {
+      const next: Record<string, string> = {};
+      for (const [k, v] of Object.entries(overrides)) {
+        if (typeof v === "string") next[k] = v;
+      }
+      agentModelOverrides.value = next;
+    }
   }
 
   // 注册 config-changed 事件（主进程 fs.watch settings.json → 广播；agent 工具/GUI 保存三路统一生效）
@@ -460,8 +554,8 @@ export const useSettingsStore = defineStore("settings", () => {
     else localStorage.removeItem(LLM_API_URL_KEY);
   });
 
-  // UI 偏好变更 → 写 localStorage（B1 补 messageLayout/nickname/avatar）
-  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar], () => {
+  // UI 偏好变更 → 写 localStorage（B1 补 messageLayout/nickname/avatar；设置页重构补 showThinking/avatarImage/notifications/agentModelOverrides）
+  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides], () => {
     const s: UiSettings = {
       planMode: planMode.value,
       autoMode: autoMode.value,
@@ -474,6 +568,10 @@ export const useSettingsStore = defineStore("settings", () => {
       messageLayout: messageLayout.value,
       nickname: nickname.value,
       avatar: avatar.value,
+      showThinking: showThinking.value,
+      avatarImage: avatarImage.value,
+      notifications: { ...notifications.value },
+      agentModelOverrides: { ...agentModelOverrides.value },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   }, { deep: true });
@@ -481,7 +579,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // UI 偏好变更 → 写 SQLite（500ms 防抖，不受 Tauri identifier 变更影响）
   let uiDbTimer: ReturnType<typeof setTimeout> | null = null;
   watch(
-    [optimizeApiUrl, theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar],
+    [optimizeApiUrl, theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides],
     () => {
       if (uiDbTimer) clearTimeout(uiDbTimer);
       uiDbTimer = setTimeout(() => {
@@ -501,6 +599,10 @@ export const useSettingsStore = defineStore("settings", () => {
           messageLayout: messageLayout.value,
           nickname: nickname.value,
           avatar: avatar.value,
+          showThinking: showThinking.value,
+          avatarImage: avatarImage.value,
+          notifications: { ...notifications.value },
+          agentModelOverrides: { ...agentModelOverrides.value },
         })).catch(() => {});
       }, 500);
     },
@@ -518,8 +620,9 @@ export const useSettingsStore = defineStore("settings", () => {
   // 修复：①默认态（exists=false）不覆盖表单 ②用户显式切换主题/语言 → 写 settings.json（之后启动以文件为准）
   // 循环防护：写盘 → config-changed 广播 → applySettingsJson 同值 → watch 不触发（值未变），无死循环
   // B1 扩展：messageLayout/nickname/avatar 并入同一防抖链（theme=system 时只写 ui 三字段，不写 theme/locale）
+  // 设置页重构扩展：showThinking/avatarImage/notifications 并入同链（notifications 对象需 deep 监听嵌套子项变化）
   let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  watch([theme, locale, messageLayout, nickname, avatar], () => {
+  watch([theme, locale, messageLayout, nickname, avatar, showThinking, avatarImage, notifications], () => {
     if (themeSyncTimer) clearTimeout(themeSyncTimer);
     // 防抖：连续切换只写一次（saveSettings 会触发引擎联动判断，但纯 UI 项不改 opencode.json）
     themeSyncTimer = setTimeout(() => {
@@ -532,6 +635,9 @@ export const useSettingsStore = defineStore("settings", () => {
           next["ui.messageLayout"] = messageLayout.value;
           next["ui.nickname"] = nickname.value;
           next["ui.avatar"] = avatar.value;
+          next["ui.showThinking"] = showThinking.value;
+          next["ui.avatarImage"] = avatarImage.value;
+          next["ui.notifications"] = { ...notifications.value };
           saveSettingsJson(JSON.stringify(next, null, 2)).catch(() => {
             // 写失败不阻断（settings.json 写入失败仍可运行，仅配置重启不恢复）
             console.error("[settings] 主题同步写 settings.json 失败");
@@ -539,7 +645,7 @@ export const useSettingsStore = defineStore("settings", () => {
         })
         .catch(() => {});
     }, 800);
-  });
+  }, { deep: true });
 
   // ── 引擎/预置字段变更 → 写 settings.json（生效时机=下次引擎启动，注释于设置页 UI）──
   // 与 ui 三字段分开防抖链：引擎字段变更触发 engineSnapshot 联动判断（写 opencode.json），混入会污染
@@ -565,5 +671,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides, setAgentModelOverride, pickAvatar, clearAvatar, optimizeApiUrl, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, resetOnboarding, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
 });
