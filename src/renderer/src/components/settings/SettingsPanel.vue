@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, type Component } from "vu
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "@/stores/settings";
 import { useI18n } from "vue-i18n";
-import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, type DeepSeekBalanceResult } from "@/lib/electron-bridge";
+import { testConnection, testKimiConnection, openDialog, getAppInfo, getBalance, getKimiBalance, checkForUpdates, downloadUpdate, quitAndInstall, onUpdaterStatus, type UpdaterStatus, type DeepSeekBalanceResult } from "@/lib/electron-bridge";
 import { useAvatarImageUrl } from "@/composables/useAvatarImageUrl";
 import { AVATAR_ICONS } from "@/lib/avatar-icons";
 import { ArrowLeft, Settings as SettingsIcon, Palette, Bot, Bell, Wrench, Info, FolderOpen, ImagePlus, Trash2, RefreshCw, Eye, EyeOff } from "lucide-vue-next";
@@ -471,6 +471,35 @@ onMounted(async () => {
     // 桥未就绪/主进程异常 → 保持兜底 '—'，关于区仍显示分形版本
   }
 });
+
+// ── 自动更新：订阅主进程 updater:status，驱动检查按钮/状态区/确认弹窗（2026-08-14）──
+// 状态单例存本地 ref（不引入全局 store）；available 自动弹确认窗，downloaded 自动关窗
+const updaterState = ref<UpdaterStatus | null>(null);
+const updaterBusy = ref(false);
+const updaterConfirmOpen = ref(false);
+let updaterOff: (() => void) | null = null;
+
+onMounted(() => {
+  updaterOff = onUpdaterStatus((s) => {
+    updaterState.value = s;
+    if (s.type === "available") updaterConfirmOpen.value = true;
+    if (s.type === "downloaded") updaterConfirmOpen.value = false;
+  });
+});
+onUnmounted(() => {
+  updaterOff?.();
+});
+
+// 手动检查：busy 期间禁点防重复触发；dev 模式主进程不注册 handler（invoke 无响应），状态区由主进程 error 兜底
+async function handleCheckUpdates(): Promise<void> {
+  if (updaterBusy.value) return;
+  updaterBusy.value = true;
+  try {
+    await checkForUpdates();
+  } finally {
+    updaterBusy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -829,6 +858,40 @@ onMounted(async () => {
               <button type="button" class="f-settings-btn f-settings-btn--about" @click="showChangelog = true">
                 {{ $t('settings.changelog') }}
               </button>
+              <!-- 更新区块：检查更新按钮 + 状态区（自动更新 2026-08-14；dev 模式主进程不推送，无状态时按钮仍可点） -->
+              <div class="about-updater">
+                <button
+                  type="button"
+                  class="f-settings-btn about-updater-check"
+                  :disabled="updaterBusy"
+                  @click="handleCheckUpdates"
+                >
+                  <RefreshCw :size="14" :class="{ 'is-spinning': updaterBusy }" />
+                  {{ $t('settings.update.check') }}
+                </button>
+                <div v-if="updaterState" class="about-updater-status">
+                  <span v-if="updaterState.type === 'checking'">{{ $t('settings.update.checking') }}</span>
+                  <span v-else-if="updaterState.type === 'not-available'" class="about-updater-ok">
+                    {{ $t('settings.update.latest') }} (v{{ updaterState.version }})
+                  </span>
+                  <span v-else-if="updaterState.type === 'progress'">
+                    {{ $t('settings.update.downloading') }} {{ Math.round(updaterState.percent ?? 0) }}%
+                  </span>
+                  <span v-else-if="updaterState.type === 'downloaded'">
+                    <span class="about-updater-ok">v{{ updaterState.version }} · {{ $t('settings.update.restart') }}</span>
+                    <button
+                      type="button"
+                      class="f-settings-btn about-updater-restart"
+                      @click="quitAndInstall()"
+                    >
+                      {{ $t('settings.update.restart') }}
+                    </button>
+                  </span>
+                  <span v-else-if="updaterState.type === 'error'" class="about-updater-error">
+                    {{ $t('settings.update.error') }}：{{ updaterState.message }}
+                  </span>
+                </div>
+              </div>
             </SettingsSection>
           </section>
         </main>
@@ -840,6 +903,29 @@ onMounted(async () => {
       <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">{{ $t('settings.changelog') }}</span>
     </template>
     <MarkdownRenderer :content="changelogContent" />
+  </ModalShell>
+  <!-- 自动更新确认弹窗：发现新版 → 展示版本与变更摘要 → 立即更新/稍后（自动更新 2026-08-14） -->
+  <ModalShell :open="updaterConfirmOpen" size="sm" @close="updaterConfirmOpen = false">
+    <template #header>
+      <span class="text-sm font-semibold" :style="{ color: 'var(--text-bright)' }">
+        {{ $t('settings.update.confirmTitle') }} v{{ updaterState?.version }}
+      </span>
+    </template>
+    <div class="about-updater-notes">
+      {{ updaterState?.releaseNotes || $t('settings.update.noNotes') }}
+    </div>
+    <template #footer>
+      <button type="button" class="f-settings-btn" @click="updaterConfirmOpen = false">
+        {{ $t('modal.cancel') }}
+      </button>
+      <button
+        type="button"
+        class="f-settings-btn about-updater-confirm-btn"
+        @click="downloadUpdate(); updaterConfirmOpen = false"
+      >
+        {{ $t('settings.update.download') }}
+      </button>
+    </template>
   </ModalShell>
   <!-- API Key 变更引导弹窗：blur 检测变化后自动「测试连接 → 保存并重启引擎」，弹窗只做进度/结果反馈 -->
   <KeyChangeDialog
@@ -996,6 +1082,35 @@ onMounted(async () => {
   margin-left: auto;
   margin-top: 8px;
 }
+/* 更新区块：检查按钮 + 状态区（自动更新 2026-08-14；按钮与状态纵向排列避免挤压版本行） */
+.about-updater {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.about-updater-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+/* 更新状态文案：成功/失败语义色（状态行级，非按钮色） */
+.about-updater-ok { color: var(--el-color-success); }
+.about-updater-error { color: var(--el-color-danger); }
+/* 变更摘要：保留换行，长文本可滚动（不撑爆弹窗） */
+.about-updater-notes {
+  white-space: pre-wrap;
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-height: 240px;
+  overflow: auto;
+}
+/* 检查中图标旋转：busy 态视觉反馈（无动画时保持静态图标） */
+.is-spinning { animation: about-updater-spin 1s linear infinite; }
+@keyframes about-updater-spin { to { transform: rotate(360deg); } }
 /* 危险操作（清除头像）：hover 红色提示 */
 .f-settings-btn--danger:hover {
   border-color: var(--danger, #ef4444);

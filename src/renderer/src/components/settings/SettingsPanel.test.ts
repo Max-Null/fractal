@@ -23,6 +23,10 @@ vi.mock("@/lib/electron-bridge", async () => {
   return { ...actual, getAvatarPath: getAvatarPathMock };
 });
 
+// 自动更新状态回调捕获：组件 onUpdaterStatus 订阅经 window.electronBridge.on 落地，
+// 测试保存 handler 手动触发各状态（available/progress/downloaded/error）
+const updaterStateHandler = vi.hoisted(() => ({ handler: null as null | ((s: unknown) => void) }));
+
 const i18n = createI18n({
   legacy: false,
   locale: "en",
@@ -135,6 +139,20 @@ const i18n = createI18n({
         notifyPermissionPendingDesc: "Send a notification when a tool call awaits approval",
         notifySubtaskDone: "Subtask Complete",
         notifySubtaskDoneDesc: "Send a notification when a subtask/phase completes",
+        update: {
+          check: "Check for Updates",
+          checking: "Checking…",
+          latest: "You're up to date",
+          found: "New version available",
+          download: "Update Now",
+          downloading: "Downloading…",
+          restart: "Restart & Install",
+          error: "Update check failed",
+          noNotes: "No release notes",
+          devMode: "Unavailable in dev mode",
+          confirmTitle: "New version available",
+          confirmDesc: "Download and install now?",
+        },
       },
       mode: {
         askBefore: "Ask before edits", editAuto: "Edit auto",
@@ -166,10 +184,11 @@ describe("SettingsPanel", () => {
   beforeEach(async () => {
     localStorage.clear();
     getAvatarPathMock.mockReset();
+    updaterStateHandler.handler = null;
     // mock electronBridge：默认模型（flash）variants 返回 3 档——
     // store 的 watch(model, immediate) 经此拉取，effort 下拉显示、触发器计数保持 6；
     // app:getInfo 返回三版本（关于区 onMounted 异步拉取）
-    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: (c: string, h: (s: unknown) => void) => () => void } }).electronBridge = {
       invoke: (channel: string) => {
         if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
         if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
@@ -179,9 +198,14 @@ describe("SettingsPanel", () => {
         // 头像图片：pick 成功返回文件名（avatarImage 状态写入）；clear 成功返回 ok
         if (channel === "avatar:pick") return Promise.resolve({ ok: true, filename: "avatar.png" });
         if (channel === "avatar:clear") return Promise.resolve({ ok: true });
+        // 自动更新 IPC：check/download/quit-and-install 均为无返回值调用
+        if (channel.startsWith("updater:")) return Promise.resolve(undefined);
         return Promise.resolve({});
       },
-      on: () => () => {},
+      on: (channel: string, handler: (s: unknown) => void) => {
+        if (channel === "updater:status") updaterStateHandler.handler = handler;
+        return () => {};
+      },
     };
     pinia = createPinia();
     setActivePinia(pinia);
@@ -824,5 +848,98 @@ describe("SettingsPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  // ── 自动更新（关于 tab 更新区块：检查按钮 + 状态区 + 确认弹窗）──
+
+  it("about tab shows updater section with check button", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const tab = wrapper.find("[data-tab='about']");
+    const checkBtn = tab.find(".about-updater-check");
+    expect(checkBtn.exists()).toBe(true);
+    expect(checkBtn.text()).toContain("Check for Updates");
+  });
+
+  it("clicking check button invokes updater:check IPC", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel.startsWith("updater:")) return Promise.resolve(undefined);
+      return Promise.resolve({});
+    });
+    await wrapper.find("[data-tab='about'] .about-updater-check").trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "updater:check")).toBe(true);
+  });
+
+  it("updater status available opens confirm dialog and download works", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel.startsWith("updater:")) return Promise.resolve(undefined);
+      return Promise.resolve({});
+    });
+    // 触发 available 状态 → 弹窗出现
+    updaterStateHandler.handler?.({ type: "available", version: "1.2.0", releaseNotes: "fix bugs" });
+    await wrapper.vm.$nextTick();
+    expect(document.body.textContent).toContain("New version available");
+    // 弹窗点「Update Now」→ 调 downloadUpdate（updater:download）
+    const confirmBtn = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => b.textContent === "Update Now");
+    expect(confirmBtn).toBeTruthy();
+    confirmBtn!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "updater:download")).toBe(true);
+    // 清理弹窗（Teleport 残留）
+    const closeBtn = document.body.querySelector<HTMLButtonElement>(".modal-shell-close");
+    closeBtn?.click();
+    await wrapper.vm.$nextTick();
+  });
+
+  it("updater status progress renders percent in state area", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    updaterStateHandler.handler?.({ type: "progress", percent: 42 });
+    await wrapper.vm.$nextTick();
+    const tab = wrapper.find("[data-tab='about']");
+    expect(tab.find(".about-updater-status").text()).toContain("42%");
+  });
+
+  it("updater status downloaded shows restart and triggers quit-and-install", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel.startsWith("updater:")) return Promise.resolve(undefined);
+      return Promise.resolve({});
+    });
+    updaterStateHandler.handler?.({ type: "downloaded", version: "1.2.0" });
+    await wrapper.vm.$nextTick();
+    const tab = wrapper.find("[data-tab='about']");
+    const restartBtn = tab.find(".about-updater-restart");
+    expect(restartBtn.exists()).toBe(true);
+    await restartBtn.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(bridge.invoke.mock.calls.some((c) => c[0] === "updater:quit-and-install")).toBe(true);
+  });
+
+  it("updater status error renders message", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    updaterStateHandler.handler?.({ type: "error", message: "网络连接失败，请检查网络后重试" });
+    await wrapper.vm.$nextTick();
+    const tab = wrapper.find("[data-tab='about']");
+    expect(tab.find(".about-updater-status").text()).toContain("Update check failed");
+    expect(tab.find(".about-updater-status").text()).toContain("网络连接失败，请检查网络后重试");
   });
 });
