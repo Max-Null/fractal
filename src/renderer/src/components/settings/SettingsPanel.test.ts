@@ -494,4 +494,41 @@ describe("SettingsPanel", () => {
     await scoutItem.trigger("click");
     expect(settings.currentAgent).toBe("侦查兵");
   });
+
+  // ── 通知 tab：全局开关 + 4 场景 ──
+
+  it("notify tab renders global toggle and 4 scenario toggles", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[3].trigger("click");
+    const tab = wrapper.find("[data-tab='notify']");
+    expect(tab.text()).toContain("全局通知开关");
+    expect(tab.text()).toContain("AI 回答完成");
+    expect(tab.text()).toContain("引擎异常");
+    expect(tab.text()).toContain("权限请求待处理");
+    expect(tab.text()).toContain("子任务完成");
+    // 全局关时场景开关禁用（D15：opt-in）；全局开关自身不禁用
+    const switches = tab.findAll(".settings-toggle__switch");
+    expect(switches.length).toBe(5);
+    expect((switches[0].element as HTMLButtonElement).disabled).toBe(false);
+    for (let i = 1; i < switches.length; i++) {
+      expect((switches[i].element as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("notification toggle switches store.notifications", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[3].trigger("click");
+    const settings = useSettingsStore();
+    // 默认全局关
+    expect(settings.notifications.enabled).toBe(false);
+    // 打开全局开关（第一个 toggle）
+    const switches = wrapper.find("[data-tab='notify']").findAll(".settings-toggle__switch");
+    await switches[0].trigger("click");
+    expect(settings.notifications.enabled).toBe(true);
+    // 开启后场景开关可操作：切 replyDone
+    await switches[1].trigger("click");
+    expect(settings.notifications.replyDone).toBe(false);
+    await switches[1].trigger("click");
+    expect(settings.notifications.replyDone).toBe(true);
+  });
 });

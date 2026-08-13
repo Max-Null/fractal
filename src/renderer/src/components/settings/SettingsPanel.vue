@@ -715,9 +715,42 @@ onMounted(async () => {
             </SettingsSection>
           </section>
 
-          <!-- 通知（4.5 填充） -->
+          <!-- 通知：全局开关 + 4 场景（全局关时场景禁用；D15 默认关，开全局后 replyDone 默认开） -->
           <section v-else-if="activeTab === 'notify'" data-tab="notify" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">通知设置</p>
+            <SettingsSection title="通知">
+              <div class="f-settings-fields">
+                <SettingsToggle
+                  v-model="settings.notifications.enabled"
+                  label="全局通知开关"
+                  desc="关闭后所有系统通知都不发送（开启时 AI 回答完成默认开，其余默认关）"
+                />
+                <div class="f-settings-divider" />
+                <SettingsToggle
+                  v-model="settings.notifications.replyDone"
+                  label="AI 回答完成"
+                  desc="AI 生成完回复时发送通知"
+                  :disabled="!settings.notifications.enabled"
+                />
+                <SettingsToggle
+                  v-model="settings.notifications.engineError"
+                  label="引擎异常"
+                  desc="serve 引擎启动失败或崩溃时发送通知"
+                  :disabled="!settings.notifications.enabled"
+                />
+                <SettingsToggle
+                  v-model="settings.notifications.permissionPending"
+                  label="权限请求待处理"
+                  desc="工具调用等待权限批准时发送通知"
+                  :disabled="!settings.notifications.enabled"
+                />
+                <SettingsToggle
+                  v-model="settings.notifications.subtaskDone"
+                  label="子任务完成"
+                  desc="子任务/阶段完成时发送通知"
+                  :disabled="!settings.notifications.enabled"
+                />
+              </div>
+            </SettingsSection>
           </section>
 
           <!-- 高级（4.6 填充） -->
@@ -975,5 +1008,13 @@ onMounted(async () => {
 .test-result--err {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.08);
+}
+
+/* ── 通知 tab ── */
+/* 全局开关与场景列表的分隔线：次级色细线，视觉分组 */
+.f-settings-divider {
+  height: 1px;
+  background: var(--border-dim);
+  margin: 2px 0;
 }
 </style>
