@@ -90,6 +90,10 @@ const i18n = createI18n({
         askBefore: "Ask before edits", editAuto: "Edit auto",
         plan: "Plan mode", auto: "Auto mode",
         bypass: "Bypass", dontAsk: "Don't Ask",
+        planDesc: "Plan-only mode",
+        askBeforeDesc: "Ask before every change",
+        editAutoDesc: "Auto-accept file edits",
+        bypassDesc: "No permission prompts",
         effort: { low: "Low", high: "High", max: "Max" },
       },
       app: { title: "Fractal" },
@@ -370,5 +374,124 @@ describe("SettingsPanel", () => {
     const testBtn = wrapper.findAll("button").find((b) => b.text().includes("Test Connection"));
     expect(testBtn).toBeTruthy();
     expect(testBtn!.attributes("disabled")).toBeUndefined();
+  });
+
+  // ── AI行为 tab：默认主 Agent / 子 agent 模型 / 权限模式 / 思考深度 / 思考节点 / 轻量模型 ──
+
+  /** 切到 AI行为 tab（索引 2） */
+  async function switchToBehaviorTab(wrapper: ReturnType<typeof mountPanel>) {
+    await wrapper.findAll(".f-settings-nav-item")[2].trigger("click");
+    return wrapper.find("[data-tab='behavior']");
+  }
+
+  it("behavior tab renders agent, subagent, permission, effort, thinking, small model controls", async () => {
+    const wrapper = mountPanel();
+    const tab = await switchToBehaviorTab(wrapper);
+    expect(tab.text()).toContain("默认主 Agent");
+    // 7 个子 agent 模型行（label 含 agent 名 + 槽位）
+    expect(tab.text()).toContain("双星（high）");
+    expect(tab.text()).toContain("侦查兵（anthropic）");
+    expect(tab.text()).toContain("制图师（vision）");
+    expect(tab.text()).toContain("Permission Mode");
+    expect(tab.text()).toContain("Effort Level");
+    expect(tab.text()).toContain("思考节点");
+    expect(tab.text()).toContain("Lightweight Model");
+    // 子 agent 行数 = 7
+    const subagentSelects = tab.findAll(".settings-select__trigger");
+    expect(subagentSelects.length).toBeGreaterThanOrEqual(7);
+  });
+
+  it("subagent model default select shows 跟随默认（当前值） with slot-aligned value", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    // 双星（high）→ 跟随默认显示主模型名
+    const tab = wrapper.find("[data-tab='behavior']");
+    const fields = tab.findAll(".settings-field");
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
+    expect(twinField.text()).toContain(`跟随默认（${settings.model}）`);
+  });
+
+  it("subagent model select 跟随默认 → setAgentModelOverride(name, null)", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    // 先设置一个 override，再选「跟随默认」应清空
+    settings.setAgentModelOverride("双星", "deepseek/deepseek-v4-pro");
+    await wrapper.vm.$nextTick();
+    const spy = vi.spyOn(settings, "setAgentModelOverride");
+    const tab = wrapper.find("[data-tab='behavior']");
+    const fields = tab.findAll(".settings-field");
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
+    await twinField.find(".settings-select__trigger").trigger("click");
+    const followItem = wrapper.findAll(".settings-select__item").find((i) => i.text().startsWith("跟随默认"))!;
+    await followItem.trigger("click");
+    expect(spy).toHaveBeenCalledWith("双星", null);
+    expect(settings.agentModelOverrides["双星"]).toBeUndefined();
+  });
+
+  it("subagent model select 具体模型 → setAgentModelOverride(name, 全名)", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    const spy = vi.spyOn(settings, "setAgentModelOverride");
+    const tab = wrapper.find("[data-tab='behavior']");
+    const fields = tab.findAll(".settings-field");
+    const twinField = fields.find((f) => f.find(".settings-field__label").text() === "双星（high）")!;
+    await twinField.find(".settings-select__trigger").trigger("click");
+    const proItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "deepseek-v4-pro")!;
+    await proItem.trigger("click");
+    expect(spy).toHaveBeenCalledWith("双星", "deepseek/deepseek-v4-pro");
+    expect(settings.agentModelOverrides["双星"]).toBe("deepseek/deepseek-v4-pro");
+  });
+
+  it("subagent model candidates are whitelist-limited per agent (侦查兵 ds-anthropic)", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const tab = wrapper.find("[data-tab='behavior']");
+    const fields = tab.findAll(".settings-field");
+    const scoutField = fields.find((f) => f.find(".settings-field__label").text() === "侦查兵（anthropic）")!;
+    await scoutField.find(".settings-select__trigger").trigger("click");
+    const items = wrapper.findAll(".settings-select__item").map((i) => i.text());
+    // 侦查兵白名单：ds-anthropic flash/pro（不含 deepseek 前缀）
+    expect(items).toContain("deepseek-v4-flash");
+    expect(items).toContain("deepseek-v4-pro");
+    // 跟随默认显示 ds-anthropic/deepseek-v4-flash（ANTHROPIC_MODEL 固定值）
+    expect(items.some((t) => t.includes("ds-anthropic/deepseek-v4-flash"))).toBe(true);
+  });
+
+  it("subagent default value follows smallModel switch (low slot 工匠)", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    const tab = wrapper.find("[data-tab='behavior']");
+    // 轻量模型选 pro → 工匠（low）跟随默认显示 pro
+    settings.smallModel = "deepseek/deepseek-v4-pro";
+    await wrapper.vm.$nextTick();
+    const fields = tab.findAll(".settings-field");
+    const artisanField = fields.find((f) => f.find(".settings-field__label").text() === "工匠（low）")!;
+    expect(artisanField.text()).toContain("deepseek/deepseek-v4-pro");
+  });
+
+  it("thinking toggle switches store.showThinking", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    expect(settings.showThinking).toBe(true);
+    const toggle = wrapper.find("[data-tab='behavior'] .settings-toggle__switch");
+    await toggle.trigger("click");
+    expect(settings.showThinking).toBe(false);
+  });
+
+  it("default agent select writes store.currentAgent", async () => {
+    const wrapper = mountPanel();
+    await switchToBehaviorTab(wrapper);
+    const settings = useSettingsStore();
+    const fields = wrapper.find("[data-tab='behavior']").findAll(".settings-field");
+    const agentField = fields.find((f) => f.find(".settings-field__label").text() === "默认主 Agent")!;
+    await agentField.find(".settings-select__trigger").trigger("click");
+    const scoutItem = wrapper.findAll(".settings-select__item").find((i) => i.text() === "侦查兵")!;
+    await scoutItem.trigger("click");
+    expect(settings.currentAgent).toBe("侦查兵");
   });
 });

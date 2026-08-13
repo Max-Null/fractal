@@ -165,6 +165,10 @@ const permOptions: PermOption[] = [
   { value: "acceptEdits",cliKey: "acceptEdits",      labelKey: "mode.editAuto",   descKey: "mode.editAutoDesc" },
   { value: "bypassPermissions", cliKey: "bypassPermissions", labelKey: "mode.bypass", descKey: "mode.bypassDesc" },
 ];
+// SettingsSelect 消费 {value,label,desc}：i18n key 即时翻译
+const permSelectOptions = computed(() =>
+  permOptions.map((o) => ({ value: o.value, label: t(o.labelKey), desc: t(o.descKey) })),
+);
 
 // ── 思考深度选项（variant 语义：选项 = 当前模型可用 variants 的映射子集，映射表仅 low/high/max 三档）──
 interface EffortOption { value: import("@/stores/settings").Effort; cliKey: string; labelKey: string; color: string }
@@ -182,14 +186,18 @@ const effortOptions = computed<EffortOption[]>(() => {
 });
 /** effort 空（模型无 variants）时回退第一个可用档，避免 find 非空断言崩溃 */
 const currentEffort = computed(() => effortOptions.value.find(o => o.value === settings.effort) ?? effortOptions.value[0]);
+// SettingsSelect 消费 {value,label,desc}：cliKey 展示为 desc（对齐旧下拉的 CLI 参数小字）
+const effortSelectOptions = computed(() =>
+  effortOptions.value.map((o) => ({ value: o.value, label: t(o.labelKey), desc: o.cliKey })),
+);
 
 // ── 轻量模型选项（LOW 槽位：标题生成/会话摘要/消息润色；值=模型全名，空=跟随主模型）──
-const smallModelOptions: Array<{ value: string; labelKey: string }> = [
-  { value: "", labelKey: "settings.smallModelFollow" },
-  { value: "deepseek/deepseek-v4-flash", labelKey: "settings.smallModelFlash" },
-  { value: "deepseek/deepseek-v4-pro", labelKey: "settings.smallModelPro" },
-];
-const currentSmallModel = computed(() => smallModelOptions.find(o => o.value === settings.smallModel) ?? smallModelOptions[0]);
+const smallModelOptions = computed(() => [
+  { value: "", label: t("settings.smallModelFollow") },
+  { value: "deepseek/deepseek-v4-flash", label: t("settings.smallModelFlash") },
+  { value: "deepseek/deepseek-v4-pro", label: t("settings.smallModelPro") },
+]);
+const currentSmallModel = computed(() => smallModelOptions.value.find(o => o.value === settings.smallModel) ?? smallModelOptions.value[0]);
 
 /** 选择轻量模型 → 立即写 settings.json（主进程 saveSettings 引擎联动自动同步 opencode.json small_model，无需重启） */
 async function handleSmallModelSelect(v: string) {
@@ -201,6 +209,9 @@ async function handleSmallModelSelect(v: string) {
     console.error("[settings] 轻量模型保存 settings.json 失败", v);
   }
 }
+
+// ── 默认主 Agent 选项（7 agent，写 store.currentAgent）──
+const agentOptions = computed(() => SUBAGENT_ORDER.map((name) => ({ value: name, label: name })));
 
 // ── 语言 / 主题 / 字号 / 排布选项（SettingsSelect 直接消费 {value,label}；i18n key 即时翻译）──
 const langOptions = computed(() => [
@@ -254,6 +265,69 @@ async function handleOpencodePathPick() {
 // ── 模型预设（DeepSeek 专属，store 已固定）──
 // SettingsSelect 消费 {value,label}；label 直接显示模型名（store 的 models 是显示名数组）
 const modelPresets = computed(() => settings.models.map((m) => ({ value: m, label: m })));
+
+// ── 子 agent 模型（AI行为 tab）：槽位映射与后端 applyModelAliases 精确对齐 ──
+// 后端 preset.ts slotValues：high=主模型、low=轻量模型(空→SMALL_MODEL flash 兜底)、
+// vision=moonshotai-cn/kimi-k3、anthropic=ds-anthropic/deepseek-v4-flash、inherit=继承主模型
+// 白名单与 preset.ts AGENT_MODEL_WHITELIST 一致：按 agent 能力限定候选模型
+const AGENT_MODEL_WHITELIST: Record<string, string[]> = {
+  双星: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+  工匠: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+  助理: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+  参谋: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+  军师: ["deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"],
+  侦查兵: ["ds-anthropic/deepseek-v4-flash", "ds-anthropic/deepseek-v4-pro"],
+  制图师: ["moonshotai-cn/kimi-k3"],
+};
+
+// 槽位映射：7 agent → slot（与 agents-manifest.json 契约一致）
+const AGENT_SLOTS: Record<string, "high" | "low" | "vision" | "anthropic" | "inherit"> = {
+  双星: "high",
+  工匠: "low",
+  助理: "low",
+  参谋: "inherit",
+  军师: "inherit",
+  侦查兵: "anthropic",
+  制图师: "vision",
+};
+
+// 子 agent 模型下拉顺序（设计文档 5.4.2 表格顺序）
+const SUBAGENT_ORDER = ["双星", "工匠", "助理", "参谋", "军师", "侦查兵", "制图师"];
+
+/**
+ * 「跟随默认」显示值：与后端 slotValues 精确对齐，随主模型/轻量模型切换实时变化（computed）。
+ * - high/inherit → 主模型（settings.model 显示名，inherit 不写 model 行=继承主模型）
+ * - low → 轻量模型（settings.smallModel 空 → SMALL_MODEL 'deepseek/deepseek-v4-flash' 兜底）
+ * - vision → moonshotai-cn/kimi-k3（固定）；anthropic → ds-anthropic/deepseek-v4-flash（固定）
+ */
+function agentSlotDefault(name: string): string {
+  const slot = AGENT_SLOTS[name];
+  if (slot === "low") return settings.smallModel || "deepseek/deepseek-v4-flash";
+  if (slot === "vision") return "moonshotai-cn/kimi-k3";
+  if (slot === "anthropic") return "ds-anthropic/deepseek-v4-flash";
+  return settings.model;
+}
+
+/** 子 agent 模型下拉选项：「跟随默认（当前值）」 + 白名单候选（label 用短名，value 用全名） */
+function subagentModelOptions(name: string): Array<{ value: string; label: string }> {
+  return [
+    { value: "", label: `跟随默认（${agentSlotDefault(name)}）` },
+    ...AGENT_MODEL_WHITELIST[name].map((m) => ({
+      value: m,
+      label: m.replace(/^[^/]+\//, ""),  // 去 provider 前缀：deepseek-v4-flash / kimi-k3
+    })),
+  ];
+}
+
+/** 子 agent 模型当前值：overrides 无条目 = 跟随默认（空串） */
+function subagentModelValue(name: string): string {
+  return settings.agentModelOverrides[name] ?? "";
+}
+
+/** 选择子 agent 模型：跟随默认 → setAgentModelOverride(name, null) 删条目；具体模型 → 写全名 */
+function handleSubagentModelChange(name: string, v: string) {
+  settings.setAgentModelOverride(name, v ? v : null);
+}
 
 // ── 连接测试 ──
 const testResult = ref<ConnectionTestResult | null>(null);
@@ -590,9 +664,55 @@ onMounted(async () => {
             </SettingsSection>
           </section>
 
-          <!-- AI行为（4.4 填充） -->
+          <!-- AI行为：默认主 Agent/子 agent 模型/权限模式/思考深度/思考节点/轻量模型 -->
           <section v-else-if="activeTab === 'behavior'" data-tab="behavior" class="f-settings-tab">
-            <p class="f-settings-tab-placeholder">AI 行为设置</p>
+            <SettingsSection title="Agent">
+              <div class="f-settings-fields">
+                <!-- 默认主 Agent：7 agent 选择，写 store.currentAgent -->
+                <SettingsSelect v-model="settings.currentAgent" :label="'默认主 Agent'" :options="agentOptions" />
+              </div>
+            </SettingsSection>
+
+            <!-- 子 agent 模型：7 行，每行「跟随默认（当前值）」+ 白名单候选（与后端 applyModelAliases 对齐） -->
+            <SettingsSection title="子 agent 模型">
+              <div class="f-settings-fields">
+                <SettingsSelect
+                  v-for="name in SUBAGENT_ORDER"
+                  :key="name"
+                  :model-value="subagentModelValue(name)"
+                  :label="`${name}（${AGENT_SLOTS[name]}）`"
+                  :options="subagentModelOptions(name)"
+                  @update:model-value="(v: string) => handleSubagentModelChange(name, v)"
+                />
+              </div>
+            </SettingsSection>
+
+            <SettingsSection :title="$t('settings.defaultMode')">
+              <div class="f-settings-fields">
+                <!-- 权限模式：activeMode computed 双向绑定（plan/auto 与 permissionMode 三联动） -->
+                <SettingsSelect v-model="activeMode" :label="$t('settings.defaultMode')" :options="permSelectOptions" />
+                <!-- 思考深度：仅当前模型支持 variants 时显示（modelVariants 为空 → 隐藏下拉） -->
+                <SettingsSelect
+                  v-if="effortSelectOptions.length > 0"
+                  v-model="settings.effort"
+                  :label="$t('settings.defaultEffort')"
+                  :options="effortSelectOptions"
+                />
+                <!-- 思考节点开关：控制时间线节点显隐（v-show，数据不删） -->
+                <SettingsToggle
+                  v-model="settings.showThinking"
+                  label="思考节点"
+                  desc="在时间线中显示 AI 思考过程节点（仅隐藏，不删除数据）"
+                />
+                <!-- 轻量模型：LOW 槽位默认值来源（标题/摘要/润色等轻任务），选完立即写 settings.json -->
+                <SettingsSelect
+                  :model-value="currentSmallModel.value"
+                  :label="$t('settings.smallModel')"
+                  :options="smallModelOptions"
+                  @update:model-value="handleSmallModelSelect"
+                />
+              </div>
+            </SettingsSection>
           </section>
 
           <!-- 通知（4.5 填充） -->
