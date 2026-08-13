@@ -1,7 +1,7 @@
 ﻿// IPC 通道注册：renderer 桥（electronBridge）的本地能力实现
 // 通道前缀约定：fs: / git: / settings: / logs: / dialog: / pdf:
 // 引擎通道（chat: / session: / message: / permission:）阶段 4 接入 serve
-import { app, dialog, ipcMain, shell, BrowserWindow } from 'electron'
+import { app, dialog, ipcMain, shell, BrowserWindow, Notification } from 'electron'
 import { promises as fsp } from 'node:fs'
 import { join, dirname, basename, extname, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -630,6 +630,15 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   ipcMain.handle('settings:getSchema', async () => {
     // settings.schema.json 内容——SettingsJsonEditor 编辑器提示用
     return getSettingsSchema()
+  })
+
+  // 系统通知（设置页「通知」场景触发）：Windows 通知受限/系统禁用时 show 可能抛错——吞掉不阻断主流程
+  ipcMain.handle('notification:show', (_e, args: { title: string; body: string }) => {
+    try {
+      new Notification({ title: args.title, body: args.body }).show()
+    } catch {
+      /* 通知失败静默（不阻断调用方） */
+    }
   })
 
   // ── 会话日志持久化（userData/session-logs/{sessionId}/）+ serve 引擎日志（userData/logs/serve.log）──

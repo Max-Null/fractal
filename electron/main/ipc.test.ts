@@ -26,6 +26,11 @@ const electronMock = vi.hoisted(() => ({
     webContents: { on: ReturnType<typeof vi.fn>; printToPDF: ReturnType<typeof vi.fn> }
     destroy: ReturnType<typeof vi.fn>
   }>,
+  // notification:show mock：构造返回 { show } 实例，构造参数经 mock.calls 断言，show 经 mock.results 断言
+  // 注意必须用普通 function（箭头函数不可作为构造函数，new 调用会抛 TypeError）
+  Notification: vi.fn(function (this: unknown, opts: unknown) {
+    return { show: vi.fn(), opts }
+  }),
 }))
 vi.mock('electron', () => ({
   app: electronMock.app,
@@ -51,6 +56,7 @@ vi.mock('electron', () => ({
       return inst
     }
   },
+  Notification: electronMock.Notification,
 }))
 
 // ipc.ts v1.1.0 起 app:getInfo 值导入引擎/预置版本查询——mock 注入固定值，避免真执行 opencode --version（~100ms）
@@ -1191,5 +1197,37 @@ describe('avatar IPC（图片头像 pick/clear/getPath）', () => {
     registerIpcHandlers()
     const r = (await getHandler('avatar:getPath')()) as string
     expect(r).toBe(join(userDataDir, 'avatar'))
+  })
+})
+
+describe('notification:show（系统通知 IPC）', () => {
+  beforeEach(() => {
+    electronMock.handleCalls.length = 0
+    electronMock.Notification.mockClear()
+  })
+
+  const getHandler = () => {
+    const call = electronMock.handleCalls.find((c) => c.channel === 'notification:show')
+    if (!call) throw new Error('notification:show handler 未注册')
+    return call.handler
+  }
+
+  it('调用 → new Notification({title, body}) 且 show() 被调', async () => {
+    registerIpcHandlers()
+    const r = (await getHandler()({}, { title: '任务完成', body: '生成 3 个文件' })) as undefined
+    expect(r).toBeUndefined()
+    expect(electronMock.Notification).toHaveBeenCalledTimes(1)
+    expect(electronMock.Notification.mock.calls[0][0]).toEqual({ title: '任务完成', body: '生成 3 个文件' })
+    const inst = electronMock.Notification.mock.results[0].value as { show: ReturnType<typeof vi.fn> }
+    expect(inst.show).toHaveBeenCalled()
+  })
+
+  it('Notification 构造抛错 → 静默吞掉不抛出（通知失败不阻断主流程）', async () => {
+    electronMock.Notification.mockImplementationOnce(function () {
+      throw new Error('notification backend unavailable')
+    })
+    registerIpcHandlers()
+    // handler 同步返回 undefined（非 Promise），直接断言调用不抛
+    expect(() => getHandler()({}, { title: 't', body: 'b' })).not.toThrow()
   })
 })
