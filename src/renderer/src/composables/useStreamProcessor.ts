@@ -144,7 +144,7 @@ export function useStreamProcessor() {
   /**
    * 需要用户操作的通知（permissionPending 场景）：
    * approval（权限审批）→「权限请求 / 有新的权限请求待处理」；
-   * question（AI 提问）→「需要你的决策 / AI 正在等待你的回答」。
+   * question（AI 提问）→「需要你的回复 / AI 向你提出了一个问题」。
    * 2026-08-15 用户反馈：提问弹窗时误弹「权限请求」——两种弹窗都要提示用户，但文案必须区分。
    */
   async function notifyPermissionPending(subtype: string) {

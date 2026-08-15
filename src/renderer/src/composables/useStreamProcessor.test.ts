@@ -774,7 +774,7 @@ describe("useStreamProcessor", () => {
     stopListening();
   });
 
-  it("control_request question 事件 + enabled&permissionPending → 提问通知（文案「需要你的决策」，不误报权限请求——2026-08-15 用户反馈）", async () => {
+  it("control_request question 事件 + enabled&permissionPending → 提问通知（文案「需要你的回复」，不误报权限请求——2026-08-15 用户反馈）", async () => {
     const session = useSessionStore();
     session.setActiveSession("ses-n4q");
     useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: true, subtaskDone: false };

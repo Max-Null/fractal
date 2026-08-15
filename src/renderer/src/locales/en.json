@@ -273,8 +273,8 @@
     "notificationReplyDoneBodyDuration": "Took {duration}s",
     "notificationPermissionTitle": "Permission request",
     "notificationPermissionBody": "A new permission request is pending",
-    "notificationQuestionTitle": "Your Input Needed",
-    "notificationQuestionBody": "The AI is waiting for your answer",
+    "notificationQuestionTitle": "Reply Needed",
+    "notificationQuestionBody": "The AI has a question for you",
     "notificationSubtaskTitle": "Subtask complete",
     "notificationSubtaskBody": "Subtask finished",
     "update": {
