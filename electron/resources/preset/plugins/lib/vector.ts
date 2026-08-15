@@ -48,6 +48,9 @@ const DIM = 384;
 const RRF_K = 60;
 /** RRF 融合权重：BM25 主路径 0.7 + 语义补充 0.3 */
 const W_BM25 = 0.7;
+
+/** 模块级：ensureModel 失败只提示一次（依赖未装时避免每会话刷日志） */
+let ensureModelWarned = false;
 const W_VEC = 0.3;
 
 // ============================================================
@@ -133,9 +136,13 @@ export class VectorIndex {
       this.extractor = pipe as unknown as typeof this.extractor;
       return true;
     } catch (e) {
-      // 模型下载失败 / WASM 初始化失败 → 降级 BM25
-      // 用全局 console（库文件无 debug 通道，避免额外依赖）
-      console.error(`[vector] ensureModel 失败，降级 BM25: ${String(e)}`);
+      // 模型下载失败 / WASM 初始化失败 / 依赖未安装（分形按需联网安装，未装时静默降级）
+      // 只提示一次：避免每会话刷错误日志（模块级标记，进程存活期内共享）
+      if (!ensureModelWarned) {
+        ensureModelWarned = true;
+        // 用全局 console（库文件无 debug 通道，避免额外依赖）
+        console.error(`[vector] ensureModel 失败，降级 BM25（安装依赖可启用语义检索: npm install @huggingface/transformers）: ${String(e)}`);
+      }
       this.extractor = null;
       return false;
     }

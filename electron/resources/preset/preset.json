@@ -24,10 +24,16 @@
     "playwright": {
       "type": "local",
       "enabled": true,
-      "command": ["npx", "@playwright/mcp@latest", "--headless"]
+      "command": [
+        "npx",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
     }
   },
-  "plugins": ["opencode-acp@latest"],
+  "plugins": [
+    "opencode-acp@latest"
+  ],
   "compaction": {
     "auto": false
   }
