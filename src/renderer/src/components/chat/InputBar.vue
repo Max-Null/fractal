@@ -325,7 +325,11 @@ function onBodyClick(e: MouseEvent) {
   }
 }
 onMounted(() => document.addEventListener("click", onBodyClick));
-onUnmounted(() => document.removeEventListener("click", onBodyClick));
+onUnmounted(() => {
+  document.removeEventListener("click", onBodyClick);
+  // 卸载时清理润色错误提示定时器：避免组件销毁后 3s 仍写 polishError ref（卸载后写警告）
+  if (polishErrorTimer) clearTimeout(polishErrorTimer);
+});
 
 const activeMode = computed({
   get: () => {

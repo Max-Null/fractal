@@ -30,7 +30,8 @@ export function useNewSession() {
     if (chatStore.messages.length === 0) return "current-empty";
 
     // 列表最近一个会话是空会话 → 跳转复用（2026-08-15 用户确认：重启后最近空会话应复用，
-    // 避免不断创建堆积空会话；sessions 已按 updatedAt 倒序，sessions[0] 即最近活跃）
+    // 避免不断创建堆积空会话；sessions 已按 updatedAt 倒序，find 命中即「最近创建的空会话」——
+    // 依赖排序不变更语义，勿改成 filter+[0]）
     const latestEmpty = sessionStore.sessions.find((s) => s.messageCount === 0);
     if (latestEmpty) {
       await switchTo(latestEmpty.id);
