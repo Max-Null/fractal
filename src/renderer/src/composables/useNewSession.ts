@@ -4,6 +4,7 @@ import { useChatStore } from "@/stores/chat";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { useSettingsStore } from "@/stores/settings";
 import { useSessionDrafts } from "@/composables/useSessionDrafts";
+import { useSessionSwitch } from "@/composables/useSessionSwitch";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 
 /**
@@ -12,6 +13,7 @@ import { emitChatCommand } from "@/composables/useCommandPalette";
  *
  * Return:
  *   "created"       — 新建了会话，已跳转
+ *   "jumped"        — 列表最近会话是空会话，已跳转到它（复用，不创建）
  *   "current-empty" — 当前会话已是空会话，无需操作（调用方负责提示）
  */
 export function useNewSession() {
@@ -21,10 +23,26 @@ export function useNewSession() {
   const debugLog = useDebugLog();
   const settings = useSettingsStore();
   const { migrateNoneDraft } = useSessionDrafts();
+  const { switchTo } = useSessionSwitch();
 
-  async function handleNew(): Promise<"created" | "current-empty"> {
+  async function handleNew(): Promise<"created" | "jumped" | "current-empty"> {
     // 当前会话无消息 → 已是新会话（不做任何跳转/创建）
     if (chatStore.messages.length === 0) return "current-empty";
+
+    // 列表最近一个会话是空会话 → 跳转复用（2026-08-15 用户确认：重启后最近空会话应复用，
+    // 避免不断创建堆积空会话；sessions 已按 updatedAt 倒序，sessions[0] 即最近活跃）
+    const latestEmpty = sessionStore.sessions.find((s) => s.messageCount === 0);
+    if (latestEmpty) {
+      await switchTo(latestEmpty.id);
+      // 首页无会话草稿迁移到复用的空会话（与「创建新会话」语义一致：进入空白会话时带入首页草稿）
+      const migrated = migrateNoneDraft(latestEmpty.id);
+      if (migrated) {
+        emitChatCommand("draft-migrated");
+      }
+      chatStore.clearMessages();
+      debugLog.clear();
+      return "jumped";
+    }
 
     // 新建（cwd 绑当前工作区：会话跟随工作区，否则列表刷新后消失）
     await sessionStore.createSession(settings.model, settings.cwd, undefined, settings.locale);
