@@ -2,7 +2,7 @@
 
 > 版本：v0.1（前置研究）
 > 日期：2026-08-14
-> 状态：草案（待 DSH tagged release 后进入实现）
+> 状态：**已实现并发布**（2026-08-15，`@max-null/dsh-memory`，GitHub `Max-Null/dsh-memory`）
 > 关联：`docs/决策/2026-08-14-基座选择-维持OpenCode-DSH暂不切换.md`、oc-plus 分形 Guardian（`H:\MaxNull\WorkStation\oc-plus\分形\`）
 > 结论绑定：DeepSeek Harness pre-release（HEAD `47f9438` @ 2026-08-13，无 tagged release）
 
