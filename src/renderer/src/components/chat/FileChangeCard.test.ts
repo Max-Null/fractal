@@ -68,6 +68,35 @@ describe('FileChangeCard', () => {
     expect(w.find('.file-change-new').text()).toContain('新代码')
   })
 
+  it('edit diff 区行号：old/new 各自从 1 开始递增', async () => {
+    const w = mountCard([
+      {
+        filePath: 'a.ts',
+        toolName: 'edit',
+        oldString: '第1行\n第2行',
+        newString: '第1行\n第2行改',
+        status: 'modified'
+      }
+    ])
+    await w.find('.file-change-item').trigger('click')
+    const oldNums = w.findAll('.file-change-old .diff-line-num').map((n) => n.text())
+    expect(oldNums).toEqual(['1', '2'])
+    const newNums = w.findAll('.file-change-new .diff-line-num').map((n) => n.text())
+    expect(newNums).toEqual(['1', '2'])
+    // 文本内容仍完整（行号与文本分行渲染不丢内容）
+    expect(w.find('.file-change-old').text()).toContain('第2行')
+    expect(w.find('.file-change-new').text()).toContain('第2行改')
+  })
+
+  it('write 展开也显示行号（单块从 1 开始）', async () => {
+    const w = mountCard([
+      { filePath: 'a.txt', toolName: 'write', newString: '第一行\n第二行\n第三行', status: 'modified' }
+    ])
+    await w.find('.file-change-item').trigger('click')
+    const nums = w.findAll('.file-change-new .diff-line-num').map((n) => n.text())
+    expect(nums).toEqual(['1', '2', '3'])
+  })
+
   it('write 文件不存在 → 状态升级 added', async () => {
     const w = mountCard([
       { filePath: 'new.txt', toolName: 'write', newString: 'x', status: 'modified' }

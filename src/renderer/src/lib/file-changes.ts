@@ -23,12 +23,21 @@ export function extractFileChanges(toolUses: ToolUse[]): FileChangeItem[] {
             : ''
     // 缺 file_path 的 write/edit（如 edit 仅传 old/new 无路径）无法定位文件 → 跳过
     if (!filePath) continue
-    const oldString = name === 'edit' && typeof raw?.old_string === 'string' ? raw.old_string : undefined
+    // old/new 双 key 兜底：OC 引擎 v1.18 实测 edit input 为 camelCase（filePath/oldString/newString，
+    // 见 serve 数据库 part 表），旧版/CC 遗留为 snake_case——兼容两者（2026-08-15 展开空白根因）
+    const oldString =
+      name === 'edit' && typeof raw?.old_string === 'string'
+        ? raw.old_string
+        : name === 'edit' && typeof raw?.oldString === 'string'
+          ? raw.oldString
+          : undefined
     const newString =
       name === 'edit'
         ? typeof raw?.new_string === 'string'
           ? raw.new_string
-          : undefined
+          : typeof raw?.newString === 'string'
+            ? raw.newString
+            : undefined
         : typeof raw?.content === 'string'
           ? raw.content
           : undefined

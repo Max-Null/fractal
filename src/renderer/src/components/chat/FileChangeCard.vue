@@ -57,6 +57,12 @@ function displayPath(p: string): string {
   const pN = norm(p)
   return pN.startsWith(cwdN + '/') ? pN.slice(cwdN.length + 1) : p
 }
+
+/** 文本拆行带行号（1 起始；空文本返回空数组——write 无 newString 时不渲染行号） */
+function toLines(text: string | undefined): Array<{ n: number; text: string }> {
+  if (!text) return []
+  return text.split('\n').map((t, i) => ({ n: i + 1, text: t }))
+}
 </script>
 
 <template>
@@ -79,12 +85,27 @@ function displayPath(p: string): string {
         </span>
       </div>
       <div v-if="expanded[c.filePath]" class="file-change-diff">
-        <!-- edit：old→new 红绿对比；write：新内容代码块 -->
+        <!-- edit：old→new 红绿对比；write：新内容代码块。均为「行号 + 文本」行列表 -->
         <template v-if="c.oldString != null">
-          <pre class="file-change-old">{{ c.oldString }}</pre>
-          <pre class="file-change-new">{{ c.newString ?? '' }}</pre>
+          <div class="file-change-old">
+            <div v-for="line in toLines(c.oldString)" :key="'o' + line.n" class="diff-line">
+              <span class="diff-line-num">{{ line.n }}</span>
+              <span class="diff-line-text">{{ line.text }}</span>
+            </div>
+          </div>
+          <div class="file-change-new">
+            <div v-for="line in toLines(c.newString)" :key="'n' + line.n" class="diff-line">
+              <span class="diff-line-num">{{ line.n }}</span>
+              <span class="diff-line-text">{{ line.text }}</span>
+            </div>
+          </div>
         </template>
-        <pre v-else class="file-change-new">{{ c.newString ?? '' }}</pre>
+        <div v-else class="file-change-new">
+          <div v-for="line in toLines(c.newString)" :key="line.n" class="diff-line">
+            <span class="diff-line-num">{{ line.n }}</span>
+            <span class="diff-line-text">{{ line.text }}</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -143,20 +164,19 @@ function displayPath(p: string): string {
   color: var(--blue);
   background: color-mix(in srgb, var(--blue) 12%, transparent);
 }
-/* diff 区：红（old）绿（new）代码块，限高滚动 */
+/* diff 区：红（old）绿（new）行列表，限高滚动 */
 .file-change-diff {
   margin-top: 6px;
   max-height: 240px;
   overflow-y: auto;
 }
+/* 块容器：背景整块着色（行号列同底色，VSCode diff 风格）；内边距移到行容器 */
 .file-change-old,
 .file-change-new {
   margin: 0;
-  padding: 4px 8px;
+  padding: 4px 0;
   font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace;
   font-size: 0.786rem;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 /* --danger 未在色板定义，fallback 到 --coral（错误红）；与 main.css 既有 var(--danger, #f87171) 风格一致 */
 .file-change-old {
@@ -165,5 +185,25 @@ function displayPath(p: string): string {
 }
 .file-change-new {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+/* 单行：行号列（固定宽右对齐）+ 文本（保留换行/断词） */
+.diff-line {
+  display: flex;
+  padding: 0 8px;
+}
+.diff-line-num {
+  flex-shrink: 0;
+  width: 2.4em;
+  text-align: right;
+  padding-right: 10px;
+  color: var(--text-muted);
+  opacity: 0.6;
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+.diff-line-text {
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 </style>

@@ -43,6 +43,25 @@ describe('extractFileChanges', () => {
     expect(result).toEqual([])
   })
 
+  it('OC 引擎真实 camelCase input（filePath/oldString/newString）也能提取——2026-08-15 实测 part 表 edit input 为驼峰', () => {
+    const result = extractFileChanges([
+      tu('edit', {
+        filePath: 'C:\\Users\\MaxNull\\Desktop\\冲突测试.txt',
+        oldString: '编辑 5：v6（共 6 个版本）',
+        newString: '编辑 5：v6（共 6 个版本）\n追加修改：v7 测试文件列表效果'
+      })
+    ])
+    expect(result).toEqual([
+      {
+        filePath: 'C:\\Users\\MaxNull\\Desktop\\冲突测试.txt',
+        toolName: 'edit',
+        oldString: '编辑 5：v6（共 6 个版本）',
+        newString: '编辑 5：v6（共 6 个版本）\n追加修改：v7 测试文件列表效果',
+        status: 'modified'
+      }
+    ])
+  })
+
   it('file_path 缺失时兜底读取 filePath/path key', () => {
     const result = extractFileChanges([
       tu('edit', { filePath: 'a.txt', old_string: '1', new_string: '2' }),

@@ -686,6 +686,40 @@ describe('mapServeEvent 合成事件：权限 / 会话生命周期', () => {
     expect((out[0] as { duration_ms?: number }).duration_ms).toBeUndefined()
   })
 
+  it('旧会话（无 session.created 重放）用户消息后 idle 输出 duration_ms', () => {
+    // 回归：serve 重启后在旧会话继续发消息——session.created 不重发，sessionStartTime 缺失，
+    // result 无 duration_ms → 回合完成标记用时显示 --（2026-08-15 用户反馈「AI已完成回答前的用时没了」）
+    let t = 100
+    const ctx = createMapContext(() => t)
+    // 用户发送消息 → message.updated（role=user）应作为回合起始计时
+    const userUpdated = synthEvent('message.updated', {
+      sessionID: 'ses_test',
+      info: { id: 'msg_u1', role: 'user', sessionID: 'ses_test' },
+    })
+    mapServeEvent(userUpdated, ctx)
+    t = 500
+    const idle = synthEvent('session.idle', { sessionID: 'ses_test' })
+    const out = mapServeEvent(idle, ctx)
+    expect(out[0]).toMatchObject({ type: 'result', duration_ms: 400 })
+  })
+
+  it('多回合会话 duration_ms 按回合重置（第二次 user 消息重新计时）', () => {
+    // 防回归：sessionStartTime 若只记一次，多回合会话 duration 会跨回合累计（旧实现 bug）
+    let t = 100
+    const ctx = createMapContext(() => t)
+    // 回合 1：user 消息 → idle
+    mapServeEvent(synthEvent('message.updated', { sessionID: 'ses_test', info: { id: 'msg_u1', role: 'user', sessionID: 'ses_test' } }), ctx)
+    t = 300
+    const idle1 = mapServeEvent(synthEvent('session.idle', { sessionID: 'ses_test' }), ctx)
+    expect((idle1[0] as { duration_ms?: number }).duration_ms).toBe(200)
+    // 回合 2：新 user 消息 → idle（应重新计时，不含回合 1 的 200ms）
+    t = 350
+    mapServeEvent(synthEvent('message.updated', { sessionID: 'ses_test', info: { id: 'msg_u2', role: 'user', sessionID: 'ses_test' } }), ctx)
+    t = 450
+    const idle2 = mapServeEvent(synthEvent('session.idle', { sessionID: 'ses_test' }), ctx)
+    expect((idle2[0] as { duration_ms?: number }).duration_ms).toBe(100)
+  })
+
   it('server.connected → 不产出（订阅层 onConnected 处理）', () => {
     const ctx = createMapContext()
     const evt = synthEvent('server.connected', {})

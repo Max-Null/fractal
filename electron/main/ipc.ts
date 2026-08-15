@@ -49,6 +49,14 @@ import {
   currentPermissionMode
 } from './settings'
 
+/**
+ * 活跃系统通知注册表：局部变量 Notification 会被 V8 GC 回收 → click 监听丢失
+ * （Electron 已知坑，StackOverflow 61189074「notification object was getting garbage collected」；
+ * 表现为任务栏闪烁但窗口不激活——闪烁是 Windows 默认激活尝试，handler 根本没跑）。
+ * 模块级持有引用直到通知关闭（Windows toast 关闭触发 close 事件）再释放。
+ */
+const activeNotifications = new Set<Notification>()
+
 // ── 模块级状态 ──
 
 /**
@@ -702,7 +710,31 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
   // 系统通知（设置页「通知」场景触发）：Windows 通知受限/系统禁用时 show 可能抛错——吞掉不阻断主流程
   ipcMain.handle('notification:show', (_e, args: { title: string; body: string }) => {
     try {
-      new Notification({ title: args.title, body: args.body }).show()
+      const notif = new Notification({ title: args.title, body: args.body })
+      // 点击系统通知 → 激活主窗口（Windows 通知点击默认无动作，用户期望点击后回到分形；2026-08-15 反馈）
+      notif.on('click', () => {
+        const win = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0]
+        if (!win) return
+        console.log(
+          `[notif] click 触发 win=${win.id} minimized=${win.isMinimized()} windows=${BrowserWindow.getAllWindows().length}`
+        )
+        // 最小化时先 restore，否则 show/focus 不生效（Electron 最小化窗口 show 不会还原）
+        if (win.isMinimized?.()) win.restore?.()
+        win.show()
+        // Windows 通知激活限制（MSDN SetForegroundWindow：「while the user is working with another window
+        // Windows flashes the taskbar button」）——通知中心是前台进程，focus 被拒只剩任务栏闪烁。
+        // 社区 workaround（electron issue #2867 / bpasero）：setAlwaysOnTop 强制置顶后 focus 才能生效，
+        // 延时取消置顶恢复普通层级（立即取消焦点会被窗口管理器回收）
+        win.setAlwaysOnTop(true)
+        win.focus()
+        setTimeout(() => {
+          if (!win.isDestroyed()) win.setAlwaysOnTop(false)
+        }, 200)
+      })
+      // 通知关闭后释放引用，避免注册表无限增长
+      notif.on('close', () => activeNotifications.delete(notif))
+      activeNotifications.add(notif)
+      notif.show()
     } catch {
       /* 通知失败静默（不阻断调用方） */
     }

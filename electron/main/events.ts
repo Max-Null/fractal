@@ -338,6 +338,13 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         | { id?: string; role?: string; tokens?: { input?: number; output?: number; cache?: { read?: number; write?: number } }; modelID?: string }
         | undefined
       if (info?.id && info?.role) ctx.messageRoles.set(info.id, info.role)
+      // 用户消息 = 回合开始：重置回合起始时间（session.idle 算 duration_ms 的基准）。
+      // 仅 session.created 记一次会导致：serve 重启后继续旧会话（无 created 重放）时起始时间
+      // 永远缺失 → result.duration_ms 为 undefined → 回合完成标记用时显示 --（2026-08-15 用户反馈）；
+      // 无条件重置也保证多回合会话每回合独立计时（不再跨回合累计）
+      if (sessionID && info?.role === 'user') {
+        ctx.sessionStartTime.set(sessionID, ctx.now())
+      }
       // assistant 回合完成 → 消息级 tokens（serve 1.18.14 实测：回合结束的 message.updated 携带本次请求 usage，
       // 非累计值——与 session.updated 的 SessionTable 累计值区分开）。仅当携带非零 usage 时覆盖，
       // 避免回合中的空 tokens 更新（首条 message.updated 常为全 0）污染结果

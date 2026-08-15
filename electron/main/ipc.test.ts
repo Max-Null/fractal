@@ -29,7 +29,7 @@ const electronMock = vi.hoisted(() => ({
   // notification:show mock：构造返回 { show } 实例，构造参数经 mock.calls 断言，show 经 mock.results 断言
   // 注意必须用普通 function（箭头函数不可作为构造函数，new 调用会抛 TypeError）
   Notification: vi.fn(function (this: unknown, opts: unknown) {
-    return { show: vi.fn(), opts }
+    return { show: vi.fn(), on: vi.fn(), opts }
   }),
 }))
 vi.mock('electron', () => ({
@@ -45,7 +45,7 @@ vi.mock('electron', () => ({
   BrowserWindow: class {
     // 测试环境无聚焦窗口/无已开窗口 → handler 走无父窗口的对话框重载分支
     static getFocusedWindow = () => undefined
-    static getAllWindows = () => []
+    static getAllWindows = () => electronMock.browserWindowInstances
     constructor() {
       const inst = {
         loadFile: vi.fn(() => Promise.resolve()),
@@ -1536,6 +1536,41 @@ describe('notification:show（系统通知 IPC）', () => {
     registerIpcHandlers()
     // handler 同步返回 undefined（非 Promise），直接断言调用不抛
     expect(() => getHandler()({}, { title: 't', body: 'b' })).not.toThrow()
+  })
+
+  it('点击通知 → 激活主窗口（最小化时 restore + show + focus）', async () => {
+    // 回归：Windows 系统通知点击默认无动作——用户期望点击后回到分形窗口（2026-08-15 反馈）
+    // 全量跑时其他测试可能已 push 窗口实例（无 show 方法）——先清空再注入 fakeWin，保证 getAllWindows[0] 命中
+    electronMock.browserWindowInstances.length = 0
+    const fakeWin = {
+      isMinimized: vi.fn(() => true),
+      restore: vi.fn(),
+      show: vi.fn(),
+      focus: vi.fn(),
+      setAlwaysOnTop: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+    }
+    electronMock.browserWindowInstances.push(fakeWin as never)
+    registerIpcHandlers()
+    await getHandler()({}, { title: 't', body: 'b' })
+    const inst = electronMock.Notification.mock.results[0].value as {
+      on: ReturnType<typeof vi.fn>
+      show: ReturnType<typeof vi.fn>
+    }
+    // 注册了 click 回调
+    expect(inst.on).toHaveBeenCalledWith('click', expect.any(Function))
+    // 注册了 close 回调（模块级引用释放，防注册表无限增长）
+    expect(inst.on).toHaveBeenCalledWith('close', expect.any(Function))
+    // 触发点击 → 最小化恢复 + 显示 + 置顶聚焦
+    const clickCb = inst.on.mock.calls[0][1] as () => void
+    clickCb()
+    expect(fakeWin.restore).toHaveBeenCalled()
+    expect(fakeWin.show).toHaveBeenCalled()
+    // Windows 通知激活限制 workaround：置顶后 focus（否则任务栏闪烁不置前）
+    expect(fakeWin.setAlwaysOnTop).toHaveBeenNthCalledWith(1, true)
+    expect(fakeWin.focus).toHaveBeenCalled()
+    // 延时取消置顶（异步回调，此处断言已注册但不等执行）
+    electronMock.browserWindowInstances.length = 0
   })
 })
 
