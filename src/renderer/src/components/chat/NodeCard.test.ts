@@ -198,6 +198,18 @@ describe("NodeCard", () => {
     expect(w.text()).toContain("⚡2.3s");
   });
 
+  it("skill 收起态：标题行显示实际使用的 skill 名（梗概 input.name，而非空白）", () => {
+    const w = mountCard(node({
+      key: "s1",
+      kind: "tool",
+      tool: { id: "s1", name: "skill", input: { name: "mxy-commit-review" } },
+    }));
+    expect(w.find(".node-card-tool-name").text()).toBe("skill");
+    expect(w.find(".node-card-snippet").text()).toBe("mxy-commit-review");
+    // 收起态不渲染 input 展开区
+    expect(w.text()).not.toContain('"name"');
+  });
+
   it("D18 图标映射：websearch=globe / read=file-text / edit=pencil / bash=terminal / 未知=wrench", () => {
     const cases: Array<[string, string]> = [
       ["WebSearch", "globe"],

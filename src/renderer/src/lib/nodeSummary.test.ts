@@ -66,6 +66,13 @@ describe("toolSummary（D10 工具梗概）", () => {
     expect(toolSummary("TodoWrite", {})).toBe("正在：");
   });
 
+  it("skill：显示实际使用的 skill 名（input.name，OC skill 工具唯一参数）", () => {
+    expect(toolSummary("Skill", { name: "mxy-commit-review" })).toBe("mxy-commit-review");
+    expect(toolSummary("skill", { name: "systematic-debugging" })).toBe("systematic-debugging");
+    // 无 name 兜底空串（与未知工具一致）
+    expect(toolSummary("skill", {})).toBe("");
+  });
+
   it("未知工具 → 空串", () => {
     expect(toolSummary("SomeRandomTool", {})).toBe("");
     expect(toolSummary("task", {})).toBe(""); // task 由 subtask 节点代替，不走 toolSummary

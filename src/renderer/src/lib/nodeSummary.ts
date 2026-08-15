@@ -48,6 +48,15 @@ function questionTextOf(input: unknown): string {
   return "";
 }
 
+/** skill 名：input.name（OC skill 工具唯一入参 name——firstLineOf 候选链不含 name，须单独提取） */
+function skillNameOf(input: unknown): string {
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    if (typeof obj.name === "string") return obj.name.split("\n")[0];
+  }
+  return "";
+}
+
 /** todowrite 进行中任务：优先 in_progress 项，兜底首个任务；无任务/无内容 → 空串 */
 function currentTodoTask(input?: unknown): string {
   const todos = (input as { todos?: Array<{ content?: unknown; status?: unknown }> } | undefined)?.todos;
@@ -97,6 +106,9 @@ export function toolSummary(name: string, input?: unknown): string {
     case "todowrite":
       // 当前进行中任务（D10：仅进行中项，无则取首项）
       return `正在：${currentTodoTask(input)}`;
+    case "skill":
+      // 实际使用的 skill 名（OC skill 工具唯一入参 name——收起态标题行展示，否则只剩工具名「skill」）
+      return skillNameOf(input).slice(0, 60);
     default:
       // 未知工具无梗概（节点标题显示工具名兜底）
       return "";
