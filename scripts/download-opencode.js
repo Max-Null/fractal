@@ -20,11 +20,12 @@ if (!ASSET) {
 }
 
 const BIN_DIR = join(__dirname, '..', 'resources', 'bin')
-// GitHub 直连在部分地区不可达——按序尝试镜像（gh-proxy / ghfast.top 实测可达，2026-08-07）
+// 镜像优先：GitHub 直连在部分地区不可达且慢（2026-08-15 实测直连 178MB 5 分钟仅 4MB，镜像 6.3MB/s）
+// gh-proxy / ghfast.top 实测可达；直连兜底（hosts 修正后可达但慢）
 const MIRRORS = [
-  (url) => url, // 直连
-  (url) => `https://gh-proxy.com/${url}`,
   (url) => `https://ghfast.top/${url}`,
+  (url) => `https://gh-proxy.com/${url}`,
+  (url) => url, // 直连兜底
 ]
 const ORIGIN_URL = `https://github.com/anomalyco/opencode/releases/download/${VERSION}/${ASSET}`
 const ARCHIVE = join(BIN_DIR, ASSET)
@@ -57,51 +58,50 @@ function download(url, dest, depth = 0) {
   })
 }
 
-/** 校验 zip 的 SHA256 与官方 checksums.txt 一致（镜像源不可信，完整性必须验证——军师审查 🔴2） */
+/** 校验 zip 的 SHA256 与官方 release 资产 digest 一致（镜像源不可信，完整性必须验证——军师审查 🔴2） */
+// GitHub Releases 不提供独立 .sha256 文件（2026-08 实测 v1.18.16/v1.18.18 均 404），
+// 官方 digest 在 Releases API 的 asset.digest 字段（格式 "sha256:<hex>"）——改从 API 拉取。
 async function verifyChecksum(archivePath) {
-  const checksumName = ASSET + '.sha256'
-  const checksumUrl = ORIGIN_URL.replace(`/${ASSET}`, `/${checksumName}`)
-  let content = null
+  const apiUrl = `https://api.github.com/repos/anomalyco/opencode/releases/tags/${VERSION}`
+  let digest = null
   for (const mirror of MIRRORS) {
     try {
-      content = await new Promise((resolve, reject) => {
-        const req = https.get(mirror(checksumUrl), { headers: { 'User-Agent': 'oc-gui-sidecar' } }, (res) => {
+      const body = await new Promise((resolve, reject) => {
+        const req = https.get(mirror(apiUrl), { headers: { 'User-Agent': 'oc-gui-sidecar' } }, (res) => {
           if (res.statusCode === 301 || res.statusCode === 302) {
             res.resume()
             https.get(res.headers.location, { headers: { 'User-Agent': 'oc-gui-sidecar' } }, (r2) => {
-              if (r2.statusCode !== 200) return reject(new Error(`校验和下载失败 HTTP ${r2.statusCode}`))
+              if (r2.statusCode !== 200) return reject(new Error(`API 请求失败 HTTP ${r2.statusCode}`))
               let buf = ''
               r2.on('data', (c) => (buf += c))
               r2.on('end', () => resolve(buf))
             }).on('error', reject)
             return
           }
-          if (res.statusCode !== 200) return reject(new Error(`校验和下载失败 HTTP ${res.statusCode}`))
+          if (res.statusCode !== 200) return reject(new Error(`API 请求失败 HTTP ${res.statusCode}`))
           let buf = ''
           res.on('data', (c) => (buf += c))
           res.on('end', () => resolve(buf))
         })
         req.on('error', reject)
       })
-      if (content) break
+      const parsed = JSON.parse(body)
+      const asset = (parsed.assets || []).find((a) => a.name === ASSET)
+      digest = asset && asset.digest ? asset.digest.split(':')[1] : null
+      if (digest) break
     } catch (err) {
-      console.log(`  ✗ 校验和下载失败（${mirror(checksumUrl)}）：${err.message}`)
+      console.log(`  ✗ 官方 digest 获取失败（${mirror(apiUrl)}）：${err.message}`)
     }
   }
-  if (!content) {
-    console.warn('  ⚠️ 无法获取官方校验和（checksums 不可达）——跳过完整性校验')
-    return
-  }
-  const expected = content.split(/\r?\n/).find((l) => l.includes(ASSET))?.split(/\s+/)[0]
-  if (!expected) {
-    console.warn('  ⚠️ 校验和文件未包含目标资产——跳过完整性校验')
+  if (!digest) {
+    console.warn('  ⚠️ 无法获取官方 digest（Releases API 不可达）——跳过完整性校验')
     return
   }
   const actual = crypto.createHash('sha256').update(readFileSync(archivePath)).digest('hex')
-  if (actual !== expected) {
-    throw new Error(`SHA256 校验失败（期望 ${expected}，实际 ${actual}）——文件可能被篡改，删除重试`)
+  if (actual !== digest) {
+    throw new Error(`SHA256 校验失败（期望 ${digest}，实际 ${actual}）——文件可能被篡改，删除重试`)
   }
-  console.log('  ✅ SHA256 校验通过')
+  console.log('  ✅ SHA256 校验通过（官方 digest）')
 }
 
 async function main() {
