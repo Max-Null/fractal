@@ -24,6 +24,7 @@ export const ALLOWED_INVOKE = [
   'chat:sendMessage', 'chat:stopSession',
   'session:create', 'session:list', 'session:get', 'session:delete', 'session:rename', 'session:fork', 'session:setActive',
   'session:compact', // 会话压缩（主进程 ipc.ts 已注册；2026-08-14 静态扫描测试发现漏加白名单——渲染层 compactSession 调用原本会报 Channel not allowed）
+  'acp:getState', 'acp:decompress', // ACP 状态读取/解压驱动（上下文面板真实上下文构成，2026-08-15）
   'message:list', 'permission:respond',
   'question:reply', 'question:reject',
   'provider:modelVariants',

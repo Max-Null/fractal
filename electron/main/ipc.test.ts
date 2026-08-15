@@ -1593,3 +1593,59 @@ describe('fs:fileFingerprint（文件指纹：预览面板自动刷新判断）'
     await expect(getHandler()({}, { path: join(tmpdir(), `fractal-fp-none-${Date.now()}.txt`) })).rejects.toThrow()
   })
 })
+describe('acp:getState / acp:decompress（ACP 插件状态读取与解压驱动）', () => {
+  // 与 acp-store.test.ts 同款 USERPROFILE 隔离：acp-store 的 homedir() 指向临时目录
+  const realUserProfile = process.env.USERPROFILE
+  let acpHome: string
+  const getHandler = (channel: string) => {
+    const h = electronMock.handleCalls.find((x) => x.channel === channel)
+    expect(h).toBeDefined()
+    return h!.handler
+  }
+
+  beforeEach(async () => {
+    acpHome = join(tmpdir(), `ipc-acp-${Date.now()}`)
+    process.env.USERPROFILE = acpHome
+    electronMock.handleCalls.length = 0
+  })
+
+  afterEach(async () => {
+    if (realUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = realUserProfile
+    await fsp.rm(acpHome, { recursive: true, force: true })
+  })
+
+  it('getState：无 ACP 文件 → detected=false 空态（不抛错）', async () => {
+    registerIpcHandlers({ ready: async () => {}, getClient: () => ({ session: { messages: vi.fn(async () => []) } }) } as never)
+    const h = getHandler('acp:getState')
+    const r = (await h({}, { sessionId: 'ses_new' })) as { detected: boolean; blocks: unknown[] }
+    expect(r.detected).toBe(false)
+    expect(r.blocks).toEqual([])
+  })
+
+  it('getState：sessionId 含路径分隔符 → 拒绝（防路径注入）', async () => {
+    registerIpcHandlers()
+    const h = getHandler('acp:getState')
+    await expect(h({}, { sessionId: '../../etc/passwd' })).rejects.toThrow('sessionId')
+  })
+
+  it('decompress：sessionId 合法 + blockId 非负整数 → 提交 promptAsync 返回 submitted', async () => {
+    // 显式标注参数类型：vi.fn 无参推断会得到空元组，mock.calls[0][0] 类型越界
+    const promptAsyncMock = vi.fn(async (_sessionId: string, _prompt: string, _opts?: unknown) => ({}))
+    registerIpcHandlers({ ready: async () => {}, getClient: () => ({ session: { promptAsync: promptAsyncMock } }) } as never)
+    const h = getHandler('acp:decompress')
+    const r = (await h({}, { sessionId: 'ses_abc', blockId: 3 })) as { ok: boolean; submitted: boolean }
+    expect(r.ok).toBe(true)
+    expect(r.submitted).toBe(true)
+    expect(promptAsyncMock).toHaveBeenCalledTimes(1)
+    expect(promptAsyncMock.mock.calls[0][0]).toBe('ses_abc')
+    expect(promptAsyncMock.mock.calls[0][1]).toContain('b3')
+  })
+
+  it('decompress：blockId 负数/小数 → 拒绝', async () => {
+    registerIpcHandlers()
+    const h = getHandler('acp:decompress')
+    await expect(h({}, { sessionId: 'ses_abc', blockId: -1 })).rejects.toThrow('blockId')
+    await expect(h({}, { sessionId: 'ses_abc', blockId: 1.5 })).rejects.toThrow('blockId')
+  })
+})

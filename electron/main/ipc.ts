@@ -38,6 +38,7 @@ import { calcCostCny } from './pricing'
 import { DEFAULT_MODEL } from './provider'
 import { ensureConfig, resolveSmallModel } from './oc-config'
 import { applyModelAliases } from './preset'
+import { getAcpSessionState } from './acp-store'
 import {
   getConfig as getSettingsConfig,
   loadSettings,
@@ -1255,6 +1256,49 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
         before: args.before
       })
       return msgs.map(toMessageData)
+    }
+  )
+
+  // 上下文面板 ACP 数据（2026-08-15）：读 ACP 插件落盘 JSON（真实上下文构成：压缩块/分类/统计）
+  // 分类需 message:list 的 role 关联 ACP byMessageId——内部拉取一次（limit 1000 覆盖长会话）
+  // sessionId 格式校验：仅允许 serve 会话 id 字符集（防路径注入，见 acp:decompress 同理）
+  ipcMain.handle(
+    'acp:getState',
+    async (_e, args: { sessionId: string }) => {
+      if (typeof args?.sessionId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(args.sessionId)) {
+        throw new Error(`acp:getState sessionId 参数非法: ${JSON.stringify(args)}`)
+      }
+      const msgs = await (
+        await requireClient()
+      ).session.messages(args.sessionId, { limit: 1000 })
+      // 只取分类需要的 id/role（toMessageData 全量转换对长会话有开销，这里不转）
+      const roleList = msgs.map((m) => {
+        const info = (m as { info?: { id: string; role: string } }).info
+        return { id: info?.id ?? '', role: info?.role ?? '' }
+      })
+      return getAcpSessionState(args.sessionId, roleList)
+    }
+  )
+
+  // 上下文面板解压（2026-08-15）：ACP 的 decompress 是模型工具（serve 无 REST 端点），
+  // 唯一驱动方式 = 向会话发指令 prompt 让模型执行 decompress bN；blockId 数字校验防注入
+  ipcMain.handle(
+    'acp:decompress',
+    async (_e, args: { sessionId: string; blockId: number }) => {
+      if (typeof args?.sessionId !== 'string' || !/^[A-Za-z0-9_-]+$/.test(args.sessionId)) {
+        throw new Error(`acp:decompress sessionId 参数非法: ${JSON.stringify(args)}`)
+      }
+      if (!Number.isInteger(args.blockId) || args.blockId < 0) {
+        throw new Error(`acp:decompress blockId 必须是非负整数: ${String(args.blockId)}`)
+      }
+      const client = await requireClient()
+      await client.session.promptAsync(
+        args.sessionId,
+        `请使用 decompress 工具恢复压缩块 b${args.blockId}（当前会话已压缩的内容块）。只需执行工具调用，不要额外解释。`,
+        { variant: 'low' }
+      )
+      // promptAsync 立即返回 204，实际解压由模型异步执行（数十秒）——调用方据此提示「已提交」而非断言成功
+      return { ok: true, submitted: true }
     }
   )
 
