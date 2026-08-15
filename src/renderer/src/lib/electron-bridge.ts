@@ -248,6 +248,15 @@ export async function readFileBase64(path: string): Promise<string> {
   return invoke("fs:readFileBase64", { path });
 }
 
+/** 文件指纹（stat + 可选 md5）：预览面板「会话编辑后自动刷新」判断当前预览文件是否被编辑。
+ *  withHash=false 仅 stat 不读盘（快路径）；true 额外读盘算 MD5 确认内容 */
+export async function fileFingerprint(
+  path: string,
+  withHash = false
+): Promise<{ size: number; mtimeMs: number; md5: string | null }> {
+  return invoke("fs:fileFingerprint", { path, withHash });
+}
+
 /** 工作区根目录（阶段 2 返回用户主目录，阶段 4 由 serve 工作区决定） */
 export async function getWorkspaceRoot(): Promise<string> {
   return invoke("fs:getWorkspaceRoot");

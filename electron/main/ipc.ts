@@ -3,6 +3,7 @@
 // 引擎通道（chat: / session: / message: / permission:）阶段 4 接入 serve
 import { app, dialog, ipcMain, shell, BrowserWindow, Notification } from 'electron'
 import { promises as fsp } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { join, dirname, basename, extname, isAbsolute } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -407,6 +408,20 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     assertValidFsPath(args.path)
     const buf = await fsp.readFile(args.path)
     return buf.toString('base64')
+  })
+
+  // 文件指纹：预览面板「会话编辑后自动刷新」判断用（2026-08-15）
+  // withHash=false（快路径）：仅 stat 不读盘，毫秒级——每轮刷新信号先走这里，未变直接跳过；
+  // withHash=true（确认路径）：stat 变化后读盘算 MD5，排除 touch 等只改时间戳的误报
+  ipcMain.handle('fs:fileFingerprint', async (_e, args: { path: string; withHash?: boolean }) => {
+    assertValidFsPath(args.path)
+    const st = await fsp.stat(args.path)
+    let md5: string | null = null
+    if (args.withHash) {
+      const buf = await fsp.readFile(args.path)
+      md5 = createHash('md5').update(buf).digest('hex')
+    }
+    return { size: st.size, mtimeMs: st.mtimeMs, md5 }
   })
 
   ipcMain.handle('fs:getWorkspaceRoot', () => {

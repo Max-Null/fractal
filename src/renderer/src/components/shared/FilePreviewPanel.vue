@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onUnmounted, shallowRef, nextTick, inject } from "vue";
 
-import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged, htmlToPdf } from "@/lib/electron-bridge";
+import { readFileContent, readFileBase64, saveFileContent, checkSkillInstalled, openPreviewWindow, forwardChat, onPreviewChanged, htmlToPdf, fileFingerprint } from "@/lib/electron-bridge";
+import { decidePreviewRefresh, sameStat, type FileFingerprint } from "@/lib/preview-fingerprint";
 import { isImageFile, mimeType } from "@/composables/useFilePreview";
 import { buildInspectorScript, resolveLinkTarget, isIgnorableHref } from "@/lib/inspector-script";
 import { emitChatCommand } from "@/composables/useCommandPalette";
@@ -191,8 +192,51 @@ function onIframeLoad() {
 }
 
 // OC 修改文件后自动重载（silent：不闪 loading、保持滚动位置）
+// 2026-08-15 优化：先比磁盘指纹——仅当前预览文件确实被编辑才刷新，修复「会话中预览一直闪」
+// （oc-file-changed 事件不携带被编辑文件路径，原实现无条件 reloadFile(true)，agent 改任何文件都触发预览重读）
+let previewFp: FileFingerprint | null = null;
+// reload 代际计数：并发读盘时「最后完成者赢」——先发的 reload 若后完成，结果会被标记为过期丢弃，
+// 防止旧内容覆盖新内容（军师 P1：大文件 + 快速连续信号的可达竞态）
+let reloadSeq = 0;
+
+/** reloadFile 成功读盘后异步刷新指纹缓存（不阻塞渲染）；失败清空缓存，下次信号保守刷新。
+ *  path 校验：切文件后旧文件的异步 refreshFingerprint 到达时丢弃，避免污染新文件缓存（军师 P2） */
+async function refreshFingerprint(path: string) {
+  try {
+    const fp = await fileFingerprint(path, true);
+    if (path === props.file?.path) previewFp = { ...fp, path };
+  } catch {
+    if (path === props.file?.path) previewFp = null;
+  }
+}
+
+/** 刷新信号处理：指纹对比——未变跳过，真变才 reloadFile(true)（独立预览窗口复用同一逻辑） */
+async function handleFileChanged() {
+  const f = props.file;
+  if (!f) return;
+  // data: 附件（共享 storage 内嵌图）无真实文件路径，指纹调用必抛错——直接跳过（与 reloadFile data: 保护对称，军师 P4）
+  if (f.path.startsWith("data:")) return;
+  try {
+    // 快路径：仅 stat 不读盘，绝大多数「没变」场景直接跳过，避免大文件每轮读全文件
+    const fp = await fileFingerprint(f.path, false);
+    if (previewFp && previewFp.path === f.path && sameStat(previewFp, fp)) {
+      return;
+    }
+    // stat 变了 → 读盘算 MD5 确认内容是否真变（排除 touch 等只改时间戳的误报）
+    const full = await fileFingerprint(f.path, true);
+    const fullFp: FileFingerprint = { ...full, path: f.path };
+    const decision = decidePreviewRefresh(previewFp, fullFp);
+    if (decision === "skip") return;
+    // update-stat 与 refresh 都更新缓存（refresh 的 reloadFile 内部读盘内容与缓存一致）
+    previewFp = fullFp;
+    if (decision === "refresh") void reloadFile(true);
+  } catch {
+    // 指纹读取失败（文件被删/权限）：保守刷新，避免卡在旧内容
+    void reloadFile(true);
+  }
+}
 function onOcFileChanged() {
-  void reloadFile(true);
+  void handleFileChanged();
 }
 onMounted(() => window.addEventListener("oc-file-changed", onOcFileChanged));
 onUnmounted(() => window.removeEventListener("oc-file-changed", onOcFileChanged));
@@ -201,7 +245,7 @@ onUnmounted(() => window.removeEventListener("oc-file-changed", onOcFileChanged)
 let stopPreviewChanged: (() => void) | null = null;
 onMounted(() => {
   if (props.standalone) {
-    stopPreviewChanged = onPreviewChanged(() => { void reloadFile(true); });
+    stopPreviewChanged = onPreviewChanged(() => { void handleFileChanged(); });
   }
 });
 onUnmounted(() => {
@@ -408,6 +452,9 @@ function restoreScroll(s: { editor: number; iframe: number; md: number; docx: nu
 async function reloadFile(silent = false) {
   const f = props.file;
   if (!f) return;
+  // 本次 reload 的代际：并发读盘时若期间有更新的 reload 发起（seq 已递增），本代结果过期——
+  // 读盘完成后校验代际，非最新代丢弃写入（最后完成者赢），防止旧内容覆盖新内容（军师 P1）
+  const seq = ++reloadSeq;
   // 自动刷新（silent）不改变滚动位置：重载前记录各预览形态滚动位置，完成后恢复（2026-08-12）
   const savedScroll = {
     editor: editorView.value?.scrollDOM.scrollTop ?? 0,
@@ -415,6 +462,8 @@ async function reloadFile(silent = false) {
     md: mdPreviewBody.value?.scrollTop ?? 0,
     docx: docxPreviewBody.value?.scrollTop ?? 0,
   };
+  // 成功读盘后异步刷新指纹缓存（data: 附件无真实路径跳过）；不阻塞本次加载
+  if (!f.path.startsWith("data:")) void refreshFingerprint(f.path);
   if (!silent) {
     content.value = "";
     previewHtml.value = "";
@@ -437,8 +486,9 @@ async function reloadFile(silent = false) {
     }
     try {
       const b64 = await readFileBase64(f.path);
+      if (seq !== reloadSeq) return; // 过期代：期间已有更新的 reload，丢弃本次结果
       imageSrc.value = `data:${mimeType(f.name)};base64,${b64}`;
-    } catch (e) { error.value = String(e); }
+    } catch (e) { if (seq === reloadSeq) error.value = String(e); }
     if (!silent) loading.value = false;
     return;
   }
@@ -453,12 +503,14 @@ async function reloadFile(silent = false) {
     activeTab.value = "preview"; // Word 优先预览
     try {
       const b64 = await readFileBase64(f.path);
+      if (seq !== reloadSeq) return;
       const raw = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
       const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
       const rawHtml = (await mammoth.convertToHtml({ arrayBuffer: buf })).value;
+      if (seq !== reloadSeq) return; // mammoth 转换是长任务，转换完成后再次校验代际
       previewHtml.value = DOMPurify.sanitize(rawHtml);
       content.value = (await mammoth.extractRawText({ arrayBuffer: buf })).value;
-    } catch (e) { error.value = String(e); }
+    } catch (e) { if (seq === reloadSeq) error.value = String(e); }
     if (!silent) loading.value = false;
     // docx 分支提前返回：恢复滚动位置（silent 自动刷新保持阅读位置）
     restoreScroll(savedScroll);
@@ -479,6 +531,7 @@ async function reloadFile(silent = false) {
         const buf = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
         wb = XLSX.read(buf, { type: "array" });
       }
+      if (seq !== reloadSeq) return; // 过期代：期间已有更新的 reload，丢弃本次结果
       // 手动构建带 data-row/data-col 的 HTML 表格，支持单元格选取
       xlsxSheets.value = wb.SheetNames.map(name => {
         const data = XLSX.utils.sheet_to_json<(string | number | boolean | null | undefined)[]>(wb.Sheets[name], { header: 1 });
@@ -504,9 +557,11 @@ async function reloadFile(silent = false) {
       });
       xlsxActiveSheet.value = wb.SheetNames[0] || "";
     } catch (e) {
-      error.value = String(e);
-      if ((e as any)?.message?.includes("password") || (e as any)?.message?.includes("Password")) {
-        error.value = t("preview.xlsxPassword");
+      if (seq === reloadSeq) {
+        error.value = String(e);
+        if ((e as any)?.message?.includes("password") || (e as any)?.message?.includes("Password")) {
+          error.value = t("preview.xlsxPassword");
+        }
       }
     }
     if (!silent) loading.value = false;
@@ -534,6 +589,7 @@ async function reloadFile(silent = false) {
   activeTab.value = hasPreview.value ? "preview" : "edit";
   try {
     const raw = await readFileContent(f.path);
+    if (seq !== reloadSeq) return; // 过期代：期间已有更新的 reload，丢弃本次结果
     content.value = raw;
     if (kind === "html") {
       // 注入脚本初始值 = 父窗口当前检查模式状态：刷新/重建 blob 后 iframe 重新加载执行脚本，
@@ -544,13 +600,17 @@ async function reloadFile(silent = false) {
       updateHtmlBlob(injected);
     }
     // markdown 预览由 MarkdownRenderer 处理，不需要 previewHtml
-  } catch (e) { error.value = String(e); }
+  } catch (e) { if (seq === reloadSeq) error.value = String(e); }
   if (!silent) loading.value = false;
   // 恢复滚动位置（silent 自动刷新保持阅读位置——2026-08-12）
   restoreScroll(savedScroll);
 }
 
-watch(() => props.file, () => { void reloadFile(); }, { immediate: true });
+watch(() => props.file, () => {
+  // 切文件重置指纹基准：避免旧文件指纹与新文件误对比（2026-08-15）
+  previewFp = null;
+  void reloadFile();
+}, { immediate: true });
 
 // ═══ Excel 拖拽选区 ═══
 const excelAnchor = ref<{ r: number; c: number } | null>(null);

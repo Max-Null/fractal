@@ -1391,3 +1391,58 @@ describe('notification:show（系统通知 IPC）', () => {
     expect(() => getHandler()({}, { title: 't', body: 'b' })).not.toThrow()
   })
 })
+
+describe('fs:fileFingerprint（文件指纹：预览面板自动刷新判断）', () => {
+  const getHandler = () => {
+    const call = electronMock.handleCalls.find((c) => c.channel === 'fs:fileFingerprint')
+    if (!call) throw new Error('fs:fileFingerprint handler 未注册')
+    return call.handler
+  }
+
+  it('withHash=false：仅 stat 返回 size + mtimeMs，md5=null（快路径不读盘）', async () => {
+    const dir = join(tmpdir(), `fractal-fp-${Date.now()}`)
+    const file = join(dir, 'a.txt')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(file, 'hello', 'utf-8')
+    try {
+      registerIpcHandlers()
+      const r = (await getHandler()({}, { path: file, withHash: false })) as {
+        size: number; mtimeMs: number; md5: string | null
+      }
+      expect(r.size).toBe(5)
+      expect(typeof r.mtimeMs).toBe('number')
+      expect(r.md5).toBeNull()
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('withHash=true：内容变化 → md5 变化（同一路径两次指纹不同）', async () => {
+    const dir = join(tmpdir(), `fractal-fp-${Date.now()}`)
+    const file = join(dir, 'a.txt')
+    await fsp.mkdir(dir, { recursive: true })
+    await fsp.writeFile(file, 'v1', 'utf-8')
+    try {
+      registerIpcHandlers()
+      const h = getHandler()
+      const r1 = (await h({}, { path: file, withHash: true })) as { md5: string | null }
+      await fsp.writeFile(file, 'v2', 'utf-8')
+      const r2 = (await h({}, { path: file, withHash: true })) as { md5: string | null }
+      expect(r1.md5).toBeTruthy()
+      expect(r2.md5).toBeTruthy()
+      expect(r1.md5).not.toBe(r2.md5)
+    } finally {
+      await fsp.rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('非法路径 → assertValidFsPath 拒绝', async () => {
+    registerIpcHandlers()
+    await expect(getHandler()({}, { path: '../escape' })).rejects.toThrow('路径')
+  })
+
+  it('文件不存在 → 抛错（stat 失败）', async () => {
+    registerIpcHandlers()
+    await expect(getHandler()({}, { path: join(tmpdir(), `fractal-fp-none-${Date.now()}.txt`) })).rejects.toThrow()
+  })
+})

@@ -11,6 +11,7 @@ export const ALLOWED_INVOKE = [
   'fs:listDir', 'fs:readFileContent', 'fs:writeFile', 'fs:saveFileContent',
   'fs:deleteFile', 'fs:renameFile', 'fs:moveFile', 'fs:copyFile',
   'fs:createDir', 'fs:readFileBase64', 'fs:getWorkspaceRoot', 'fs:revealInExplorer',
+  'fs:fileFingerprint', // 文件指纹：预览面板自动刷新判断（2026-08-15）
   'git:status', 'git:diff', 'git:stage', 'git:unstage', 'git:commit', 'git:push',
   'settings:saveUiSettings', 'settings:loadUiSettings',
   'settings:saveProviderConfig', 'settings:loadProviderConfigs',

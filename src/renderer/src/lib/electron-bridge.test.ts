@@ -23,6 +23,7 @@ import {
   downloadUpdate,
   quitAndInstall,
   onUpdaterStatus,
+  fileFingerprint,
   type SendOptions,
 } from "./electron-bridge";
 
@@ -339,6 +340,22 @@ describe("updater（自动更新通道）", () => {
     handler({ type: "available", version: "1.2.0", releaseNotes: "fix" });
     expect(cb).toHaveBeenCalledWith({ type: "available", version: "1.2.0", releaseNotes: "fix" });
     expect(typeof off).toBe("function");
+  });
+});
+
+describe("fileFingerprint（文件指纹：预览面板自动刷新判断）", () => {
+  it("默认 withHash=false → fs:fileFingerprint 传 path（快路径仅 stat）", async () => {
+    invokeMock.mockResolvedValue({ size: 5, mtimeMs: 123456, md5: null });
+    const r = await fileFingerprint("C:\\work\\a.txt");
+    expect(invokeMock).toHaveBeenCalledWith("fs:fileFingerprint", { path: "C:\\work\\a.txt", withHash: false });
+    expect(r).toEqual({ size: 5, mtimeMs: 123456, md5: null });
+  });
+
+  it("withHash=true → 传 withHash:true，返回 md5 内容哈希", async () => {
+    invokeMock.mockResolvedValue({ size: 5, mtimeMs: 123456, md5: "abc123" });
+    const r = await fileFingerprint("C:\\work\\a.txt", true);
+    expect(invokeMock).toHaveBeenCalledWith("fs:fileFingerprint", { path: "C:\\work\\a.txt", withHash: true });
+    expect(r.md5).toBe("abc123");
   });
 });
 
