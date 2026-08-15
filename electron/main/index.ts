@@ -14,7 +14,7 @@ import { createServerManager } from './server-manager'
 import { ensureConfig } from './oc-config'
 import { migrateUserDataIfNeeded } from './migrate-userdata'
 import { initPreset, ensurePresetConfig } from './preset'
-import { watchSettings, loadSettings } from './settings'
+import { watchSettings, loadSettings, currentPermissionMode } from './settings'
 import { startPanelWatchers, setPanelWatchers } from './panel'
 import { registerAvatarScheme, handleAvatarProtocol } from './avatar-protocol'
 
@@ -366,7 +366,11 @@ win.on('closed', () => {
     } catch {
       // provider-configs.json 不存在（首次启动/未保存过设置）→ 用空 key，仅写入 model/agent 受管字段
     }
-    await ensureConfig(app.getPath('userData'), { apiKey: savedApiKey, permissionMode: 'default' })
+    // 权限模式跟随 settings.json（acceptEdits/auto 不被启动覆盖回 default——2026-08-15 权限通知 bug 根因之一）
+    await ensureConfig(app.getPath('userData'), {
+      apiKey: savedApiKey,
+      permissionMode: currentPermissionMode()
+    })
     // 统一走 ready()（与 ipc 引擎通道共享同一启动 promise，避免健康检查完成前返回未就绪参数）
     await serverManager.ready()
     console.log('[engine] ready 完成')

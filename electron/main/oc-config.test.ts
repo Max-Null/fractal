@@ -79,6 +79,41 @@ describe('buildPermissionRule（权限模式 → OC 规则）', () => {
     expect(buildPermissionRule('auto')).toEqual({ '*': 'allow' })
     expect(buildPermissionRule('auto', 'C:\\data')).toEqual({ '*': 'allow' })
   })
+
+  it('acceptEdits：编辑/读取自动放行，bash/task/skill 仍 ask（对齐 CodeBuddy acceptEdits 语义：信任目录内自动、Bash 按需确认）', () => {
+    const rule = buildPermissionRule('acceptEdits')
+    expect(rule.read).toBe('allow')
+    expect(rule.edit).toBe('allow')
+    expect(rule.write).toBe('allow')
+    expect(rule.glob).toBe('allow')
+    expect(rule.grep).toBe('allow')
+    // 敏感执行类仍 ask——acceptEdits 只自动批准文件编辑，不放开命令执行/子 agent/技能加载
+    expect(rule.bash).toBe('ask')
+    expect(rule.task).toBe('ask')
+    expect(rule.lsp).toBe('ask')
+    expect(rule.skill).toBe('ask')
+    // 无 userDataDir 时 external_directory 无文件例外，纯 ask
+    expect(rule.external_directory).toBe('ask')
+  })
+
+  it('acceptEdits + userDataDir：external_directory 保留 settings.json + 临时目录例外（制图师读临时文件不卡死）', () => {
+    const rule = buildPermissionRule('acceptEdits', 'C:\\oc-gui-data')
+    // 读取/编辑类全放行
+    expect(rule.read).toBe('allow')
+    expect(rule.edit).toBe('allow')
+    expect(rule.write).toBe('allow')
+    expect(rule.glob).toBe('allow')
+    expect(rule.grep).toBe('allow')
+    // external_directory 仍走对象语法：settings.json + <tmp>/opencode/* 放行，其余外部目录 ask
+    const ext = rule.external_directory as Record<string, string>
+    expect(ext['C:\\oc-gui-data\\settings.json']).toBe('allow')
+    expect(ext['C:/oc-gui-data/settings.json']).toBe('allow')
+    const tmp = join(tmpdir(), 'opencode', '*')
+    expect(ext[tmp]).toBe('allow')
+    expect(ext['*']).toBe('ask')
+    expect(rule.bash).toBe('ask')
+    expect(rule.skill).toBe('ask')
+  })
 })
 
 describe('ensureConfig（merge 不覆盖用户字段）', () => {

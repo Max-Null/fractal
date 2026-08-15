@@ -242,12 +242,23 @@ async function syncEngineConfig(userDataDir: string, config: Record<string, unkn
 }
 
 /**
- * settings.json 四值权限模式 → oc-config 两值。
- * default/acceptEdits/plan 归为 default（敏感工具 ask 的安全集）：acceptEdits 的「编辑自动接受」
- * 由 OC 工具级规则承载（阶段 8 细化），plan 的只读约束由双星 agent 定义承载；auto 全放行。
+ * settings.json 四值权限模式 → oc-config 三值。
+ * acceptEdits 透传（编辑自动接受由 buildPermissionRule 工具级规则承载：read/edit/glob/grep allow，
+ * bash/task/skill ask）；plan 的只读约束由双星 agent 定义承载（归 default 安全集）；auto 全放行。
  */
-function toOcPermissionMode(mode: unknown): 'default' | 'auto' {
-  return mode === 'auto' ? 'auto' : 'default'
+function toOcPermissionMode(mode: unknown): 'default' | 'auto' | 'acceptEdits' {
+  if (mode === 'auto') return 'auto'
+  if (mode === 'acceptEdits') return 'acceptEdits'
+  return 'default'
+}
+
+/**
+ * 当前权限模式（settings.json agent.permissionMode → oc-config 三值）。
+ * 供 ensureConfig 的调用方复用——启动/保存 Key/测试连接三处不再各自硬编码 default，
+ * 否则用户选了 acceptEdits/auto 也会被覆盖回 default（2026-08-15 权限通知 bug 根因之一）。
+ */
+export function currentPermissionMode(): 'default' | 'auto' | 'acceptEdits' {
+  return toOcPermissionMode(currentConfig['agent.permissionMode'])
 }
 
 // ── 文件监听 ──

@@ -45,7 +45,8 @@ import {
   saveSettings,
   getSchema as getSettingsSchema,
   isSettingsLoaded,
-  getSettingsFileExists
+  getSettingsFileExists,
+  currentPermissionMode
 } from './settings'
 
 // ── 模块级状态 ──
@@ -529,7 +530,7 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
       await applyModelAliases(app.getPath('userData'))
       // 引擎配置联动（阶段 5）：保存 API Key 的同时写 serve 隔离配置 opencode.json（单一入口，避免前端竞态）。
       // apiKey 为空视为用户未配置，跳过联动（否则会把已生效的 key 覆盖为空）。
-      // permissionMode 用 default 兜底（安全默认：敏感工具 ask）；前端模式切换的精确联动后续阶段细化。
+      // 权限模式跟随 settings.json 当前值（acceptEdits/auto 不被兜底 default 覆盖——2026-08-15 权限通知 bug 根因之一）
       if (args.apiKey && args.apiKey.trim()) {
         // ensureConfig 的 opts.apiKey 是 deepseek 语义：保存 kimi key 时不能把 kimi key 写进 deepseek 槽位，
         // 需从写盘前的旧 cfg 读 deepseek key 透传（moonshotai-cn 自身 key 由 ensureConfig 内部读 provider-configs.json）
@@ -537,7 +538,10 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
           providerId === 'moonshotai-cn'
             ? ((cfg as Record<string, { apiKey?: string }>)?.deepseek?.apiKey ?? '').trim()
             : args.apiKey.trim()
-        await ensureConfig(app.getPath('userData'), { apiKey: dsKey, permissionMode: 'default' })
+        await ensureConfig(app.getPath('userData'), {
+          apiKey: dsKey,
+          permissionMode: currentPermissionMode()
+        })
         // 仅用户主动保存（SettingsPanel/Onboarding 传 restart=true）且 key 确实变化时才重启 serve：
         // 启动时 store watch 自动保存会命中刚起来的 serve——重启会杀掉健康中的 serve 导致
         // 并发请求 ECONNRESET + 会话列表加载失败（2026-08-09 实测 stopping=true 日志）
@@ -1087,8 +1091,12 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
     const apiKey = args.apiKey.trim()
     try {
-      // ① 写隔离配置（serve 读取 provider.deepseek.options.apiKey 使用，阶段 0 实测：无需 env 注入）
-      await ensureConfig(app.getPath('userData'), { apiKey, permissionMode: 'default' })
+      // ① 写隔离配置（serve 读取 provider.deepseek.options.apiKey 使用，阶段 0 实测：无需 env 注入）；
+      // 权限模式跟随 settings.json 当前值（不覆盖用户已选的 acceptEdits/auto）
+      await ensureConfig(app.getPath('userData'), {
+        apiKey,
+        permissionMode: currentPermissionMode()
+      })
       // ② 真实校验 key：调 DeepSeek /models（轻量 GET，无计费）。401 即 key 无效——直接报错，
       //    不再「假通过」让用户下次发消息才暴露（2026-08-13 其他机器 401 根因）
       const resp = await fetch('https://api.deepseek.com/models', {

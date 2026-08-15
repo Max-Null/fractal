@@ -13,6 +13,7 @@ import {
   getSchema,
   getSettingsFileExists,
   watchSettingsFile,
+  currentPermissionMode,
 } from './settings'
 import { getConfigPath } from './oc-config'
 
@@ -375,5 +376,47 @@ describe('watchSettingsFile（文件监听 → config-changed）', () => {
     await fsp.writeFile(getSettingsPath(dir), '{ "ui.theme": "light" }', 'utf-8')
     await new Promise((r) => setTimeout(r, 600))
     expect(received.length).toBe(countBefore)
+  })
+})
+
+describe('currentPermissionMode（settings.json → oc-config 权限模式透传）', () => {
+  let dir: string
+  let stop: (() => void) | null = null
+
+  beforeEach(async () => {
+    dir = await fsp.mkdtemp(join(tmpdir(), 'settings-mode-test-'))
+  })
+
+  afterEach(async () => {
+    stop?.()
+    stop = null
+    await fsp.rm(dir, { recursive: true, force: true })
+  })
+
+  it('默认 default（settings.json 缺失）', async () => {
+    stop = watchSettingsFile(dir, () => {})
+    await new Promise((r) => setTimeout(r, 120))
+    expect(currentPermissionMode()).toBe('default')
+  })
+
+  it('acceptEdits 透传（不被归为 default——2026-08-15 权限通知 bug 根因）', async () => {
+    stop = watchSettingsFile(dir, () => {})
+    await fsp.writeFile(getSettingsPath(dir), '{ "agent.permissionMode": "acceptEdits" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(currentPermissionMode()).toBe('acceptEdits')
+  })
+
+  it('auto 透传', async () => {
+    stop = watchSettingsFile(dir, () => {})
+    await fsp.writeFile(getSettingsPath(dir), '{ "agent.permissionMode": "auto" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(currentPermissionMode()).toBe('auto')
+  })
+
+  it('plan 归为 default（只读约束由双星 agent 定义承载）', async () => {
+    stop = watchSettingsFile(dir, () => {})
+    await fsp.writeFile(getSettingsPath(dir), '{ "agent.permissionMode": "plan" }', 'utf-8')
+    await new Promise((r) => setTimeout(r, 600))
+    expect(currentPermissionMode()).toBe('default')
   })
 })

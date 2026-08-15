@@ -10,8 +10,8 @@ import { join } from 'node:path'
 export interface EnsureConfigOptions {
   /** DeepSeek API Key（serve 自动读配置 provider.deepseek.options.apiKey，无需 env——阶段 0 实测） */
   apiKey: string
-  /** 权限模式：default → 敏感工具 ask；auto → 全部 allow */
-  permissionMode: 'default' | 'auto'
+  /** 权限模式：default → 敏感工具 ask；acceptEdits → 编辑/读取放行；auto → 全部 allow */
+  permissionMode: 'default' | 'auto' | 'acceptEdits'
 }
 
 /** DeepSeek 模型上下文限制（对应 opencode.json provider.deepseek.models，规格 D16 模型固定） */
@@ -95,13 +95,16 @@ export function getJsoncPath(userDataDir: string): string {
 /**
  * 按权限模式生成顶层 permission 规则（OC 权限模型 v1.18.x，v1.12 修正：工具级 allow/ask/deny）。
  * default：敏感工具 ask（read/edit/glob/grep/bash/task/lsp/external_directory/skill），
- * 贴合 OC 默认哲学（关键项询问，非一刀切全部询问）；auto：全放行。
+ * 贴合 OC 默认哲学（关键项询问，非一刀切全部询问）；auto：全放行；
+ * acceptEdits：自动批准文件编辑（read/edit/write/glob/grep 放行），bash/task/lsp/skill 仍 ask，
+ * external_directory 保持 ask（工作区外路径仍审批）——对齐 CodeBuddy/Claude Code 的 acceptEdits 语义：
+ * 编辑自动放行、Read 信任目录内放行、Bash 按需确认。
  * userDataDir（阶段 6 配置体系）：agent 改 settings.json 的前提——read/edit/write/glob/grep/external_directory
  * 对 userData 目录放行。对象语法（{"*": "ask", "<path>/*": "allow"}）表达「目录例外」；
  * 通配符最后匹配生效，catch-all "*" 必须放前面（v1.18.x 配置 schema 文档）。
  */
 export function buildPermissionRule(
-  permissionMode: 'default' | 'auto',
+  permissionMode: 'default' | 'auto' | 'acceptEdits',
   userDataDir?: string
 ): Record<string, unknown> {
   if (permissionMode === 'auto') return { '*': 'allow' }
@@ -117,6 +120,21 @@ export function buildPermissionRule(
     'skill'
   ]
   if (!userDataDir) {
+    // acceptEdits 无 userDataDir 时同样放行编辑/读取（external_directory 无文件例外可加，退回纯 ask）
+    if (permissionMode === 'acceptEdits') {
+      return {
+        read: 'allow',
+        edit: 'allow',
+        write: 'allow',
+        glob: 'allow',
+        grep: 'allow',
+        bash: 'ask',
+        task: 'ask',
+        lsp: 'ask',
+        skill: 'ask',
+        external_directory: 'ask'
+      }
+    }
     return Object.fromEntries(sensitiveTools.map((t) => [t, 'ask']))
   }
   // 精确到 settings.json 文件而非整个 userData 目录——目录通配会暴露 provider-configs.json（API Key 明文）
@@ -136,6 +154,26 @@ export function buildPermissionRule(
     '*': 'ask',
     ...Object.fromEntries([...settingsPatterns, ...extraPatterns].map((p) => [p, 'allow']))
   })
+  // acceptEdits：编辑/读取自动放行（工作区内），bash/task/lsp/skill 仍 ask。
+  // 利用 OC 的 external_directory 维度控制工作区外路径——read/edit allow 不绕过它（v1.18.x schema：
+  // external_directory 是独立工具类别，工作区外单独审批）→ 等价于「信任目录内自动、外部敏感路径询问」。
+  // 放在 withFileAllow 定义之后（前面引用会 TDZ）；无 userDataDir 时 external_directory 无文件例外可加，退回纯 ask。
+  if (permissionMode === 'acceptEdits') {
+    const acceptRule: Record<string, unknown> = {
+      read: 'allow',
+      edit: 'allow',
+      write: 'allow',
+      glob: 'allow',
+      grep: 'allow',
+      bash: 'ask',
+      task: 'ask',
+      lsp: 'ask',
+      skill: 'ask'
+    }
+    // 保留 settings.json + opencode 临时目录例外（制图师读临时文件场景，见 opencodeTmpPatterns 注释）
+    acceptRule.external_directory = withFileAllow(opencodeTmpPatterns)
+    return acceptRule
+  }
   const rule: Record<string, unknown> = {
     read: withFileAllow(),
     edit: withFileAllow(),
