@@ -6,3 +6,4 @@
 |------|------|
 | [2026-08-14-基座选择-维持OpenCode-DSH暂不切换.md](2026-08-14-基座选择-维持OpenCode-DSH暂不切换.md) | fractal 基座维持 OpenCode；DeepSeek Harness 列为观察项；抽出 EngineAdapter 边界，未来可切 |
 | [2026-08-14-自动更新-转public+electron-updater.md](2026-08-14-自动更新-转public+electron-updater.md) | 自动更新走 GitHub Releases：仓库转 public + electron-updater；升级 electron-builder 26.x |
+| [2026-08-15-润色直连-受控例外.md](2026-08-15-润色直连-受控例外.md) | AI 润色改主进程直连 DeepSeek API——「OC 唯一引擎」的受控例外（serve 并发缺陷 #21524/#32010/#35472）；回退条件已列 |

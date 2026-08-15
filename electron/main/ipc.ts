@@ -1010,10 +1010,11 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     }
   )
 
-  // ✨ 输入消息优化（原型发送左侧功能）：临时会话润色 → 提取回复 → 删除临时会话。
-  // 独立临时会话避免污染当前会话历史；promptAsync 异步提交（结果走 SSE），轮询 messages 直到 assistant 文本出现。
-  // 2026-08-08 修复：①指定 build agent（临时会话默认双星会触发读文件/工具流，润色只需纯文本回复——用户报错根因）；
-  // ②超时 20s→60s（deepseek-v4-pro 长推理，20s 内未回复即报「润色超时」——用户报错嫌疑）。
+  // ✨ 输入消息优化（原型发送左侧功能）：主进程直连 DeepSeek chat/completions → 提取回复。
+  // 2026-08-15 改造（原临时会话方案废弃）：serve 并发缺陷（#21524 promptAsync 204 但回合不启动、
+  // #32010 异步 prompt 被静默丢弃、#35472 stale busy）导致会话进行时润色超时——临时会话 promptAsync
+  // 被 accept 但不调度，轮询 60s 拿不到 assistant 文本。润色是纯文本任务（build agent 不执行工具），
+  // 直连零能力损失且与会话调度解耦（会话进行时也能润色），主进程已有 DeepSeek 直连成熟模式（deepseek:getBalance）。
   ipcMain.handle(
     'ai:polishMessage',
     async (
@@ -1022,39 +1023,56 @@ export function registerIpcHandlers(serverManager?: ServerManager): void {
     ) => {
       const text = typeof args?.text === 'string' ? args.text.trim() : ''
       if (!text) throw new Error('ai:polishMessage text 必须是非空字符串')
-      const client = await requireClient()
-      let tempId = ''
+      // 读 provider-configs.json 的 deepseek 槽位（渲染进程不直接持有 key，主进程读取避免泄露）
+      const cfg = (await readJsonFile(join(app.getPath('userData'), 'provider-configs.json'), {})) as Record<
+        string,
+        { apiKey?: string; baseUrl?: string }
+      >
+      const apiKey = cfg?.deepseek?.apiKey?.trim() ?? ''
+      if (!apiKey) throw new Error('未配置 DeepSeek API Key（设置 → API Key）')
+      const baseUrl = (cfg?.deepseek?.baseUrl?.trim() || 'https://api.deepseek.com').replace(/\/+$/, '')
+      const prompt = await buildPolishPrompt(text, args?.refs)
+      // 轻量任务模型：设置页「轻量模型」显式选择（deepseek/deepseek-v4-flash | pro）跟随；
+      // 显式选「跟随主模型」（smallModel=''）→ 用默认主模型 DEFAULT_MODEL（deepseek-v4-pro，与 serve 标题/摘要语义一致）
+      const smFull = (await resolveSmallModel(app.getPath('userData'))).trim()
+      const smModel = (smFull && smFull.split('/').pop()) || DEFAULT_MODEL.id
+      // 60s 超时兜底长推理（与旧轮询上限一致；AbortController 由 fetch 内部 signal 驱动）
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 60_000)
       try {
-        const s = await client.session.create({ title: '消息润色' })
-        // oc-sdk create 返回 Session 本体（normalizeError 已解包 data）
-        tempId = s.id || ''
-        if (!tempId) throw new Error('临时会话创建失败')
-        // agent: build——纯文本润色不执行工具（build 遵循模型指令直接输出；默认双星会读文件/多轮工具流）
-        // model: resolveSmallModel（轻量任务模型——标题/润色/未来摘要三处统一走设置页「轻量模型」选择）+ variant low
-        const [smProvider, smModel] = (await resolveSmallModel(app.getPath('userData'))).split('/')
-        await client.session.promptAsync(tempId, await buildPolishPrompt(text, args?.refs), {
-          agent: 'build',
-          model: { providerID: smProvider, modelID: smModel },
-          variant: 'low'
+        const res = await fetch(`${baseUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+          body: JSON.stringify({
+            model: smModel,
+            messages: [
+              { role: 'system', content: POLISH_PROMPT },
+              { role: 'user', content: prompt }
+            ],
+            temperature: 0.3 // 润色低随机性，保持原意
+          }),
+          signal: controller.signal
         })
-        // promptAsync 立即返回，结果异步生成——轮询直到回复出现（500ms × 120 = 60s 上限）
-        let polished = ''
-        for (let i = 0; i < 120 && !polished; i++) {
-          await new Promise((r) => setTimeout(r, 500))
-          const msgs = await client.session.messages(tempId)
-          polished = extractAssistantText(msgs)
+        if (!res.ok) {
+          // 401 → 认证失败（key 失效/错误）；其他状态码给出具体值便于排查
+          throw new Error(
+            res.status === 401 ? 'API Key 无效或已失效（HTTP 401）' : `润色失败（HTTP ${res.status}）`
+          )
         }
-        if (!polished) throw new Error('润色超时：模型未在 60 秒内回复')
+        const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> }
+        const polished = data?.choices?.[0]?.message?.content?.trim() ?? ''
+        if (!polished) throw new Error('润色失败：模型未返回内容')
         return { ok: true, text: polished }
-      } finally {
-        // 尽力清理临时会话（失败不阻断——serve 侧会残留一条「消息润色」会话，可接受）
-        if (tempId) {
-          try {
-            await client.session.delete(tempId)
-          } catch {
-            /* 清理失败可接受 */
-          }
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          throw new Error('润色超时：模型未在 60 秒内回复')
         }
+        // 业务错误（未配 key/401/HTTP 状态/空内容）已带中文提示直接透传；
+        // 网络层失败（断网/DNS/代理/响应非 JSON）包装中文提示（对齐 deepseek:getBalance 先例）
+        const msg = err instanceof Error ? err.message : String(err)
+        throw /^(未配置|API Key|润色)/.test(msg) ? err : new Error(`润色失败：${msg}`)
+      } finally {
+        clearTimeout(timer)
       }
     }
   )
@@ -1650,22 +1668,7 @@ export async function buildPolishPrompt(
   )
 }
 
-/** 提取最后一条 assistant 消息的全部 text part（润色回复；多 part 拼接；导出供测试） */
-export function extractAssistantText(msgs: SessionMessage[]): string {
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const m = msgs[i]
-    if (m.info.role !== 'assistant') continue
-    const texts = m.parts
-      .filter((p) => p.type === 'text')
-      .map((p) => (p as { text?: string }).text || '')
-    const joined = texts.join('')
-    if (joined.trim()) return joined
-  }
-  return ''
-}
-
-/**
- * OC SessionMessage → 前端 MessageData（content 为 JSON blob，与前端 saveMessage 存档格式一致）。
+/** OC SessionMessage → 前端 MessageData（content 为 JSON blob，与前端 saveMessage 存档格式一致）。
  * 结构保持 message:list 契约不变（id/session_id/role/content/token_usage/created_at），
  * 仅 content 从纯文本升级为完整还原的 JSON 串——前端 loadMessages 已内置 JSON blob 解析（chat.ts），
  * 工具调用/思考在切会话后不再丢失（G2 拍板项）。

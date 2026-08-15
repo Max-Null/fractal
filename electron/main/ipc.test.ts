@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { promises as fsp } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, extractAssistantText, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers, resolveSessionModel, isSameWorkspace } from './ipc'
+import { assertValidFsPath, parseGitStatus, readJsonFile, writeJsonFile, toMessageData, buildPolishPrompt, POLISH_PROMPT, readTailLines, registerIpcHandlers, resolveSessionModel, isSameWorkspace } from './ipc'
 import type { SessionMessage } from './oc-sdk'
 
 // electron mock：app:getInfo / logs:readServeLog 用例需要（node 环境无 electron 运行时）。
@@ -432,27 +432,6 @@ describe('buildSendParts 附件 parts 构建', () => {
   })
 })
 
-// ── extractAssistantText（ai:polishMessage 润色回复提取：最后一条 assistant 的 text parts）──
-describe('extractAssistantText', () => {
-  it('取最后一条 assistant 消息的多 text part 拼接', () => {
-    const msgs = [
-      makeMessage('user', [textPart('原始消息')]),
-      makeMessage('assistant', [textPart('优化后的'), textPart('消息内容')]),
-    ]
-    expect(extractAssistantText(msgs)).toBe('优化后的消息内容')
-  })
-  it('assistant 无文本（仅思考）时跳过取更早的', () => {
-    const msgs = [
-      makeMessage('assistant', [{ type: 'reasoning', text: '思考中' }]),
-      makeMessage('user', [textPart('x')]),
-    ]
-    expect(extractAssistantText(msgs)).toBe('')
-  })
-  it('空列表返回空串', () => {
-    expect(extractAssistantText([])).toBe('')
-  })
-})
-
 // ── buildPolishPrompt（润色指令组装：无引用纯文本 / 带选区片段 / 带附件文件 / 文件读取失败跳过）──
 describe('buildPolishPrompt', () => {
   it('无引用 = 基础指令 + 消息', async () => {
@@ -857,6 +836,174 @@ describe('deepseek:getBalance（计费迭代：DeepSeek 余额查询）', () => 
       const r = (await h!.handler({})) as { ok: boolean; message?: string }
       expect(r.ok).toBe(false)
       expect(r.message).toContain('401')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+})
+
+// ── ai:polishMessage（润色直连 DeepSeek：v1.1 起不再走 serve 临时会话——serve 并发缺陷 #21524/#32010/#35472 导致会话进行时润色超时）──
+describe('ai:polishMessage（直连 DeepSeek chat/completions）', () => {
+  let userDataDir: string
+
+  beforeEach(async () => {
+    electronMock.handleCalls.length = 0
+    userDataDir = await fsp.mkdtemp(join(tmpdir(), 'ipc-polish-'))
+    electronMock.app.getPath.mockReset()
+    electronMock.app.getPath.mockImplementation((name: string) => (name === 'userData' ? userDataDir : ''))
+  })
+
+  afterEach(async () => {
+    await fsp.rm(userDataDir, { recursive: true, force: true })
+  })
+
+  it('未配置 API Key → throw「未配置 DeepSeek API Key」（不发起网络请求）', async () => {
+    // userData 目录无 provider-configs.json → 空 key
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+    expect(h).toBeDefined()
+    await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('未配置 DeepSeek API Key')
+  })
+
+  it('text 为空 → throw（IPC 层防御）', async () => {
+    registerIpcHandlers()
+    const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+    expect(h).toBeDefined()
+    await expect(h!.handler({}, { text: '   ' })).rejects.toThrow('text 必须是非空字符串')
+  })
+
+  it('成功：fetch chat/completions → 提取 choices[0].message.content 返回', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    // 注入 fetch mock：DeepSeek chat/completions 返回真实结构（OpenAI 兼容）
+    let calledBody: unknown = null
+    let calledUrl = ''
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calledUrl = String(input)
+      calledBody = JSON.parse(String(init?.body))
+      return new Response(
+        JSON.stringify({ choices: [{ message: { content: '优化后的消息内容' } }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    }) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { text: '优化这段' })) as { ok: boolean; text: string }
+      expect(r.ok).toBe(true)
+      expect(r.text).toBe('优化后的消息内容')
+      // 断言请求细节：URL 是 chat/completions、带 Bearer、system+user 双消息、默认轻量模型
+      expect(calledUrl).toBe('https://api.deepseek.com/chat/completions')
+      expect((calledBody as { model: string }).model).toBe('deepseek-v4-flash')
+      expect((calledBody as { messages: Array<{ role: string }> }).messages.map((m) => m.role)).toEqual(['system', 'user'])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('「跟随主模型」（settings.json smallModel=空串）→ 请求用 DEFAULT_MODEL pro，不用 flash', async () => {
+    // 设置页显式选「跟随主模型」：settings.json 写 smallModel: ""（resolveSmallModel 返回 ''）
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    await fsp.writeFile(join(userDataDir, 'settings.json'), JSON.stringify({ smallModel: '' }), 'utf-8')
+    let requestedModel = ''
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      requestedModel = (JSON.parse(String(init?.body)) as { model: string }).model
+      return new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    }) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      const r = (await h!.handler({}, { text: '优化这段' })) as { ok: boolean; text: string }
+      expect(r.ok).toBe(true)
+      // 跟随主模型 = deepseek-v4-pro（DEFAULT_MODEL），与 serve 标题/摘要语义一致
+      expect(requestedModel).toBe('deepseek-v4-pro')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('HTTP 401（key 失效）→ throw「API Key 无效或已失效」', async () => {    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-bad', baseUrl: '', model: '' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('unauthorized', { status: 401 })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('API Key 无效或已失效（HTTP 401）')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('HTTP 500 → throw「润色失败（HTTP 500）」', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response('boom', { status: 500 })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('润色失败（HTTP 500）')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('模型返回空内容 → throw「润色失败：模型未返回内容」', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ choices: [{ message: { content: '   ' } }] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('模型未返回内容')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('AbortError（60s 超时/主动取消）→ throw「润色超时：模型未在 60 秒内回复」', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    // mock fetch 直接 reject AbortError——覆盖 handler catch 分支的超时转换逻辑；
+    // 60s timer → controller.abort() 是同步注册（setTimeout(abort, 60_000)），真实超时路径 = timer abort → fetch 拒绝 AbortError → 本分支
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      const e = new Error('The operation was aborted')
+      e.name = 'AbortError'
+      throw e
+    }) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('润色超时：模型未在 60 秒内回复')
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  it('网络异常（fetch reject 非 AbortError）→ 包装中文「润色失败：…」', async () => {
+    await fsp.writeFile(join(userDataDir, 'provider-configs.json'), JSON.stringify({ deepseek: { apiKey: 'sk-test', baseUrl: '', model: '' } }), 'utf-8')
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => {
+      throw new TypeError('fetch failed')
+    }) as typeof fetch
+    try {
+      registerIpcHandlers()
+      const h = electronMock.handleCalls.find((x) => x.channel === 'ai:polishMessage')
+      expect(h).toBeDefined()
+      await expect(h!.handler({}, { text: '优化这段' })).rejects.toThrow('润色失败：fetch failed')
     } finally {
       globalThis.fetch = originalFetch
     }

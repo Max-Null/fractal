@@ -369,10 +369,10 @@ async function polishInput() {
       autoResize();
     } else {
       // 主进程返回 ok=false（理论不达，防御）
-      polishError.value = "优化失败：引擎未返回结果";
+      polishError.value = "优化失败：DeepSeek 未返回结果";
     }
   } catch (err) {
-    // 主进程 handler throw → invoke reject——显示具体原因（如「润色超时：模型未在 20 秒内回复」）
+    // 主进程 handler throw → invoke reject——显示具体原因（如「润色超时：模型未在 60 秒内回复」）
     const msg = (err as Error)?.message?.replace(/^Error invoking remote method '[^']+':\s*/, "") || "优化失败，请稍后重试";
     polishError.value = msg;
     console.error("[polish] 润色失败:", err);
