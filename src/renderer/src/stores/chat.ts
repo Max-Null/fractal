@@ -468,7 +468,11 @@ export const useChatStore = defineStore("chat", () => {
       }
     } else if (event.type === 'error') {
       if (last && last.isStreaming) {
-        last.content += `\n\n> ⚠️ ${event.error || 'Unknown error'}`;
+        const raw = String(event.error || 'Unknown error');
+        // 主动打断（abort）→ 后台会话静默结束不追加错误文本（无人查看，避免残留「⚠️ Aborted」）
+        if (!/aborted/i.test(raw)) {
+          last.content += `\n\n> ⚠️ ${raw}`;
+        }
         last.isStreaming = false;
       }
     } else if (event.type === 'token_usage') {

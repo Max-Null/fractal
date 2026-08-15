@@ -58,6 +58,12 @@ describe("translateError", () => {
     expect(translateError("Session not found").key).toBe("error.sessionNotFound");
   });
 
+  it("detects session aborted by user (stop / send-new-message 打断)", () => {
+    expect(translateError("Aborted").key).toBe("error.aborted");
+    expect(translateError("MessageAbortedError").key).toBe("error.aborted");
+    expect(translateError("The operation was aborted").key).toBe("error.aborted");
+  });
+
   it("falls back to generic for unrecognized errors", () => {
     expect(translateError("Something weird happened").key).toBe("error.generic");
   });

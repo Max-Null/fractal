@@ -483,7 +483,9 @@ export function useStreamProcessor() {
           const { key, params } = translateError(data.error || "Unknown error");
           // 错误事件是排查核心（D6：原 debug.json 只记事件类型不含错误内容，精简时补记录点）
           debugLog.add(`❌ ${t(key, params as any)}`, data.session_id);
-          chat.appendText(`\n\n> ⚠️ ${t(key, params as any)}`);
+          // 主动打断（停止/发送新消息打断）→ 温和提示「已停止」，不带 ⚠️ 错误样式
+          //（2026-08-15 反馈：打断后显示「错误: Aborted」体验差）
+          chat.appendText(key === "error.aborted" ? `\n\n> ${t(key, params as any)}` : `\n\n> ⚠️ ${t(key, params as any)}`);
           chat.finishAssistantMessage();
           break;
         }

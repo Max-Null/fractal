@@ -50,6 +50,11 @@ export function translateError(err: unknown): { key: string; params?: Record<str
     return { key: "error.insufficientBalance", params: { error: s } };
   }
 
+  // Session aborted by user（停止按钮/发送新消息打断）——主动行为，非错误，展示为「已停止」温和提示
+  if (lower.includes("aborted")) {
+    return { key: "error.aborted" };
+  }
+
   // Session errors
   if (lower.includes("session") && lower.includes("not found")) {
     return { key: "error.sessionNotFound", params: { error: s } };

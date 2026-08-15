@@ -464,6 +464,31 @@ describe("useStreamProcessor", () => {
     stopListening();
   });
 
+  it("Aborted（主动打断）→ 温和提示不带 ⚠️ 错误样式（2026-08-15 反馈：打断显示「错误: Aborted」体验差）", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-abort");
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "error",
+      session_id: "ses-abort",
+      text: "",
+      thinking: "",
+      error: "Aborted",
+    });
+
+    // 仍记 debugLog（排查线索），但展示层温和——appendText 不带 ⚠️
+    expect(debugLogAddMock).toHaveBeenCalledWith(expect.stringMatching(/^❌ /), "ses-abort");
+    const chat = useChatStore();
+    const last = chat.messages[chat.messages.length - 1];
+    expect(last.role).toBe("assistant");
+    expect(last.content).toContain("error.aborted"); // t mock 返回 key
+    expect(last.content).not.toContain("⚠️");
+
+    stopListening();
+  });
+
   it("精简后无逐条事件流明细（D6：去掉 📨 event: 刷屏记录，防回归）", async () => {
     const session = useSessionStore();
     session.setActiveSession("ses-detail");

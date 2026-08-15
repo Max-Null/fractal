@@ -533,6 +533,7 @@
     "httpError": "网络请求失败: {error}",
     "sessionNotFound": "会话未找到: {error}",
     "insufficientBalance": "API 余额不足，请充值后重试",
+    "aborted": "已停止",
     "generic": "错误: {error}"
   },
   "modal": {

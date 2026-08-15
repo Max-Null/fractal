@@ -534,6 +534,7 @@
     "httpError": "Network request failed: {error}",
     "sessionNotFound": "Session not found: {error}",
     "insufficientBalance": "Insufficient API balance. Please top up and try again.",
+    "aborted": "Stopped",
     "generic": "Error: {error}"
   },
   "modal": {
