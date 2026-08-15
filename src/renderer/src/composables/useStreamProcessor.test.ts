@@ -753,7 +753,7 @@ describe("useStreamProcessor", () => {
     stopListening();
   });
 
-  it("control_request 事件 + enabled&permissionPending → 权限请求通知", async () => {
+  it("control_request approval 事件 + enabled&permissionPending → 权限审批通知（文案「权限请求」）", async () => {
     const session = useSessionStore();
     session.setActiveSession("ses-n4");
     useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: true, subtaskDone: false };
@@ -766,11 +766,33 @@ describe("useStreamProcessor", () => {
       session_id: "ses-n4",
       text: "",
       thinking: "",
-      control_request: { subtype: "request", tool_name: "Bash", tool_input: { command: "ls" }, request_id: "perm-1" },
+      control_request: { subtype: "approval", tool_name: "Bash", tool_input: { command: "ls" }, request_id: "perm-1" },
     });
     await flushPromises();
 
     expect(showNotificationMock).toHaveBeenCalledWith("settings.notificationPermissionTitle", "settings.notificationPermissionBody");
+    stopListening();
+  });
+
+  it("control_request question 事件 + enabled&permissionPending → 提问通知（文案「需要你的决策」，不误报权限请求——2026-08-15 用户反馈）", async () => {
+    const session = useSessionStore();
+    session.setActiveSession("ses-n4q");
+    useSettingsStore().notifications = { enabled: true, replyDone: false, engineError: false, permissionPending: true, subtaskDone: false };
+
+    const { startListening, stopListening } = useStreamProcessor();
+    await startListening();
+
+    listeners.get("engine:event")?.({
+      type: "control_request",
+      session_id: "ses-n4q",
+      text: "",
+      thinking: "",
+      control_request: { subtype: "question", tool_name: "AskUserQuestion", tool_input: {}, request_id: "que-1", questions: [{ question: "确认继续？" }] },
+    });
+    await flushPromises();
+
+    expect(showNotificationMock).toHaveBeenCalledWith("settings.notificationQuestionTitle", "settings.notificationQuestionBody");
+    expect(showNotificationMock).not.toHaveBeenCalledWith("settings.notificationPermissionTitle", "settings.notificationPermissionBody");
     stopListening();
   });
 
@@ -787,7 +809,7 @@ describe("useStreamProcessor", () => {
       session_id: "ses-n5",
       text: "",
       thinking: "",
-      control_request: { subtype: "request", tool_name: "Bash", tool_input: {}, request_id: "perm-2" },
+      control_request: { subtype: "approval", tool_name: "Bash", tool_input: {}, request_id: "perm-2" },
     });
     await flushPromises();
 

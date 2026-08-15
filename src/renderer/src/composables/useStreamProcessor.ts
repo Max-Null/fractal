@@ -141,11 +141,19 @@ export function useStreamProcessor() {
     }
   }
 
-  /** 权限请求待处理通知（permissionPending）：收到 control_request 事件时 */
-  async function notifyPermissionPending() {
+  /**
+   * 需要用户操作的通知（permissionPending 场景）：
+   * approval（权限审批）→「权限请求 / 有新的权限请求待处理」；
+   * question（AI 提问）→「需要你的决策 / AI 正在等待你的回答」。
+   * 2026-08-15 用户反馈：提问弹窗时误弹「权限请求」——两种弹窗都要提示用户，但文案必须区分。
+   */
+  async function notifyPermissionPending(subtype: string) {
     if (!shouldNotify("permissionPending")) return;
+    const isApproval = subtype === "approval";
+    const title = t(isApproval ? "settings.notificationPermissionTitle" : "settings.notificationQuestionTitle");
+    const body = t(isApproval ? "settings.notificationPermissionBody" : "settings.notificationQuestionBody");
     try {
-      await showNotification(t("settings.notificationPermissionTitle"), t("settings.notificationPermissionBody"));
+      await showNotification(title, body);
     } catch {
       /* 通知失败静默 */
     }
@@ -341,8 +349,9 @@ export function useStreamProcessor() {
             debugLog.add(`  🔐 subtype=${cr.subtype} tool=${cr.tool_name} request_id=${cr.request_id}`);
             debugLog.add(`  🔐 tool_input keys: ${cr.tool_input ? Object.keys(cr.tool_input).join(',') : '(null)'}`);
             chat.addControlRequest(cr);
-            // 权限请求待处理通知（5.3）：收到 permission 事件 → 检查 permissionPending 场景开关
-            void notifyPermissionPending();
+            // 需要用户操作的通知（5.3）：approval/question 都触发，但按 subtype 选文案——
+            // approval →「权限请求」，question →「需要你的决策」（2026-08-15 用户反馈文案区分）
+            void notifyPermissionPending(cr.subtype);
           }
           break;
 

@@ -265,7 +265,7 @@
     "notifyEngineError": "引擎异常",
     "notifyEngineErrorDesc": "serve 引擎启动失败或崩溃时发送通知",
     "notifyPermissionPending": "权限请求待处理",
-    "notifyPermissionPendingDesc": "工具调用等待权限批准时发送通知",
+    "notifyPermissionPendingDesc": "工具调用审批或 AI 提问等待你操作时发送通知",
     "notifySubtaskDone": "子任务完成",
     "notifySubtaskDoneDesc": "子任务/阶段完成时发送通知",
     "notificationReplyDoneTitle": "回答已完成",
@@ -273,6 +273,8 @@
     "notificationReplyDoneBodyDuration": "用时 {duration}s",
     "notificationPermissionTitle": "权限请求",
     "notificationPermissionBody": "有新的权限请求待处理",
+    "notificationQuestionTitle": "需要你的决策",
+    "notificationQuestionBody": "AI 正在等待你的回答",
     "notificationSubtaskTitle": "子任务完成",
     "notificationSubtaskBody": "子任务已完成",
     "update": {

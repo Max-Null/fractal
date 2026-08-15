@@ -265,7 +265,7 @@
     "notifyEngineError": "Engine Error",
     "notifyEngineErrorDesc": "Send a notification when the serve engine fails to start or crashes",
     "notifyPermissionPending": "Pending Permission Request",
-    "notifyPermissionPendingDesc": "Send a notification when a tool call awaits permission approval",
+    "notifyPermissionPendingDesc": "Send a notification when a tool approval or AI question awaits your input",
     "notifySubtaskDone": "Subtask Complete",
     "notifySubtaskDoneDesc": "Send a notification when a subtask/phase completes",
     "notificationReplyDoneTitle": "Reply complete",
@@ -273,6 +273,8 @@
     "notificationReplyDoneBodyDuration": "Took {duration}s",
     "notificationPermissionTitle": "Permission request",
     "notificationPermissionBody": "A new permission request is pending",
+    "notificationQuestionTitle": "Your Input Needed",
+    "notificationQuestionBody": "The AI is waiting for your answer",
     "notificationSubtaskTitle": "Subtask complete",
     "notificationSubtaskBody": "Subtask finished",
     "update": {
