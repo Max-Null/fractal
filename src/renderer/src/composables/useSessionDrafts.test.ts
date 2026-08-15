@@ -109,4 +109,50 @@ describe("useSessionDrafts", () => {
     drafts.saveDraft("ses-a", mkDraft({ text: "正常草稿" }));
     expect(drafts.getDraft("ses-a").text).toBe("正常草稿");
   });
+
+  // ── 持久化（2026-08-15 用户确认：草稿 localStorage 落盘，重启不丢失）──
+
+  it("持久化：saveDraft/clearDraft 后 localStorage 同步更新", () => {
+    drafts.saveDraft("ses-1", mkDraft({ text: "持久草稿", files: [mkFile()] }));
+    const raw = localStorage.getItem("oc-gui.session-drafts.v1");
+    expect(raw).toBeTruthy();
+    const parsed = JSON.parse(raw!) as Record<string, SessionDraft>;
+    expect(parsed["ses-1"].text).toBe("持久草稿");
+    expect(parsed["ses-1"].files).toHaveLength(1);
+    // 无会话槽也持久化
+    drafts.saveDraft(null, mkDraft({ text: "首页草稿" }));
+    const parsed2 = JSON.parse(localStorage.getItem("oc-gui.session-drafts.v1")!) as Record<string, SessionDraft>;
+    expect(parsed2["__draft_none__"].text).toBe("首页草稿");
+    // clearDraft 同步移除
+    drafts.clearDraft("ses-1");
+    const parsed3 = JSON.parse(localStorage.getItem("oc-gui.session-drafts.v1")!) as Record<string, unknown>;
+    expect(parsed3["ses-1"]).toBeUndefined();
+  });
+
+  it("重启恢复：清 Map 后从 localStorage 重新加载（模拟应用重启）", () => {
+    drafts.saveDraft("ses-1", mkDraft({ text: "重启后还在" }));
+    drafts.saveDraft(null, mkDraft({ text: "首页也在" }));
+    // 模拟重启：_reloadFromStorageForTest 清 Map + 从 localStorage 恢复
+    drafts._reloadFromStorageForTest();
+    expect(drafts.getDraft("ses-1").text).toBe("重启后还在");
+    expect(drafts.getDraft(null).text).toBe("首页也在");
+  });
+
+  it("损坏数据防御：非法 JSON 静默忽略，空草稿起步", () => {
+    localStorage.setItem("oc-gui.session-drafts.v1", "{invalid json!!");
+    drafts._reloadFromStorageForTest();
+    expect(drafts.hasDraft("ses-1")).toBe(false);
+    // 结构非法（缺 text）的条目被过滤
+    localStorage.setItem("oc-gui.session-drafts.v1", JSON.stringify({ "ses-1": { files: [] } }));
+    drafts._reloadFromStorageForTest();
+    expect(drafts.hasDraft("ses-1")).toBe(false);
+  });
+
+  it("migrateNoneDraft 后持久化更新（NONE 槽删除、目标会话写入）", () => {
+    drafts.saveDraft(null, mkDraft({ text: "首页草稿" }));
+    drafts.migrateNoneDraft("ses-new");
+    const parsed = JSON.parse(localStorage.getItem("oc-gui.session-drafts.v1")!) as Record<string, { text: string }>;
+    expect(parsed["ses-new"].text).toBe("首页草稿");
+    expect(parsed["__draft_none__"]).toBeUndefined();
+  });
 });

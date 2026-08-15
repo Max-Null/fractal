@@ -26,9 +26,47 @@ const DRAFT_KEY_NONE = "__draft_none__";
 const draftsBySession = new Map<string, SessionDraft>();
 /** 润色结果待合并（sid → 润色文本）：InputBar 润色跨会话写回与 ChatPanel captureDraft 的时序协调（军师 P2-2）。
  * 竞态：润色完成写 saveDraft(A) 后，切会话的 watch 可能随后 captureDraft(A)（读 InputBar 旧文本）覆盖润色结果。
- * 解决：InputBar 写回走 setPolishResult 存 pending，captureDraft 的 saveDraft 消费 pending——无论顺序，草稿最终是润色文本。 */
+ * 解决：InputBar 写回走 setPolishResult 存 pending，captureDraft 的 saveDraft 消费 pending——无论顺序，草稿最终是润色文本。
+ * pending 是瞬态协调状态，**不持久化**（应用重启后无意义，清空即可）。 */
 const pendingPolish = new Map<string, string>();
 const draftVersion = ref(0);
+
+// ── 持久化（2026-08-15 用户确认：草稿跟随会话需 localStorage 落盘，重启应用不丢失）──
+// 单 key 存整个草稿 Map（草稿量小）；每次写操作后 persist；模块加载时恢复。
+// 参考 settings store 模式：STORAGE_KEY + try/catch JSON.parse + 兜底。
+const STORAGE_KEY = "oc-gui.session-drafts.v1";
+
+/** 校验反序列化的草稿结构合法（防御损坏数据/旧版本字段） */
+function isValidDraft(v: unknown): v is SessionDraft {
+  if (!v || typeof v !== "object") return false;
+  const d = v as Record<string, unknown>;
+  if (typeof d.text !== "string") return false;
+  if (!Array.isArray(d.files)) return false;
+  return d.snippet === null || (typeof d.snippet === "object" && d.snippet !== null);
+}
+
+/** 从 localStorage 恢复草稿（模块加载时调用一次；损坏数据静默忽略） */
+function loadFromStorage(): void {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    if (!parsed || typeof parsed !== "object") return;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (isValidDraft(v)) draftsBySession.set(k, v);
+    }
+  } catch { /* localStorage 不可用/数据损坏 → 空草稿起步 */ }
+}
+loadFromStorage();
+
+/** 持久化整个草稿 Map 到 localStorage（写操作后调用；存储满等异常静默——草稿是临时输入态，丢失可接受） */
+function persist(): void {
+  try {
+    const obj: Record<string, SessionDraft> = {};
+    for (const [k, v] of draftsBySession) obj[k] = v;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+}
 
 /** 空草稿（restore 无草稿时清空输入态用） */
 function emptyDraft(): SessionDraft {
@@ -54,6 +92,7 @@ function saveDraft(sid: string | null | undefined, draft: SessionDraft): void {
     snippet: draft.snippet ? { ...draft.snippet } : null,
   });
   draftVersion.value++;
+  persist();
 }
 
 /** 记录润色结果到指定会话（InputBar 润色跨会话写回用；最终由 saveDraft 消费合并） */
@@ -73,6 +112,7 @@ function clearDraft(sid: string | null | undefined): void {
   draftsBySession.delete(k);
   pendingPolish.delete(k);
   draftVersion.value++;
+  persist();
 }
 
 /** 读取某会话草稿；无草稿返回空草稿（不写入，避免读取产生脏条目）。返回深拷贝，外部修改不影响存储 */
@@ -113,6 +153,7 @@ function migrateNoneDraft(sid: string): boolean {
   }
   draftsBySession.delete(DRAFT_KEY_NONE);
   draftVersion.value++;
+  persist();
   return true;
 }
 
@@ -131,10 +172,18 @@ export function useSessionDrafts() {
     hasPendingPolish,
     migrateNoneDraft,
     version,
-    /** 测试辅助：清空全部草稿（避免单测间状态污染；生产不调用） */
+    /** 测试辅助：清空全部草稿 + localStorage（避免单测间状态污染；生产不调用） */
     _resetForTest: () => {
       draftsBySession.clear();
       pendingPolish.clear();
+      try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      draftVersion.value++;
+    },
+    /** 测试辅助：模拟应用重启后的模块重新加载（清 Map 后从 localStorage 恢复）；生产不调用 */
+    _reloadFromStorageForTest: () => {
+      draftsBySession.clear();
+      pendingPolish.clear();
+      loadFromStorage();
       draftVersion.value++;
     },
   };
