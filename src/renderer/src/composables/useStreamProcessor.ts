@@ -4,7 +4,7 @@ import { useSessionStore } from "@/stores/session";
 import { useSettingsStore } from "@/stores/settings";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { saveMessage, saveSessionDebugLog, listMessages, loadModelVariants, getEngineStatus, showNotification, type StreamEvent, type ProcessExitedEvent, type EngineStatus } from "@/lib/electron-bridge";
-import { translateError } from "@/lib/utils";
+import { translateError, formatDurationHMS } from "@/lib/utils";
 import { extractFileChanges } from "@/lib/file-changes";
 
 let unlisten: (() => void) | null = null;
@@ -133,7 +133,7 @@ export function useStreamProcessor() {
       await showNotification(
         t("settings.notificationReplyDoneTitle"),
         durationMs != null
-          ? t("settings.notificationReplyDoneBodyDuration", { duration: (durationMs / 1000).toFixed(1) })
+          ? t("settings.notificationReplyDoneBodyDuration", { duration: formatDurationHMS(durationMs) })
           : t("settings.notificationReplyDoneBody"),
       );
     } catch {

@@ -12,6 +12,16 @@ export function formatTokenCount(n: number): string {
   return formatNum(n) + " tok";
 }
 
+/** 毫秒 → 时分秒（操作耗时展示）：<1h 显示 MM:SS，≥1h 显示 HH:MM:SS（通知弹窗等场景） */
+export function formatDurationHMS(ms: number): string {
+  const totalSec = Math.floor(Math.max(0, ms) / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`;
+}
+
 /**
  * Map a Rust/CLI error string to an i18n key and params.
  * Pattern-match common errors; unrecognized ones get the raw string as `error` param.

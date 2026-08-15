@@ -270,7 +270,7 @@
     "notifySubtaskDoneDesc": "Send a notification when a subtask/phase completes",
     "notificationReplyDoneTitle": "Reply complete",
     "notificationReplyDoneBody": "The AI has finished replying",
-    "notificationReplyDoneBodyDuration": "Took {duration}s",
+    "notificationReplyDoneBodyDuration": "Took {duration}",
     "notificationPermissionTitle": "Permission request",
     "notificationPermissionBody": "A new permission request is pending",
     "notificationQuestionTitle": "Reply Needed",

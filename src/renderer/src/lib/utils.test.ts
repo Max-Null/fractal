@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatNum, formatTokenCount, translateError } from "./utils";
+import { formatNum, formatTokenCount, formatDurationHMS, translateError } from "./utils";
 
 describe("formatNum", () => {
   it("returns string for small numbers", () => {
@@ -23,6 +23,26 @@ describe("formatTokenCount", () => {
   it("appends ' tok' suffix", () => {
     expect(formatTokenCount(500)).toBe("500 tok");
     expect(formatTokenCount(1500)).toBe("1.5K tok");
+  });
+});
+
+describe("formatDurationHMS", () => {
+  it("formats under 1h as MM:SS", () => {
+    expect(formatDurationHMS(0)).toBe("00:00");
+    expect(formatDurationHMS(1200)).toBe("00:01");
+    expect(formatDurationHMS(723_000)).toBe("12:03");
+    expect(formatDurationHMS(3_599_000)).toBe("59:59");
+  });
+
+  it("formats 1h+ as HH:MM:SS (hours unpadded)", () => {
+    expect(formatDurationHMS(3_600_000)).toBe("1:00:00");
+    expect(formatDurationHMS(12_345_678)).toBe("3:25:45");
+    expect(formatDurationHMS(100 * 3600_000)).toBe("100:00:00");
+  });
+
+  it("clamps negatives and ignores sub-second", () => {
+    expect(formatDurationHMS(-500)).toBe("00:00");
+    expect(formatDurationHMS(999)).toBe("00:00");
   });
 });
 
