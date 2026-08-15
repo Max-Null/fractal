@@ -73,7 +73,7 @@ function displayPath(p: string): string {
         <!-- 图标规范：lucide 组件；新增 FilePlus2（绿）、修改 FilePenLine（蓝） -->
         <FilePlus2 v-if="statusFor(c) === 'added'" class="file-change-icon" :size="14" />
         <FilePenLine v-else class="file-change-icon" :size="14" />
-        <span class="file-change-path">{{ displayPath(c.filePath) }}</span>
+        <span class="file-change-path" :title="displayPath(c.filePath)">{{ displayPath(c.filePath) }}</span>
         <span class="file-change-badge" :class="'file-change-badge--' + statusFor(c)">
           {{ statusFor(c) === 'added' ? $t('chat.added') : $t('chat.modified') }}
         </span>
@@ -118,6 +118,15 @@ function displayPath(p: string): string {
 }
 .file-change-icon {
   flex-shrink: 0;
+}
+/* 路径：flex 子项默认 min-width:auto 会按内容宽度撑开，长路径把徽标挤出容器 →
+ * min-width:0 + overflow 让路径可收缩，单行省略号截断；title 属性 hover 显示完整路径 */
+.file-change-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 /* 状态徽标色：新增=翠绿（--accent）/ 修改=信息蓝（--blue） */
 .file-change-badge {
