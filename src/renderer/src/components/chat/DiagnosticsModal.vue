@@ -1,10 +1,21 @@
 <script lang="ts">
 // 诊断信息弹窗：独立组件，承载事件日志/引擎日志/控制台日志三标签页查看与复制
 // 事件日志行分类：❌ 错误、⚠️ 警告，其余普通行（供行级高亮，D7）
+// 引擎日志行分类：解析 serve.log 结构化 level 字段（level=ERROR/WARN，D7 修订 v1.2）
 // 普通 script 块承载纯函数，允许顶层 export（script setup 不允许 ES module export）
 export function classifyLogLine(text: string): "error" | "warn" | "normal" {
   if (text.startsWith("❌")) return "error";
   if (text.startsWith("⚠️")) return "warn";
+  return "normal";
+}
+
+/** 解析 serve.log 结构化 level 字段（level=ERROR / level=WARN）；无 level 字段 → normal */
+export function classifyServeLine(text: string): "error" | "warn" | "normal" {
+  const m = /(?:^|\s)level=([A-Z]+)/.exec(text);
+  if (!m) return "normal";
+  const level = m[1];
+  if (level === "ERROR") return "error";
+  if (level === "WARN") return "warn";
   return "normal";
 }
 </script>
@@ -12,7 +23,7 @@ export function classifyLogLine(text: string): "error" | "warn" | "normal" {
 <script setup lang="ts">
 import { ref, computed, nextTick, watch, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { Copy, ClipboardCopy, RefreshCw } from "lucide-vue-next";
+import { Copy, ClipboardCopy, RefreshCw, Search, X } from "lucide-vue-next";
 import ModalShell from "@/components/shared/ModalShell.vue";
 import { useDebugLog } from "@/composables/useDebugLog";
 import { readServeLog, readRendererLog, getAppInfo } from "@/lib/electron-bridge";
@@ -55,6 +66,41 @@ const currentLineCount = computed(() =>
     : debugTab.value === "serve" ? serveLogLines.value.length
     : rendererLogLines.value.length,
 );
+
+// ── 日志搜索（v1.2：三个标签页统一过滤；空关键词不过滤，行数显示过滤后数量）──
+const searchQuery = ref("");
+
+/** 关键词匹配（大小写不敏感）；空串返回 true（不过滤） */
+function matchSearch(line: string): boolean {
+  const q = searchQuery.value.trim().toLowerCase();
+  if (!q) return true;
+  return line.toLowerCase().includes(q);
+}
+
+/** 事件日志：搜索过滤 + 前缀分类高亮 */
+const filteredEventLines = computed(() =>
+  eventLines.value.filter((l) => matchSearch(l.text)),
+);
+
+/** 引擎日志：搜索过滤 + level= 字段分类高亮（serve.log 结构化，D7 修订 v1.2） */
+const serveLines = computed(() =>
+  serveLogLines.value.map((text) => ({ text, level: classifyServeLine(text) })),
+);
+const filteredServeLines = computed(() =>
+  serveLines.value.filter((l) => matchSearch(l.text)),
+);
+
+/** 控制台日志：搜索过滤（renderer.log 无 level 字段，不高亮——D7 限制保留） */
+const filteredRendererLines = computed(() =>
+  rendererLogLines.value.filter((l) => matchSearch(l)),
+);
+
+/** 过滤后行数（标签页栏右侧显示；搜索时反映命中数） */
+const filteredLineCount = computed(() => {
+  if (debugTab.value === "events") return filteredEventLines.value.length;
+  if (debugTab.value === "serve") return filteredServeLines.value.length;
+  return filteredRendererLines.value.length;
+});
 
 function switchDebugTab(tab: "events" | "serve" | "renderer") {
   debugTab.value = tab;
@@ -205,8 +251,22 @@ async function copyDiagnostics() {
         @click="switchDebugTab('renderer')"
       >{{ t("chat.debugRendererTab") }}</button>
       <span class="flex-1" />
-      <!-- D8：当前标签页实际行数 -->
-      <span class="diag-count">{{ currentLineCount }}</span>
+      <!-- 日志搜索（v1.2：三标签页统一；仅过滤显示，不影响复制内容） -->
+      <div class="diag-search">
+        <Search :size="12" class="diag-search-icon" />
+        <input
+          v-model="searchQuery"
+          class="diag-search-input"
+          :placeholder="t('chat.debugSearchPlaceholder')"
+          type="text"
+          spellcheck="false"
+        />
+        <button v-if="searchQuery" class="diag-search-clear" :title="t('chat.clear')" @click="searchQuery = ''">
+          <X :size="11" />
+        </button>
+      </div>
+      <!-- D8：当前标签页实际行数（搜索时显示命中数） -->
+      <span class="diag-count">{{ filteredLineCount }}<template v-if="searchQuery && filteredLineCount !== currentLineCount">/{{ currentLineCount }}</template></span>
       <!-- 复制当前标签页（与标签页绑定，放标签页栏；header 只留复制诊断信息主按钮） -->
       <button class="diag-tab-btn diag-tab-btn--copy" :title="t('chat.debugCopyTab')" @click="copyDebugLog">
         <Copy :size="12" />
@@ -224,36 +284,46 @@ async function copyDiagnostics() {
     </div>
 
     <div class="diag-log">
-      <!-- 事件日志：逐行渲染 + 行级高亮（D7：pre 整块无法按行着色，逐行是必要改造） -->
+      <!-- 事件日志：逐行渲染 + 行级高亮（D7：pre 整块无法按行着色，逐行是必要改造）；搜索过滤 -->
       <template v-if="debugTab === 'events'">
         <div
-          v-for="(line, i) in eventLines"
+          v-for="(line, i) in filteredEventLines"
           :key="i"
           class="diag-log-line"
           :class="`diag-log-line--${line.level}`"
         >{{ line.text }}</div>
+        <div v-if="filteredEventLines.length === 0" class="diag-log-empty">
+          <span>{{ searchQuery ? t("chat.debugNoMatch") : t("chat.debugNoEvents") }}</span>
+        </div>
       </template>
 
-      <!-- 引擎日志：serve.log 尾部只读（超长自动滚到底） -->
+      <!-- 引擎日志：serve.log 尾部只读（超长自动滚到底）；level= 字段行级高亮（v1.2） + 搜索过滤 -->
       <div v-else-if="debugTab === 'serve'" ref="serveLogPre" class="diag-log-body">
-        <template v-if="serveLogLines.length > 0">
-          <div v-for="(line, i) in serveLogLines" :key="i" class="diag-log-line">{{ line }}</div>
+        <template v-if="filteredServeLines.length > 0">
+          <div
+            v-for="(line, i) in filteredServeLines"
+            :key="i"
+            class="diag-log-line"
+            :class="`diag-log-line--${line.level}`"
+          >{{ line.text }}</div>
         </template>
         <div v-else class="diag-log-empty">
           <span v-if="serveLogLoading">{{ t("chat.loading") }}</span>
           <span v-else-if="serveLogError">{{ serveLogError }}</span>
+          <span v-else-if="searchQuery">{{ t("chat.debugNoMatch") }}</span>
           <span v-else>{{ t("chat.debugNoServeLog") }}</span>
         </div>
       </div>
 
-      <!-- 控制台日志：渲染层 console 桥落盘（仅调试模式有内容——--debug 启动后 renderer.log） -->
+      <!-- 控制台日志：渲染层 console 桥落盘（仅调试模式有内容——--debug 启动后 renderer.log）；搜索过滤 -->
       <div v-else-if="debugTab === 'renderer'" ref="rendererLogPre" class="diag-log-body">
-        <template v-if="rendererLogLines.length > 0">
-          <div v-for="(line, i) in rendererLogLines" :key="i" class="diag-log-line">{{ line }}</div>
+        <template v-if="filteredRendererLines.length > 0">
+          <div v-for="(line, i) in filteredRendererLines" :key="i" class="diag-log-line">{{ line }}</div>
         </template>
         <div v-else class="diag-log-empty">
           <span v-if="rendererLogLoading">{{ t("chat.loading") }}</span>
           <span v-else-if="rendererLogError">{{ rendererLogError }}</span>
+          <span v-else-if="searchQuery">{{ t("chat.debugNoMatch") }}</span>
           <span v-else>{{ t("chat.debugNoRendererLog") }}</span>
         </div>
       </div>
@@ -332,6 +402,55 @@ async function copyDiagnostics() {
   font-size: 0.714rem;
 }
 
+/* 日志搜索框（v1.2：三标签页统一；右对齐于标签页栏，窄窗口下 flex-wrap 换行） */
+.diag-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 0.5rem;
+}
+
+.diag-search-icon {
+  position: absolute;
+  left: 0.375rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.diag-search-input {
+  width: 9.5rem;
+  padding: 0.25rem 1.4rem 0.25rem 1.375rem;
+  border: 1px solid var(--border-dim);
+  border-radius: 0.25rem;
+  color: var(--text-bright);
+  font-size: 0.75rem;
+  background: var(--bg-elevated);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.diag-search-input:focus {
+  border-color: var(--accent-line);
+}
+
+.diag-search-clear {
+  position: absolute;
+  right: 0.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.125rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.diag-search-clear:hover {
+  color: var(--text-bright);
+}
+
 /* 刷新按钮：仅引擎/控制台页显示 */
 .diag-tab-btn {
   display: inline-flex;
@@ -382,12 +501,12 @@ async function copyDiagnostics() {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
 }
 
-/* 错误行（D7：❌ 前缀，danger 色） */
+/* 错误行（D7：❌ 前缀 / level=ERROR，danger 色；项目错误语义色为 --coral，fallback 保持一致） */
 .diag-log-line--error {
-  color: var(--danger, #f87171);
+  color: var(--coral, #f87171);
 }
 
-/* 警告行（D7：⚠️ 前缀，warning 色） */
+/* 警告行（D7：⚠️ 前缀 / level=WARN，warning 色） */
 .diag-log-line--warn {
   color: var(--warning, #fbbf24);
 }

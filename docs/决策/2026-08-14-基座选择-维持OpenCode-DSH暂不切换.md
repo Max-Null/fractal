@@ -47,12 +47,20 @@
 - 其根 AGENTS.md 明确：首个 tagged release 前保留 pre-release 段；SQLite 用单调 `SCHEMA_VERSION`；`dsh-session` 的 `SESSION_FORMAT_VERSION` 为 0、无兼容承诺。
 - 含义：今日押注 DSH 作为产品基座，大概率随其迭代反复重写。
 
+### 2.4 oc-plus 的记忆层与引擎深度耦合（第三块，此前判断遗漏）
+
+oc-plus 不是可剥离的预置包，而是对 OC 的增强，其中**分形 Guardian 记忆引擎**是核心价值：
+
+- 实现方式：OC 插件 API 的三个 hook（`system.transform` 注入 system prompt、`chat.message` 同轮注入、`event` 事件监听）+ 三层存储（`blocks/` 知识块 + `triggers/` 触发规则 + `events.log` 原始日志）+ BM25/向量检索。
+- 关键教训（已沉淀于 oc-plus 机制说明 §八）：曾用 `system.transform` 每轮注入 ~300+ 字符规则文本做「行为前门」，导致 system prompt 膨胀、token 命中率暴跌——「动 system prompt → 缓存命中失效」的实证，已废弃并替换为独立 flash 分类器。
+- 结论：记忆机制长在引擎的提示词/上下文/事件 hook 上，**不是可整体带走的资产**；切 DSH 需按 DSH 原则（event-sourced 会话日志 + system-prompt 稳定 section + append-only 历史）重做记忆，而非迁移。
+
 ## 三、决策
 
 1. **维持 OpenCode 为 fractal 唯一引擎核**，fractal 继续交付、继续给朋友用。
 2. **DeepSeek Harness 列为观察项 / 候选第二引擎**，不切换、不投入产品改造。
 3. **抽出 EngineAdapter 边界**：把 `oc-sdk.ts` + `server-manager.ts` 归纳为一个引擎适配接口，OC 为第一个实现；未来 DSH 提供交互式接口后再加 `dsh-adapter` 实现，壳层不动。
-4. **oc-plus 资产保留**：预置包的镜像契约（`agents-manifest.json` + CHANGELOG + 版本对齐）、skills/agents/MCP 预置内容引擎无关，可整体带走；仅 OC 插件 API 部分绑定 OC。
+4. **oc-plus 分层看待，不夸大可迁移性**：skills/agents/MCP 预置内容与镜像契约（`agents-manifest.json` + CHANGELOG + 版本对齐）引擎无关，可带走；但**分形 Guardian 记忆引擎**（system.transform/chat.message/event hook + blocks/triggers/events.log + 检索）与 OC 插件 API 深度耦合，切 DSH 需按 DSH 原则重做，属「重写」而非「迁移」。
 
 ## 四、触发重评估的条件（任一满足即回到本决策）
 
@@ -65,3 +73,20 @@
 - `docs/实测记录.md`（OC ACP 阶段 0 实测，结论绑定 1.18.x）
 - `docs/设计/分形-设计方案.md`（整体方案）
 - `docs/变更记录.md`
+- `docs/设计/DSH记忆插件-前置设计.md`（记忆引擎迁移的前置研究 + 实测结论）
+
+## 六、补充：DSH 记忆适配实测探路结论（2026-08-14）
+
+对 2.4「记忆引擎属重写」做了前置实测（两个临时 spike 跑通后已删，详细结论见 `docs/设计/DSH记忆插件-前置设计.md`）：
+
+| 记忆能力 | DSH 落点 | 实测 |
+|---|---|---|
+| 稳定记忆注入 | `systemPrompt.section()` | ✅ 两次组装前缀稳定 |
+| 动态触发 | `systemPrompt.context()` | ✅ 未命中零成本，命中贡献文本 |
+| 自主学习事件源 | `session/event` | ✅ 收到 append 事件 |
+| 跨会话记忆库 | `ctx.storage.domain`（json/sqlite KV） | ✅ 持久化 + 重开读回 |
+| 检索 | BM25 移植 / 向量待外部嵌入 | 🔁 BM25 无依赖 / ⚠️ DSH 无 embedding seam |
+
+**结论升级**：oc-plus 记忆引擎切 DSH 不是「未知能否」，而是「重写路径已全部实测验证，无未知空白」。剩余硬约束仅两项：①DSH pre-release（地基未稳）；②向量检索需外部嵌入源（可先用 BM25 顶上）。
+
+**对本决策的影响**：维持 OpenCode 不变；但「重评估条件」一旦满足，记忆部分已有完整可执行地图，无需重新探路。

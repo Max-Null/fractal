@@ -1,66 +1,23 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useChatStore } from "@/stores/chat";
-import { useSettingsStore } from "@/stores/settings";
 import { formatNum } from "@/lib/utils";
+import { useContextUsage, contextStatusColor } from "@/composables/useContextUsage";
 
 defineEmits<{ click: [] }>();
 
 const chat = useChatStore();
-const settings = useSettingsStore();
 
-// 模型上下文窗口大小（tokens）
-// DeepSeek v4 系列支持 1M 上下文，模型名中的 [1M] 后缀也明确标注
-// Claude 模型为 200k
-const contextLimits: Record<string, number> = {
-  "deepseek-v4-pro": 1_000_000,
-  "deepseek-v4": 1_000_000,
-  "deepseek-v4-flash": 128_000,
-  "claude-sonnet-4-6": 200_000,
-  "claude-opus-4-8": 200_000,
-  "claude-haiku-4-5": 200_000,
-};
+// 上下文占用统一口径（useContextUsage：最后消息 input+cacheRead+cacheWrite + 固定开销）
+// 2026-08-15 修复：此前只算 inputTokens 且无固定开销（弹窗显示 9% 工具栏 1%），与弹窗分叉——
+// 现两组件共用同一计算，数字一致
+const { limit, totalUsed, pctRounded } = useContextUsage();
 
-const limit = computed(() => {
-  // 手动设置优先
-  if (settings.contextLimit > 0) return settings.contextLimit;
-  // 模型名中的 [1M] / [1m] 后缀直接指示 1M 上下文
-  const modelLower = settings.model.toLowerCase();
-  if (modelLower.includes("[1m]") || modelLower.includes("[1M]")) {
-    return 1_000_000;
-  }
-  for (const [key, val] of Object.entries(contextLimits)) {
-    if (modelLower.includes(key)) return val;
-  }
-  return 128_000; // 默认保守值
-});
-
-// 当前上下文占用 ≈ 最后一次请求的完整输入（最后一条含 tokens 的 assistant 消息）
-// serve 下发的消息级 input 已是完整口径（step-finish tokens.input 含 cache 明细，见
-// events-round3-success.json:1135-1144），故只用 inputTokens；cacheRead/cacheWrite 是计费明细
-// （价格不同），不是「占用」额外量——若再加会与 input 重复计算造成高估。
-// 不再累加全部消息——每条消息的 input 是「该回合新增输入」，累加会把多轮请求的上下文重复相加
-// （2026-08-13 修复：原逻辑把 serve 的会话累计值二次累加，指示器显示超估百分比）
-const usedTokens = computed(() => {
-  for (let i = chat.messages.length - 1; i >= 0; i--) {
-    const msg = chat.messages[i];
-    if (msg.role === "assistant" && msg.inputTokens) {
-      return msg.inputTokens;
-    }
-  }
-  return 0;
-});
-
-const pct = computed(() => Math.min(100, Math.round((usedTokens.value / limit.value) * 100)));
-
-const statusColor = computed(() => {
-  if (pct.value >= 90) return "var(--coral)";
-  if (pct.value >= 75) return "var(--amber)";
-  return "var(--accent)";
-});
+const pct = computed(() => pctRounded.value);
+const statusColor = computed(() => contextStatusColor(pct.value));
 
 const tooltip = computed(() =>
-  `${formatNum(usedTokens.value)} / ${formatNum(limit.value)} tokens (${pct.value}%)`
+  `${formatNum(totalUsed.value)} / ${formatNum(limit.value)} tokens (${pct.value}%)`
 );
 
 // Progress bar segments

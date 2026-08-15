@@ -4,7 +4,7 @@ import { mount, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { nextTick } from "vue";
-import { classifyLogLine, default as DiagnosticsModal } from "./DiagnosticsModal.vue";
+import { classifyLogLine, classifyServeLine, default as DiagnosticsModal } from "./DiagnosticsModal.vue";
 import { useDebugLog } from "@/composables/useDebugLog";
 
 // mock electron-bridge：只 mock 日志/信息读取，其余保留原模块
@@ -50,6 +50,11 @@ const i18n = createI18n({
         debugCopyDiag: "Copy Diagnostics",
         debugCopyTab: "Copy Current Tab",
         debugFooter: "Logs help troubleshooting",
+        debugPrivacyHint: "Logs may contain local paths",
+        debugSearchPlaceholder: "Search logs",
+        debugNoMatch: "No matching logs",
+        debugNoEvents: "No event logs yet",
+        clear: "Clear",
         loading: "Loading",
         copy: "Copy",
         copied: "Copied",
@@ -70,6 +75,26 @@ describe("classifyLogLine", () => {
   it("普通行 → normal", () => {
     expect(classifyLogLine("🔌 engine status: running")).toBe("normal");
     expect(classifyLogLine("")).toBe("normal");
+  });
+});
+
+describe("classifyServeLine（serve.log 结构化 level 字段，v1.2）", () => {
+  it("level=ERROR → error", () => {
+    expect(classifyServeLine('[14:26:03] timestamp=... level=ERROR run=abc message=boom')).toBe("error");
+  });
+
+  it("level=WARN → warn", () => {
+    expect(classifyServeLine("level=WARN run=abc message=slow")).toBe("warn");
+  });
+
+  it("level=INFO / 无 level 字段 → normal", () => {
+    expect(classifyServeLine("level=INFO message=init")).toBe("normal");
+    expect(classifyServeLine("plain text line")).toBe("normal");
+    expect(classifyServeLine("")).toBe("normal");
+  });
+
+  it("大小写敏感：小写 level=error 不误判（serve 固定大写）", () => {
+    expect(classifyServeLine("level=error")).toBe("normal");
   });
 });
 
@@ -132,6 +157,66 @@ describe("DiagnosticsModal 组件", () => {
     expect(wrapper.text()).toContain("serve line 2");
     // 卸载清理定时轮询（切到 serve 页会启动 3s setInterval，防 open handle）
     wrapper.unmount();
+  });
+
+  it("引擎日志按 level= 字段行级高亮（v1.2：ERROR→error / WARN→warn / INFO→normal）", async () => {
+    readServeLogMock.mockResolvedValue([
+      "timestamp=... level=ERROR run=abc message=failed",
+      "timestamp=... level=WARN run=abc message=slow",
+      "timestamp=... level=INFO run=abc message=init",
+    ]);
+    await mountModal();
+    const engineTab = wrapper.findAll(".diag-tab").find((b) => b.text() === "Engine Log");
+    await engineTab!.trigger("click");
+    await nextTick();
+
+    expect(wrapper.findAll(".diag-log-line--error").length).toBe(1);
+    expect(wrapper.findAll(".diag-log-line--warn").length).toBe(1);
+    expect(wrapper.findAll(".diag-log-line--normal").length).toBe(1);
+    wrapper.unmount();
+  });
+
+  it("日志搜索：输入关键词过滤当前标签页行 + 行数显示命中数（v1.2）", async () => {
+    readServeLogMock.mockResolvedValue([
+      "timestamp=... level=ERROR message=boom",
+      "timestamp=... level=INFO message=init ok",
+    ]);
+    await mountModal();
+    const engineTab = wrapper.findAll(".diag-tab").find((b) => b.text() === "Engine Log");
+    await engineTab!.trigger("click");
+    await nextTick();
+
+    const input = wrapper.find(".diag-search-input");
+    await input.setValue("boom");
+    await nextTick();
+
+    // 只显示命中的 1 行 + 行数 = 1/2（命中数/总数）
+    expect(wrapper.text()).toContain("message=boom");
+    expect(wrapper.text()).not.toContain("message=init ok");
+    expect(wrapper.find(".diag-count").text()).toBe("1/2");
+    // 清空恢复全部
+    await wrapper.find(".diag-search-clear").trigger("click");
+    await nextTick();
+    expect(wrapper.text()).toContain("message=init ok");
+    expect(wrapper.find(".diag-count").text()).toBe("2");
+    wrapper.unmount();
+  });
+
+  it("日志搜索：事件日志页过滤 + 无匹配空态（v1.2）", async () => {
+    debugLog.add("❌ 模型失败");
+    debugLog.add("🔌 engine running");
+    await mountModal();
+
+    const input = wrapper.find(".diag-search-input");
+    await input.setValue("模型");
+    await nextTick();
+    expect(wrapper.findAll(".diag-log-line").length).toBe(1);
+    expect(wrapper.find(".diag-log-line--error").exists()).toBe(true);
+
+    // 无匹配 → 空态文案
+    await input.setValue("zzz-nonexistent");
+    await nextTick();
+    expect(wrapper.text()).toContain("No matching logs");
   });
 
   it("切到控制台标签页 → readRendererLog(500) 拉取并渲染", async () => {
