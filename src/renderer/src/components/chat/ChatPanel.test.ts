@@ -133,6 +133,8 @@ const InputBarStub = defineComponent({
   methods: {
     getText() { return (this as unknown as { _text: string })._text; },
     setText(t: string) { (this as unknown as { _text: string })._text = t; },
+    // insertAtCursor：office 附件右键添加 → 路径插入输入框（stub 记录调用；真实组件内部实现见 InputBar）
+    insertAtCursor(t: string) { (this as unknown as { _text: string })._text = t; },
   },
   template: '<div class="input-bar-stub"><slot name="left" /></div>',
 });
@@ -444,6 +446,62 @@ describe("ChatPanel 弹窗", () => {
     expect(opts.attachments).toEqual([{ name: "a.txt", path: "C:\\tmp\\a.txt" }]);
   });
 
+  it("右键添加 office 附件 → 不进附件条，路径插入输入框（2026-08-16 需求）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "报告.docx", path: "C:\\tmp\\报告.docx" }] }));
+    await flush();
+
+    // 附件条无新增 chip（office 不落 attachedFiles）
+    const chips = wrapper.findComponent(InputBarStub).props("chips") as Array<{ label: string; warn?: boolean }>;
+    expect(chips).toHaveLength(0);
+    // 路径已插入输入框（双引号包裹 + 反斜杠原样保留）
+    const inserted = (wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText();
+    expect(inserted).toBe('"C:\\tmp\\报告.docx"');
+  });
+
+  it("右键添加 office 附件（文件名含引号字符极端）→ 引号转义后插入", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "a\"b.docx", path: 'C:\\tmp\\a"b.docx' }] }));
+    await flush();
+
+    const inserted = (wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText();
+    expect(inserted).toBe('"C:\\tmp\\a\\"b.docx"');
+  });
+
+  it("右键添加混合类型：文本进附件条，office 只插路径", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    window.dispatchEvent(new CustomEvent("attach-files", {
+      detail: [
+        { name: "a.txt", path: "C:\\tmp\\a.txt" },
+        { name: "数据.xlsx", path: "C:\\tmp\\数据.xlsx" },
+      ],
+    }));
+    await flush();
+
+    const chips = wrapper.findComponent(InputBarStub).props("chips") as Array<{ label: string; warn?: boolean }>;
+    expect(chips.map((c) => c.label)).toEqual(["a.txt"]);
+    const inserted = (wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText();
+    expect(inserted).toBe('"C:\\tmp\\数据.xlsx"');
+  });
+
   // ── office/二进制附件：chips 弱提示 + 发送前确认（模型端不支持读取）──
 
   it("office 附件发送：弹 ConfirmDialog，取消 → 不发送（附件保留在 chips）", async () => {
@@ -455,7 +513,9 @@ describe("ChatPanel 弹窗", () => {
     const wrapper = mountChatPanel();
     await flush();
 
-    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "简历.pdf", path: "C:\\tmp\\简历.pdf" }] }));
+    // 拖拽/粘贴 office 附件 → 仍进 chips + 发送确认（右键添加已改为路径插入，2026-08-16；
+    // 拖拽是主动动作，保留确认链路）
+    await wrapper.findComponent(InputBarStub).vm.$emit("files", [{ name: "简历.pdf", path: "C:\\tmp\\简历.pdf" }]);
     await flush();
     await wrapper.findComponent(InputBarStub).vm.$emit("send", "看下这个pdf");
     await flush();
@@ -483,7 +543,7 @@ describe("ChatPanel 弹窗", () => {
     const wrapper = mountChatPanel();
     await flush();
 
-    window.dispatchEvent(new CustomEvent("attach-files", { detail: [{ name: "报告.docx", path: "C:\\tmp\\报告.docx" }] }));
+    await wrapper.findComponent(InputBarStub).vm.$emit("files", [{ name: "报告.docx", path: "C:\\tmp\\报告.docx" }]);
     await flush();
     await wrapper.findComponent(InputBarStub).vm.$emit("send", "看下报告");
     await flush();

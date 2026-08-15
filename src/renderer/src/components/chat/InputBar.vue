@@ -223,6 +223,25 @@ defineExpose({
   setText: (text: string) => { input.value = text; autoResize(); },
   // 供 ChatPanel 切会话时保存当前输入框草稿（需求 B：草稿跟随会话）
   getText: () => input.value,
+  /**
+   * 光标位置插入文本（office 附件右键添加 → 路径直接插输入框，2026-08-16）。
+   * 读 textarea selectionStart/End 定位光标；未聚焦/光标在末尾 → 退化末尾追加。
+   * 插入后光标移到插入文本之后并聚焦（用户可继续输入，路径成文无缝衔接）
+   */
+  insertAtCursor: (text: string) => {
+    const el = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null
+    const pos = el ? el.selectionStart : input.value.length
+    input.value = input.value.slice(0, pos) + text + input.value.slice(pos)
+    autoResize()
+    nextTick(() => {
+      const el2 = document.querySelector(".chat-textarea") as HTMLTextAreaElement | null
+      if (el2) {
+        el2.focus()
+        const caret = pos + text.length
+        el2.setSelectionRange(caret, caret)
+      }
+    })
+  },
 });
 
 // ══════════════════════════════════════════════════════════════

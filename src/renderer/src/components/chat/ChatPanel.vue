@@ -421,10 +421,22 @@ const autoModeActive = ref(settings.autoMode);
 function onAttachFiles(e: Event) {
   const files = (e as CustomEvent).detail as { name: string; path: string }[];
   for (const f of files) {
+    // office/二进制附件（模型端不支持读取，实测 pdf 报错）：不进附件条，路径直接插输入框光标处
+    // （2026-08-16 用户要求——此前进 chips + 发送前确认纯属白费，确认后 LLM 仍读不了）
+    if (isOfficeAttachment(f.name)) {
+      inputBar.value?.insertAtCursor(quotePath(f.path));
+      continue;
+    }
     if (!attachedFiles.value.some(af => af.path === f.path)) {
       attachedFiles.value.push(f);
     }
   }
+}
+
+/** 路径加双引号包裹并转义内部引号（office 附件右键添加 → 输入框路径；防空格断词 + 极端注入）。
+ *  仅右键菜单「添加到会话」用；拖拽/粘贴（@files）仍走附件条 + 发送前确认——主动拖拽保留确认链路 */
+function quotePath(path: string): string {
+  return `"${path.replace(/"/g, '\\"')}"`;
 }
 
 onMounted(async () => {

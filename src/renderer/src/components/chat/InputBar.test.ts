@@ -530,4 +530,39 @@ it("effort 选择器：选择档位同步 settings.effort（variant 值）", asy
   await items[2].trigger("click");
   expect(settings.effort).toBe("max");
 });
+
+// ── insertAtCursor：光标位置插入文本（office 附件右键添加 → 路径直接插输入框，2026-08-16）──
+
+it("insertAtCursor：光标中插入 → 文本拼接且光标后移", async () => {
+  // attachTo 真实 DOM：insertAtCursor 用 document.querySelector(".chat-textarea") 定位
+  // （与 autoResize 同款——组件挂 detached 时 querySelector 查不到，selectionStart 读不到）
+  const wrapper = mount(InputBar, {
+    props: { disabled: false },
+    global: { plugins: [i18n, pinia] },
+    attachTo: document.body,
+  });
+  const textarea = wrapper.find("textarea");
+  await textarea.setValue("你好世界");
+  // 模拟光标在「你」和「好」之间（index=1）——jsdom 中 setSelectionRange 后 selectionStart 生效
+  (textarea.element as HTMLTextAreaElement).setSelectionRange(1, 1);
+  (wrapper.vm as unknown as { insertAtCursor: (t: string) => void }).insertAtCursor('"C:\\tmp\\a.docx"');
+  await nextTick();
+  expect((textarea.element as HTMLTextAreaElement).value).toBe('你"C:\\tmp\\a.docx"好世界');
+  expect((textarea.element as HTMLTextAreaElement).selectionStart).toBe(1 + '"C:\\tmp\\a.docx"'.length);
+  wrapper.unmount();
+});
+
+it("insertAtCursor：光标在末尾（未聚焦）→ 末尾追加", async () => {
+  const wrapper = mount(InputBar, {
+    props: { disabled: false },
+    global: { plugins: [i18n, pinia] },
+    attachTo: document.body,
+  });
+  const textarea = wrapper.find("textarea");
+  await textarea.setValue("已有内容");
+  (wrapper.vm as unknown as { insertAtCursor: (t: string) => void }).insertAtCursor('"C:\\tmp\\b.docx"');
+  await nextTick();
+  expect((textarea.element as HTMLTextAreaElement).value).toBe('已有内容"C:\\tmp\\b.docx"');
+  wrapper.unmount();
+});
 });
