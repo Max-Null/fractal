@@ -187,12 +187,6 @@ async function handleDelete(id: string) {
           <!-- "New Chat" 是 Rust 后端默认标题，前端按 i18n 显示 -->
           <span class="block truncate">{{ s.title === 'New Chat' || s.title === '新会话' ? $t('session.new') : s.title }}</span>
           <span class="block truncate text-[0.714rem]" :style="{ color: 'var(--text-muted)' }">
-            <!-- 草稿标记：该会话有未发送草稿（文字/附件/选区任一）且非当前编辑会话 -->
-            <span
-              v-if="hasDraftFor(s.id)"
-              class="mr-1 font-medium"
-              :style="{ color: 'var(--accent)' }"
-            >{{ $t('session.draftBadge') }}</span>
             <template v-if="s.totalTokens">{{ formatTokenCount(s.totalTokens) }}</template>
           </span>
         </div>
@@ -204,14 +198,22 @@ async function handleDelete(id: string) {
           :class="'dot-' + sessionStore.sessionActivity[s.id]"
         />
 
-        <!-- Hover actions — always in layout (invisible) 防止出现时行高抖动 -->
-        <div class="invisible group-hover:visible flex items-center gap-0.5 shrink-0 ml-auto">
-          <button @click.stop="startRename(s.id, s.title)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.rename')">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-          </button>
-          <button @click.stop="handleDelete(s.id)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.delete')">
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          </button>
+        <!-- 右侧操作位：未 hover 显示草稿标记（有草稿时），hover 切换为编辑/删除按钮——同一视觉位置互斥
+             草稿标记 group-hover:hidden 让位；按钮 absolute 定位不占位，出现时行高不抖（2026-08-15 用户微调） -->
+        <div class="relative shrink-0 ml-auto h-[20px] w-10">
+          <span
+            v-if="hasDraftFor(s.id)"
+            class="group-hover:hidden absolute right-0 top-0 inline-block leading-[20px] font-medium text-[0.714rem] whitespace-nowrap"
+            :style="{ color: 'var(--accent)' }"
+          >{{ $t('session.draftBadge') }}</span>
+          <div class="invisible group-hover:visible absolute right-0 top-0 flex items-center gap-0.5">
+            <button @click.stop="startRename(s.id, s.title)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.rename')">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            </button>
+            <button @click.stop="handleDelete(s.id)" class="w-[20px] h-[20px] flex items-center justify-center rounded-[6px] transition-colors hover:bg-[var(--bg-active)]" style="color:var(--text-secondary)" :title="$t('session.delete')">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            </button>
+          </div>
         </div>
       </button>
 
