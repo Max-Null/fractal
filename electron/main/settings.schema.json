@@ -9,6 +9,7 @@
     "ui.theme": { "type": "string", "enum": ["dark", "light"], "default": "dark", "description": "界面主题" },
     "ui.language": { "type": "string", "enum": ["zh", "en"], "default": "zh", "description": "界面语言" },
     "ui.messageLayout": { "type": "string", "enum": ["left", "split"], "default": "split", "description": "消息排布：left=全部靠左 / split=左右分列" },
+    "ui.busyEnterBehavior": { "type": "string", "enum": ["insert", "queue"], "default": "insert", "description": "繁忙时 Enter 行为：insert=插入发送（打断当前回答）/ queue=排队发送（等当前回答完）" },
     "ui.nickname": { "type": "string", "default": "", "description": "用户昵称（会话区展示）" },
     "ui.avatar": { "type": "string", "default": "", "description": "用户头像（base64 或图片路径）" },
     "ui.showThinking": { "type": "boolean", "default": true, "description": "思考节点开关：false=时间线隐藏 thinking 节点" },

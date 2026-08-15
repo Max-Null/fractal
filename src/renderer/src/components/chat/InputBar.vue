@@ -58,12 +58,12 @@ const props = withDefaults(defineProps<{
 });
 
 const emit = defineEmits<{
-  send: [text: string];
+  send: [text: string, altBehavior?: boolean];
   files: [files: Array<{ name: string; path: string }>];
   stop: [];
   /** 📎 附件按钮（ChatPanel 打开文件对话框） */
   attach: [];
-  /** chips 行关闭 ×（id 由 ChatPanel 映射到选区/附件） */
+  /** chips 行关�?×（id �?ChatPanel 映射到选区/附件�?*/
   removeChip: [id: string];
   /** 附件 chip 点击（打开文件预览） */
   chipClick: [id: string];
@@ -83,13 +83,13 @@ const input = ref("");
 const focused = ref(false);
 const isDragOver = ref(false);
 
-function send() {
+function send(altBehavior = false) {
   const text = input.value.trim();
-  // 空文本但有待发附件 → 允许发送（只发附件场景；附件本身是发送内容）
+  // 空文本但有待发附�?�?允许发送（只发附件场景；附件本身是发送内容）
   const hasAttachment = props.chips.some(c => !!c.path);
   if (!text && !hasAttachment) return;
   showSlashMenu.value = false;
-  emit("send", text);
+  emit("send", text, altBehavior);
   input.value = "";
   autoResize();
 }
@@ -173,6 +173,8 @@ function onKeydown(e: KeyboardEvent) {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); applySlashSuggestion(slashSuggestions.value[slashMenuIdx.value]); return; }
     if (e.key === "Escape") { e.preventDefault(); showSlashMenu.value = false; return; }
   }
+  // Ctrl/Cmd+Enter = 发送且标记 altBehavior（繁忙时走「另一行为」；参考 OC changelog「Cmd/Ctrl+Enter 使用另一行为」）
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(true); return; }
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 }
 
@@ -543,7 +545,7 @@ async function polishInput() {
             class="send"
             :disabled="!canSend"
             :title="$t('chat.send')"
-            @click="send"
+            @click="send()"
           >
             <Send :size="16" />
           </button>

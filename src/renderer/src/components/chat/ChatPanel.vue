@@ -774,9 +774,25 @@ interface PendingSend {
   fullText: string;
   attachments?: { name: string; path: string }[];
   isMidProcessing: boolean;
+  /** Ctrl/Cmd+Enter 标记：office 确认后仍走「另一行为」 */
+  altBehavior?: boolean;
 }
 const officeConfirmOpen = ref(false);
 const pendingSend = ref<PendingSend | null>(null);
+
+// ── 繁忙时排队发送（busyEnterBehavior=queue / Ctrl+Enter 排队）──
+// 队列语义：消息上屏但暂不发送，等 AI 答完（isProcessing→false）自动 drain。
+// 为什么不用 serve 端排队：serve 端排队会把新消息的文本追加进当前流式 assistant 消息
+// （前端事件无消息 id 归属，appendText 只认 currentAssistantMsg），造成「结果在消息之上」+
+// 「总结 OK OK」污染（2026-08-16 用户实测）；前端队列复用「idle 后新轮」的成熟路径。
+interface PendingQueueItem {
+  text: string;
+  attachments?: { name: string; path: string }[];
+  altBehavior?: boolean;
+  /** 排队时的会话 id——drain 时若已切换会话则丢弃（防串会话） */
+  sid: string;
+}
+const pendingQueue = ref<PendingQueueItem[]>([]);
 
 /** 删除会话确认（ConfirmDialog）：目标会话 id + title（确认后执行删除） */
 const deleteSessionTarget = ref<{ id: string; title: string } | null>(null);
@@ -793,8 +809,9 @@ async function onDeleteSessionConfirm() {
 }
 function onDeleteSessionCancel() { deleteSessionTarget.value = null; }
 
-/** 真正发送一条消息（office 附件确认通过后走这里；普通消息直接调用） */
-async function doSend(fullText: string, attachments: { name: string; path: string }[] | undefined, isMidProcessing: boolean) {
+/** 真正发送一条消息（office 附件确认通过后走这里；普通消息直接调用）。
+ *  altBehavior：Ctrl/Cmd+Enter 标记——繁忙时强制走「另一行为」（设置=插入则 Ctrl=排队，反之亦然） */
+async function doSend(fullText: string, attachments: { name: string; path: string }[] | undefined, isMidProcessing: boolean, altBehavior = false) {
   // 发送后输入态清空——顺序：先清 InputBar 文本 + 附件 + 选区，再 captureDraft，保证草稿存的是「空」。
   // 时序说明：InputBar.send() 是 emit("send") 后才 input.value = ""，emit 同步栈内读 getText 会拿到发送文本；
   // 附件/选区同理——若在 captureDraft 后才清，已发送的 chips 会残留成草稿（军师 P1-1，2026-08-15 审查发现）。
@@ -811,10 +828,10 @@ async function doSend(fullText: string, attachments: { name: string; path: strin
   // （promptAsync 不查 busy，消息立即入库；runLoop while(true) 每步重取消息，
   //  补充消息写入后 lastAssistant.parentID !== lastUser.id 退出条件不满足，下一步带着它继续）
   // 2026-08-13 源码实证 v1.18.16：延迟上屏会等 loop 退出 → 补充消息变全新一轮，失去中间补充效果
-  await sendUserMessage(effectiveText, attachments, { isMidProcessing });
+  await sendUserMessage(effectiveText, attachments, { isMidProcessing, altBehavior });
 }
 
-async function handleSend(text: string) {
+async function handleSend(text: string, altBehavior = false) {
   // 记录斜杠命令（仅用户主动发送的，非中途追加）
   if (text.startsWith("/")) slashCommands.recordCommand(text);
   const isMidProcessing = chat.isProcessing;
@@ -831,12 +848,12 @@ async function handleSend(text: string) {
 
   // office/二进制附件发送前确认：模型端不支持直接读取（pdf 实测报错），确认后仍发送（用户可自行转文本/换方式）
   if (attachments?.some(a => isOfficeAttachment(a.name))) {
-    pendingSend.value = { fullText, attachments, isMidProcessing };
+    pendingSend.value = { fullText, attachments, isMidProcessing, altBehavior };
     officeConfirmOpen.value = true;
     return;
   }
 
-  await doSend(fullText, attachments, isMidProcessing);
+  await doSend(fullText, attachments, isMidProcessing, altBehavior);
 }
 
 /** office 确认：确认 → 发送挂起内容；取消 → 丢弃挂起（附件保留在 chips，用户可移除/重发） */
@@ -844,7 +861,7 @@ function onOfficeConfirm() {
   const ps = pendingSend.value;
   officeConfirmOpen.value = false;
   pendingSend.value = null;
-  if (ps) void doSend(ps.fullText, ps.attachments, ps.isMidProcessing);
+  if (ps) void doSend(ps.fullText, ps.attachments, ps.isMidProcessing, ps.altBehavior);
 }
 function onOfficeCancel() {
   officeConfirmOpen.value = false;
@@ -860,7 +877,7 @@ function onOfficeCancel() {
 async function sendUserMessage(
   fullText: string,
   attachments?: { name: string; path: string }[],
-  opts?: { isMidProcessing?: boolean },
+  opts?: { isMidProcessing?: boolean; altBehavior?: boolean },
 ) {
   let sid: string;
   sid = session.activeSessionId;
@@ -873,18 +890,43 @@ async function sendUserMessage(
   // 打断当前回合：cancel 中断 LLM 流式（已产出保留），runner 变 idle → 新消息立即执行。
   // 与 handleStop 不同：这里不清 currentAssistantMsg、不 finish——被打断的 assistant 消息
   // 保留其已产出文本（serve 端 abort 事件后 message.updated 仍会流回，appendText 继续追加）
-  if (opts?.isMidProcessing) {
+  // 打断判定（2026-08-16 设置项）：默认 insert（打断）；Ctrl/Cmd+Enter 恒走「另一行为」——
+  // 设置=insert 则 Ctrl 排队（不打断），设置=queue 则 Ctrl 打断。queue 模式不打断，serve 端自然排队
+  const shouldInterrupt = opts?.isMidProcessing &&
+    (settings.busyEnterBehavior === "insert") !== Boolean(opts.altBehavior);
+
+  // 排队发送（isMidProcessing 且不打断）：消息上屏 + 暂存队列，等 AI 答完自动发送——
+  // 见 pendingQueue 注释（serve 端排队会把新消息文本追加进当前流式消息，产生归属污染）。
+  // 分支放在 shouldInterrupt 之后、addUserMessage 之前：已拿到 sid（防串会话），且不再打断。
+  if (opts?.isMidProcessing && !shouldInterrupt) {
+    chat.addUserMessage(fullText, attachments);
+    pendingQueue.value.push({ text: fullText, attachments, altBehavior: opts.altBehavior, sid });
+    return;
+  }
+
+  if (shouldInterrupt) {
     try { await stopSession(sid); } catch { /* 打断失败不阻断发送（serve 排队兜底） */ }
   }
 
-  const filePaths = (attachments ?? []).map(f => f.path);
+  // 上屏（排队分支已上屏返回；正常路径这里统一上屏）——用户消息由 Rust 后端在
+  // send_message 中统一保存，前端不重复保存，避免历史回显双份用户消息。
   chat.addUserMessage(fullText, attachments);
+  await sendCore(sid, fullText, attachments, !opts?.isMidProcessing);
+}
 
-  // 用户消息由 Rust 后端在 send_message 中统一保存，
-  // 前端不再重复保存，避免历史回显时出现双份用户消息。
+/** 发送核心：消息已上屏（调用方负责 addUserMessage），开 assistant 占位 + IPC 发送 + 错误处理。
+ * startAssistant 由调用方决定：空闲发送/排队 drain 时开占位；中途打断发送（isMidProcessing=true）
+ * 不开占位——serve abort 后由 appendText 兜底自动创建（避免把流式文本偷到新占位）。 */
+async function sendCore(
+  sid: string,
+  fullText: string,
+  attachments?: { name: string; path: string }[],
+  startAssistant = true,
+) {
+  const filePaths = (attachments ?? []).map(f => f.path);
 
-  // 中途补充不新开占位（见函数注释：避免把流式文本偷到新占位）；空闲发送才主动开
-  if (!opts?.isMidProcessing) {
+  // 中途补充不新开占位（见 sendUserMessage 注释：避免把流式文本偷到新占位）；空闲发送才主动开
+  if (startAssistant) {
     chat.startAssistantMessage();
   }
   chat.isProcessing = true;
@@ -918,6 +960,19 @@ async function sendUserMessage(
   }
 }
 
+/** 排出队首消息：AI 答完（isProcessing→false）自动发送排队消息（watch 触发） */
+function drainPendingQueue() {
+  const item = pendingQueue.value.shift();
+  if (!item) return;
+  // 排队期间会话已切换 → 丢弃（防止把消息发到用户当前正在看的会话）
+  if (session.activeSessionId !== item.sid) {
+    debugLog.add(`>>> 排队消息丢弃（会话已切换）: ${item.text.slice(0, 40)}`);
+    return;
+  }
+  // 消息已上屏（排队分支 addUserMessage），直接走发送核心（空闲态 → 开占位）
+  void sendCore(item.sid, item.text, item.attachments, true);
+}
+
 // ── 引擎无响应超时检测（2026-08-10 反馈：发送后卡「思考中」且事件日志为空 → 用户进不了引擎日志页）──
 // send_message 仅返回 accepted，结果全走事件流；30s 无任何 engine:event = 引擎未响应。
 // 超时后自动弹出诊断面板（引擎日志页可读 serve.log），只提示一次，不打断可能仍在进行的处理。
@@ -938,6 +993,8 @@ watch(() => chat.isProcessing, (v) => {
       }
     }, 5000);
   }
+  // AI 答完（isProcessing → false）→ 自动发送排队消息（队列为空时 no-op）
+  if (!v) drainPendingQueue();
 });
 
 // 审批响应：OC serve 权限事件 permission.updated → control_request.request_id 即 permission id
@@ -1362,6 +1419,11 @@ watch(
         </button>
       </Transition>
 
+      <!-- 排队发送提示：消息已上屏但等待 AI 答完自动发出（busyEnterBehavior=queue / Ctrl+Enter） -->
+      <div v-if="pendingQueue.length" class="pending-queue-tip">
+        {{ $t('chat.pendingQueueCount', { n: pendingQueue.length }) }}
+      </div>
+
       <!-- composer 输入区（InputBar 卡片内含 chips 行 + foot 操作行；debug 按钮走 left 插槽） -->
       <InputBar
         ref="inputBar"
@@ -1616,6 +1678,13 @@ watch(
 .composer-area {
   flex-shrink: 0;
   position: relative;
+}
+/* 排队发送提示条：InputBar 上方细条，弱化不打扰（消息等 AI 答完自动发出） */
+.pending-queue-tip {
+  font-size: 0.714rem;
+  color: var(--text-muted);
+  padding: 4px 12px;
+  text-align: center;
 }
 /* 审批条 accent 装饰竖线（原 w-0.5 h-5 rounded-full shrink-0） */
 .approval-accent {

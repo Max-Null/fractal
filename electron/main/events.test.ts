@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, it, expect, vi } from 'vitest'
 import type { Event as ServeEvent, Part } from '@opencode-ai/sdk'
-import { mapServeEvent, createMapContext, subscribeEvents, type MapContext, type StreamFrontendEvent } from './events'
+import { mapServeEvent, createMapContext, subscribeEvents, stripDcpMessageIdTags, type MapContext, type StreamFrontendEvent } from './events'
 
 const fixturePath = resolve(process.cwd(), 'electron/tests/fixtures')
 
@@ -117,6 +117,30 @@ describe('mapServeEvent 合成事件：message.part.updated 分派', () => {
     })
     const out = mapServeEvent(evt, ctx)
     expect(out[0]).toMatchObject({ type: 'assistant', text: '完整文本' })
+  })
+
+  it('text part（assistant）→ 剥离 opencode-acp 注入的 dcp-message-id 标签（2026-08-16 根因修复）', () => {
+    const ctx = ctxWithRole('assistant')
+    // ACP 插件在每次 LLM 请求前给消息 text 追加标签（带属性、前带 \n），serve 广播事件流携带
+    const evt = synthEvent('message.part.updated', {
+      sessionID: 'ses_test',
+      part: synthPart({ type: 'text', text: 'OK' }),
+      delta: 'OK\n<dcp-message-id tokens="1" type="text">m00119</dcp-message-id>',
+    })
+    const out = mapServeEvent(evt, ctx)
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ type: 'assistant', session_id: 'ses_test', text: 'OK', thinking: '' })
+  })
+
+  it('stripDcpMessageIdTags：完整标签/孤立标签/跨行均剥离，正文保留（2026-08-16 根因修复）', () => {
+    // 完整标签对（带属性）→ 删标签本体 + 尾部空行（trimEnd）
+    expect(stripDcpMessageIdTags('OK\n<dcp-message-id tokens="1" type="text">m00119</dcp-message-id>')).toBe('OK')
+    // 孤立开标签（serve 广播可能只有一侧）→ 删开标签，ref 保留（无闭合标签无法识别范围）
+    expect(stripDcpMessageIdTags('<dcp-message-id tokens="36" type="text">m00118')).toBe('m00118')
+    // 无标签 → 原样
+    expect(stripDcpMessageIdTags('你好，我是助手')).toBe('你好，我是助手')
+    // 多标签 → 全部剥离
+    expect(stripDcpMessageIdTags('a<dcp-message-id>m1</dcp-message-id>b<dcp-message-id type="text">m2</dcp-message-id>')).toBe('ab')
   })
 
   it('reasoning part → assistant(thinking)（思考阶段）', () => {

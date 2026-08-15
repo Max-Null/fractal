@@ -388,6 +388,15 @@ describe("settings store", () => {
     expect(settings.presetSkillsEnabled).toBe(true);
   });
 
+  it("busyEnterBehavior 默认 insert（保持现状行为），applySettingsJson 可切 queue，非法值不覆盖", () => {
+    const settings = useSettingsStore();
+    expect(settings.busyEnterBehavior).toBe("insert");
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "queue" });
+    expect(settings.busyEnterBehavior).toBe("queue");
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "weird" });
+    expect(settings.busyEnterBehavior).toBe("queue");
+  });
+
   it("applySettingsJson 同步 6 个 B1 字段（非法/缺失保持当前值）", () => {
     const settings = useSettingsStore();
     settings.applySettingsJson({

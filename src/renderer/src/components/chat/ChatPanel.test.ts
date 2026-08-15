@@ -7,6 +7,7 @@ import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { useChatStore } from "@/stores/chat";
 import { useSessionStore, type Session } from "@/stores/session";
+import { useSettingsStore } from "@/stores/settings";
 import { emitChatCommand, useChatCommandBus } from "@/composables/useCommandPalette";
 import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import ChatPanel from "./ChatPanel.vue";
@@ -81,6 +82,7 @@ const i18n = createI18n({
         debugPrivacyHint: "Logs may contain local paths",
         debugFooter: "Logs help troubleshooting",
         engineTimeout: "Engine unresponsive for 30s",
+        pendingQueueCount: "Pending: {n} message(s)",
         copied: "Copied",
         close: "Close",
         copy: "Copy",
@@ -605,6 +607,134 @@ describe("ChatPanel 弹窗", () => {
     expect(stopSessionMock).toHaveBeenCalledWith("ses-1");
     expect(sendMessageMock).toHaveBeenCalledOnce();
     expect(sendMessageMock).toHaveBeenCalledWith("ses-1", "补充信息B", expect.anything());
+  });
+
+  // ── 繁忙时 Enter 行为设置（busyEnterBehavior：insert 打断 / queue 排队；Ctrl+Enter 恒为另一行为）──
+
+  it("busyEnterBehavior=insert + Ctrl+Enter → 不打断，进入前端排队队列（不立即发送）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "Ctrl 补充", true);
+    await flush();
+
+    // insert 设置下 Ctrl+Enter = 排队：不打断、不立即发送（消息进前端队列，等 AI 答完自动发）
+    expect(stopSessionMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    // 消息已上屏（用户可见，等待发送）
+    const userMsgs = chat.messages.filter(m => m.role === "user");
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].content).toBe("Ctrl 补充");
+    // 排队提示条可见
+    expect(wrapper.find(".pending-queue-tip").exists()).toBe(true);
+    expect(wrapper.find(".pending-queue-tip").text()).toContain("1");
+  });
+
+  it("busyEnterBehavior=queue + Enter → 不打断，进入前端排队队列（不立即发送）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "queue" });
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "排队消息");
+    await flush();
+
+    // queue 设置下 Enter = 排队：不打断、不立即发送
+    expect(stopSessionMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    const userMsgs = chat.messages.filter(m => m.role === "user");
+    expect(userMsgs).toHaveLength(1);
+    expect(userMsgs[0].content).toBe("排队消息");
+    expect(wrapper.find(".pending-queue-tip").exists()).toBe(true);
+  });
+
+  it("排队消息：AI 答完（isProcessing→false）→ 自动 drain 发送 + 清空队列", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "queue" });
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "排队消息");
+    await flush();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+
+    // AI 答完（result → finishAssistantMessage 置 isProcessing=false）→ watch 触发 drain
+    chat.finishAssistantMessage();
+    await flush();
+
+    expect(sendMessageMock).toHaveBeenCalledOnce();
+    expect(sendMessageMock).toHaveBeenCalledWith("ses-1", "排队消息", expect.anything());
+    // 队列清空 + 提示条消失
+    expect(wrapper.find(".pending-queue-tip").exists()).toBe(false);
+  });
+
+  it("排队消息：排队期间切换会话 → drain 时丢弃（不串会话）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "queue" });
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "排队消息");
+    await flush();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+
+    // 排队期间用户切到别的会话 → 答完 drain 时丢弃（防串会话）
+    session.setActiveSession("ses-2");
+    chat.finishAssistantMessage();
+    await flush();
+
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(wrapper.find(".pending-queue-tip").exists()).toBe(false);
+  });
+
+  it("busyEnterBehavior=queue + Ctrl+Enter → 打断当前回合（另一行为）", async () => {
+    const chat = useChatStore();
+    const session = useSessionStore();
+    session.setActiveSession("ses-1");
+    chat.isProcessing = true;
+    const settings = useSettingsStore();
+    settings.applySettingsJson({ "ui.busyEnterBehavior": "queue" });
+    sendMessageMock.mockResolvedValue({ accepted: true });
+    stopSessionMock.mockClear();
+
+    const wrapper = mountChatPanel();
+    await flush();
+
+    await wrapper.findComponent(InputBarStub).vm.$emit("send", "Ctrl 打断", true);
+    await flush();
+
+    // queue 设置下 Ctrl+Enter = 插入：打断
+    expect(stopSessionMock).toHaveBeenCalledOnce();
+    expect(stopSessionMock).toHaveBeenCalledWith("ses-1");
+    expect(sendMessageMock).toHaveBeenCalledOnce();
   });
 
   it("补充消息不切断流式文本：补充后 A 继续追加，serve 新轮 B 到达时自动开占位（回归 #8）", async () => {

@@ -72,7 +72,7 @@ describe("InputBar", () => {
     await findSendBtn(wrapper).trigger("click");
 
     expect(wrapper.emitted("send")).toBeTruthy();
-    expect(wrapper.emitted("send")![0]).toEqual(["Hello World"]);
+    expect(wrapper.emitted("send")![0]).toEqual(["Hello World", false]);
     // Input should clear after send
     expect(textarea.element.value).toBe("");
   });
@@ -85,7 +85,18 @@ describe("InputBar", () => {
     await textarea.trigger("keydown", { key: "Enter", shiftKey: false });
 
     expect(wrapper.emitted("send")).toBeTruthy();
-    expect(wrapper.emitted("send")![0]).toEqual(["Test message"]);
+    expect(wrapper.emitted("send")![0]).toEqual(["Test message", false]);
+  });
+
+  it("Ctrl+Enter 发送且携带 altBehavior 标记（繁忙时走另一行为）", async () => {
+    const wrapper = mountInputBar();
+
+    const textarea = wrapper.find("textarea");
+    await textarea.setValue("Ctrl 发送");
+    await textarea.trigger("keydown", { key: "Enter", ctrlKey: true, shiftKey: false });
+
+    expect(wrapper.emitted("send")).toBeTruthy();
+    expect(wrapper.emitted("send")![0]).toEqual(["Ctrl 发送", true]);
   });
 
   it("allows newline on Shift+Enter", async () => {

@@ -83,6 +83,9 @@ const i18n = createI18n({
         messageLayout: "Message Layout",
         layoutLeft: "All left",
         layoutSplit: "Split (me right · AI left)",
+        busyEnter: "Enter while busy",
+        busyEnterInsert: "Insert send (interrupt current reply)",
+        busyEnterQueue: "Queue send (wait for current reply to finish)",
         nickname: "Nickname",
         nicknamePlaceholder: "Empty = show \"Me\"",
         avatar: "Avatar",
@@ -291,6 +294,27 @@ describe("SettingsPanel", () => {
     expect(tab.text()).toContain("Font Size");
     expect(tab.text()).toContain("Message Layout");
     expect(tab.text()).toContain("Nickname");
+  });
+
+  it("general tab renders busy enter behavior select with insert/queue options", async () => {
+    const wrapper = mountPanel();
+    const settings = useSettingsStore();
+    expect(settings.busyEnterBehavior).toBe("insert");
+    const tab = wrapper.find("[data-tab='general']");
+    expect(tab.text()).toContain("Enter while busy");
+    // 打开下拉 → 两个选项可见
+    const fields = wrapper.findAll(".settings-field");
+    const enterField = fields.find((f) => f.find(".settings-field__label").text() === "Enter while busy")!;
+    await enterField.find(".settings-select__trigger").trigger("click");
+    const items = wrapper.findAll(".settings-select__item");
+    expect(items.map((i) => i.text())).toEqual([
+      expect.stringContaining("Insert send"),
+      expect.stringContaining("Queue send"),
+    ]);
+    // 选 queue → store 更新
+    const queueItem = items.find((i) => i.text().includes("Queue send"))!;
+    await queueItem.trigger("click");
+    expect(settings.busyEnterBehavior).toBe("queue");
   });
 
   it("general tab language select switches locale in store", async () => {

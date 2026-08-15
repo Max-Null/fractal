@@ -182,6 +182,12 @@ const layoutOptions = computed(() => [
 ]);
 const currentLayout = computed(() => layoutOptions.value.find(o => o.value === settings.messageLayout)!);
 
+// ── 繁忙时 Enter 行为选项（ui.busyEnterBehavior；insert=打断当前回答，queue=serve 排队）──
+const busyEnterOptions = computed(() => [
+  { value: "insert", label: t("settings.busyEnterInsert") },
+  { value: "queue", label: t("settings.busyEnterQueue") },
+]);
+
 // ── 头像 lucide 图标快捷选择（ui.avatar 存图标 id；候选表见 lib/avatar-icons，消息区渲染共用同一映射）──
 // 选择图标头像：写入 store（图片头像优先于图标——选择图标时同时清除已存图片，避免显示歧义）
 async function handleAvatarIcon(id: string) {
@@ -551,6 +557,7 @@ async function handleCheckUpdates(): Promise<void> {
                 <SettingsSelect v-model="settings.theme" :label="$t('settings.theme')" :options="themeOptions" />
                 <SettingsSelect v-model="settings.fontSize" :label="$t('settings.fontSize')" :options="fontSizeOptions" />
                 <SettingsSelect v-model="settings.messageLayout" :label="$t('settings.messageLayout')" :options="layoutOptions" />
+                <SettingsSelect v-model="settings.busyEnterBehavior" :label="$t('settings.busyEnter')" :options="busyEnterOptions" />
               </div>
             </SettingsSection>
 

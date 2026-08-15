@@ -27,6 +27,27 @@ export function positiveDuration(start: number | undefined, end: number | undefi
   return start !== undefined && end !== undefined ? Math.max(0, end - start) : undefined
 }
 
+// ══════════════════════════════════════════════════════════════════
+// dcp-message-id 标签剥离
+// opencode-acp 插件（分形 opencode.json 加载，供上下文弹窗读 ACP 数据）在每次 LLM 请求前
+// 给消息 text 追加 <dcp-message-id tokens="N" type="text">mNNNNN</dcp-message-id>（标签前带 \n）。
+// serve 广播的 SSE 事件流携带这些注入标签 → 分形前端忠实渲染会显示「标签+内容」。
+// 原生 opencode 界面渲染时剥离标签，分形无此机制 → 映射层统一剥离（前端零改造）。
+// 历史加载走 message:list（读 serve 数据库原始 part，无标签）不受影响。
+// ══════════════════════════════════════════════════════════════════
+
+// 完整标签对（含 ref 内容）优先匹配，孤立标签（只一侧）兜底——ACP 的 ref 是 mNNNNN 纯编号
+const DCP_TAG_RE = /<dcp-message-id(?:\s+[^>]*)?>[^<]*<\/dcp-message-id>|<\/?dcp-message-id(?:\s+[^>]*)?>/g
+
+/**
+ * 剥离 opencode-acp 注入的 <dcp-message-id> 标签（含属性与闭合标签）。
+ * 只删标签本体：标签是「追加在文本末尾」的独立元素（前带 \n），正文不受影响；
+ * 标签间的 ref（mNNNNN）一并删除——那是 ACP 内存编号，前端展示无意义。
+ */
+export function stripDcpMessageIdTags(text: string): string {
+  return text.replace(DCP_TAG_RE, '').replace(/\n{3,}/g, '\n\n').trimEnd()
+}
+
 /** 工具调用（嵌在 assistant 事件的 tool_use 字段） */
 export interface StreamToolUse {
   id: string
@@ -398,13 +419,13 @@ export function mapServeEvent(evt: ServeEvent, ctx: MapContext): StreamFrontendE
         // 用户回显（role=user）：前端发送时已本地 addUserMessage，避免重复气泡
         if (role === 'user') return []
         // assistant text：delta（增量）优先，无则用全量 part.text（前端 appendText 自带 startsWith 去重）
-        const text = (props?.delta as string | undefined) ?? part.text
+        const text = stripDcpMessageIdTags((props?.delta as string | undefined) ?? part.text)
         if (!text) return []
         return [{ type: 'assistant', session_id: sessionID, text, thinking: '' }]
       }
       if (part.type === 'reasoning') {
         // 思考阶段：text 为思考内容（SDK ReasoningPart.text）
-        const thinking = (props?.delta as string | undefined) ?? part.text
+        const thinking = stripDcpMessageIdTags((props?.delta as string | undefined) ?? part.text)
         if (!thinking) return []
         // 全量 updated 携带 reasoning time（delta 无 time）→ 透传思考耗时，
         // 前端填到 thinking 块供 NodeCard 显示（流式路径不再依赖 tool 块紧邻回填——真实输出

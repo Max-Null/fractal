@@ -98,6 +98,8 @@ interface UiSettings {
   notifications: NotificationsConfig;
   /** 子 agent 模型覆盖（agent 名 → 模型全名 provider/model；空表=全部跟随槽位） */
   agentModelOverrides: Record<string, string>;
+  /** 繁忙时 Enter 行为：insert=插入发送（打断当前回答立即执行）/ queue=排队发送（serve 端排队） */
+  busyEnterBehavior: "insert" | "queue";
 }
 
 // ── DeepSeek 专属模型列表（分形固定模型 DeepSeek，方案 D16）──
@@ -124,6 +126,8 @@ function getUiDefaults(): UiSettings {
     // 通知默认开启 3 场景（回答完成/引擎异常/权限请求），子任务完成默认关（2026-08-14 用户定案）
     notifications: { enabled: true, replyDone: true, engineError: true, permissionPending: true, subtaskDone: false },
     agentModelOverrides: {},
+    // 繁忙时 Enter 默认插入发送（现状行为；queue 排队发送为可选增强，2026-08-16 用户要求）
+    busyEnterBehavior: "insert",
   };
 }
 
@@ -215,6 +219,7 @@ export const useSettingsStore = defineStore("settings", () => {
   const fontSize = ref<"small" | "medium" | "large">(ui.fontSize);
   // 消息排布/昵称/头像：ui.* 三写（localStorage + SQLite + settings.json），方案 §3.8.2 迁移补全
   const messageLayout = ref<"left" | "split">(ui.messageLayout);
+  const busyEnterBehavior = ref<"insert" | "queue">(ui.busyEnterBehavior);
   const nickname = ref(ui.nickname);
   const avatar = ref(ui.avatar);
   // 设置页重构新字段（同 ui.* 三写；notifications/agentModelOverrides 拷贝副本防共享引用）
@@ -492,6 +497,7 @@ export const useSettingsStore = defineStore("settings", () => {
     if (typeof config["smallModel"] === "string" && SMALL_MODEL_OPTIONS.includes(config["smallModel"])) smallModel.value = config["smallModel"];
     // ── B1 补全：引擎/预置字段（schema 定义但 UI 未接；settings.json 权威，白名单外/缺失保持当前值）──
     if (config["ui.messageLayout"] === "left" || config["ui.messageLayout"] === "split") messageLayout.value = config["ui.messageLayout"];
+    if (config["ui.busyEnterBehavior"] === "insert" || config["ui.busyEnterBehavior"] === "queue") busyEnterBehavior.value = config["ui.busyEnterBehavior"];
     if (typeof config["ui.nickname"] === "string") nickname.value = config["ui.nickname"];
     if (typeof config["ui.avatar"] === "string") avatar.value = config["ui.avatar"];
     if (typeof config["engine.opencodePath"] === "string") opencodePath.value = config["engine.opencodePath"];
@@ -573,7 +579,7 @@ export const useSettingsStore = defineStore("settings", () => {
   }, { immediate: true });
 
   // UI 偏好变更 → 写 localStorage（B1 补 messageLayout/nickname/avatar；设置页重构补 showThinking/avatarImage/notifications/agentModelOverrides）
-  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides], () => {
+  watch([planMode, autoMode, permissionMode, effort, theme, locale, fontSize, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides, busyEnterBehavior], () => {
     const s: UiSettings = {
       planMode: planMode.value,
       autoMode: autoMode.value,
@@ -590,6 +596,7 @@ export const useSettingsStore = defineStore("settings", () => {
       avatarImage: avatarImage.value,
       notifications: { ...notifications.value },
       agentModelOverrides: { ...agentModelOverrides.value },
+      busyEnterBehavior: busyEnterBehavior.value,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
   }, { deep: true });
@@ -597,7 +604,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // UI 偏好变更 → 写 SQLite（500ms 防抖，不受 Tauri identifier 变更影响）
   let uiDbTimer: ReturnType<typeof setTimeout> | null = null;
   watch(
-    [theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides],
+    [theme, locale, fontSize, planMode, autoMode, permissionMode, effort, cwd, recentWorkspaces, contextLimit, currentAgent, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, agentModelOverrides, busyEnterBehavior],
     () => {
       if (uiDbTimer) clearTimeout(uiDbTimer);
       uiDbTimer = setTimeout(() => {
@@ -620,6 +627,7 @@ export const useSettingsStore = defineStore("settings", () => {
           avatarImage: avatarImage.value,
           notifications: { ...notifications.value },
           agentModelOverrides: { ...agentModelOverrides.value },
+          busyEnterBehavior: busyEnterBehavior.value,
         })).catch(() => {});
       }, 500);
     },
@@ -641,7 +649,7 @@ export const useSettingsStore = defineStore("settings", () => {
   // 2026-08-14 修复：planMode/autoMode/permissionMode/effort 并入同链——此前只写 localStorage+SQLite，
   // settings.json 旧值（默认 default/high）重启时被 applySettingsJson 覆盖 → 权限/思考深度设置丢失
   let themeSyncTimer: ReturnType<typeof setTimeout> | null = null;
-  watch([theme, locale, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, planMode, autoMode, permissionMode, effort], () => {
+  watch([theme, locale, messageLayout, nickname, avatar, showThinking, avatarImage, notifications, planMode, autoMode, permissionMode, effort, busyEnterBehavior], () => {
     if (themeSyncTimer) clearTimeout(themeSyncTimer);
     // 防抖：连续切换只写一次（saveSettings 触发引擎联动判断：agent 字段变更才联动 opencode.json，纯 UI 项不联动）
     themeSyncTimer = setTimeout(() => {
@@ -657,6 +665,7 @@ export const useSettingsStore = defineStore("settings", () => {
           next["ui.showThinking"] = showThinking.value;
           next["ui.avatarImage"] = avatarImage.value;
           next["ui.notifications"] = { ...notifications.value };
+          next["ui.busyEnterBehavior"] = busyEnterBehavior.value;
           // 引擎字段写回（修复权限/思考深度重启丢失）；effort 空（模型无 variants）不写，保留文件原值
           next["agent.permissionMode"] = toSettingsPermissionMode(planMode.value, autoMode.value, permissionMode.value);
           if (effort.value) next["agent.effort"] = effort.value;
@@ -693,5 +702,5 @@ export const useSettingsStore = defineStore("settings", () => {
     }, 800);
   });
 
-  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, showThinking, avatarImage, avatarRevision, notifications, agentModelOverrides, setAgentModelOverride, pickAvatar, clearAvatar, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, LOG_LEVEL_OPTIONS };
+  return { apiKey, baseUrl, model, providerId, models, planMode, autoMode, permissionMode, effort, modelVariants, setModelVariants, currentAgent, theme, locale, fontSize, messageLayout, nickname, avatar, showThinking, avatarImage, avatarRevision, notifications, agentModelOverrides, setAgentModelOverride, pickAvatar, clearAvatar, contextLimit, settingsFileExists, saveCurrentConfig, restoreConfig, kimiApiKey, saveKimiKey, cwd, recentWorkspaces, addRecentWorkspace, removeRecentWorkspace, initFromDb, applySettingsJson, onboardingDismissed, markOnboardingDismissed, windowInitCwd, dataMode, isRestarting, setDataMode, smallModel, persistSmallModel, opencodePath, logLevel, presetSkillsEnabled, busyEnterBehavior, LOG_LEVEL_OPTIONS };
 });
