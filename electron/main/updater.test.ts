@@ -122,6 +122,20 @@ describe("registerUpdaterIpc", () => {
     expect(autoUpdaterMock.checkForUpdates).toHaveBeenCalledTimes(1)
   })
 
+  it("updater:check 失败：错误翻译后经 updater:status 推送（不 reject——安装版真实错误不再误报 devMode）", async () => {
+    const sendMock = vi.fn()
+    const getWindow = () => ({ webContents: { send: sendMock } }) as never
+    registerUpdaterIpc(getWindow)
+    // 从注册表取出 updater:check handler 直接调用
+    const checkHandler = mockElectron.ipcMain.handle.mock.calls.find(
+      (c: string[]) => c[0] === "updater:check"
+    )![1] as () => Promise<void>
+    autoUpdaterMock.checkForUpdates.mockRejectedValueOnce(new Error("net::ERR_INTERNET_DISCONNECTED"))
+    await checkHandler()
+    // 推送翻译后的可读文案，而非把原始错误 reject 给渲染层
+    expect(sendMock).toHaveBeenCalledWith("updater:status", { type: "error", message: "网络连接失败，请检查网络后重试" })
+  })
+
   it("dev 模式：注册占位 handler 抛 DEV_MODE（渲染层显示「开发模式不可用」而非 No handler registered）", () => {
     // mock 共享对象：临时切到 dev 模式，测试后恢复（避免影响其他用例）
     ;(mockElectron.app as { isPackaged: boolean }).isPackaged = false

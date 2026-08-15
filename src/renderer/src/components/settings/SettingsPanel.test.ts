@@ -893,6 +893,24 @@ describe("SettingsPanel", () => {
     expect(wrapper.find("[data-tab='about'] .about-updater-status").text()).toContain("Unavailable in dev mode");
   });
 
+  it("updater:check 抛非 DEV_MODE 错误 → 状态区透传真实错误（不误报 devMode）", async () => {
+    const wrapper = mountPanel();
+    await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");
+    const bridge = (window as unknown as { electronBridge: { invoke: ReturnType<typeof vi.fn> } }).electronBridge;
+    bridge.invoke = vi.fn().mockImplementation((channel: string) => {
+      if (channel === "provider:modelVariants") return Promise.resolve(["low", "high", "max"]);
+      if (channel === "app:getInfo") return Promise.resolve({ name: "Fractal", version: "1.2.3", engineVersion: "1.18.15", presetVersion: "1.1.0" });
+      if (channel === "updater:check") return Promise.reject(new Error("Cannot find latest.yml"));
+      return Promise.resolve({});
+    });
+    await wrapper.find("[data-tab='about'] .about-updater-check").trigger("click");
+    await wrapper.vm.$nextTick();
+    await wrapper.vm.$nextTick();
+    const text = wrapper.find("[data-tab='about'] .about-updater-status").text();
+    expect(text).toContain("Cannot find latest.yml");
+    expect(text).not.toContain("Unavailable in dev mode");
+  });
+
   it("updater status available opens confirm dialog and download works", async () => {
     const wrapper = mountPanel();
     await wrapper.findAll(".f-settings-nav-item")[5].trigger("click");

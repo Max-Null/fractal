@@ -490,14 +490,20 @@ onUnmounted(() => {
   updaterOff?.();
 });
 
-// 手动检查：busy 期间禁点防重复触发；dev 模式主进程抛 DEV_MODE（占位 handler），catch 显示「开发模式不可用」
+// 手动检查：busy 期间禁点防重复触发；dev 模式主进程抛 DEV_MODE（占位 handler），catch 显示「开发模式不可用」；
+// 2026-08-15 修复：仅 DEV_MODE 显示 devMode 文案，其他异常透传真实信息——此前安装版真实错误（网络/发布配置）
+// 被统一吞成 devMode 误报
 async function handleCheckUpdates(): Promise<void> {
   if (updaterBusy.value) return;
   updaterBusy.value = true;
   try {
     await checkForUpdates();
-  } catch {
-    updaterState.value = { type: "error", message: t("settings.update.devMode") };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    updaterState.value = {
+      type: "error",
+      message: msg.includes("DEV_MODE_UPDATER_UNAVAILABLE") ? t("settings.update.devMode") : msg,
+    };
   } finally {
     updaterBusy.value = false;
   }

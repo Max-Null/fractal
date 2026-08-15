@@ -106,7 +106,15 @@ export function registerUpdaterIpc(getWindow: () => BrowserWindow | null): void 
     autoUpdater.checkForUpdates().catch(() => {})
   }, 10_000)
 
-  ipcMain.handle("updater:check", () => autoUpdater.checkForUpdates())
+  ipcMain.handle("updater:check", async () => {
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (err) {
+      // 手动检查失败：翻译后经 updater:status 推送可读文案（2026-08-15 修复——此前 reject 到渲染层
+      // 被 catch 统一误报「开发模式下不可用」，安装版真实错误被吞掉）
+      send({ type: "error", message: translateError(err) })
+    }
+  })
   ipcMain.handle("updater:download", () => autoUpdater.downloadUpdate())
   ipcMain.handle("updater:quit-and-install", () => autoUpdater.quitAndInstall())
 }
