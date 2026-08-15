@@ -14,6 +14,7 @@ import {
 } from "@/stores/chat";
 import { useSessionStore } from "@/stores/session";
 import { useDebugLog } from "@/composables/useDebugLog";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import { getLastStreamEventAt } from "@/composables/useStreamProcessor";
 import {
   sendMessage,
@@ -113,6 +114,40 @@ watch(attachedFiles, (files) => {
 interface TextSnippet { content: string; label: string }
 const textSnippet = ref<TextSnippet | null>(null);
 function removeTextSnippet() { textSnippet.value = null; }
+
+// ── 草稿跟随会话（需求 B：切换会话保留各自草稿——输入框文字 + 附件 chips + 选区片段）──
+// 存储提升为共享 composable（useSessionDrafts）：SessionSidebar 读 hasDraft 显示「草稿」标记、
+// InputBar 润色跨会话写回；本组件负责「输入态 ↔ 草稿」的读写编排。
+// saveDraft 在「发送清空」与「切会话前」两个时机调用；restoreDraft 在切到目标会话时调用。
+// 无会话（首页）草稿存 composable 的 NONE 槽，新建会话时 useNewSession 触发迁移（用户确认 2026-08-15）。
+const { saveDraft, getDraft, clearDraft, hasPendingPolish } = useSessionDrafts();
+
+/** 保存当前会话草稿（读取 InputBar 当前输入 + 附件 + 选区；无会话时存 NONE 槽） */
+function captureDraft(sid: string | null | undefined) {
+  // 守卫：会话已被删除时跳过——deleteSession 先把 activeSessionId 切到下一个，
+  // 后续 watch 的 captureDraft(oldId) 会把它写回 Map 复活死条目（军师 P2-1，2026-08-15 审查发现）
+  if (sid && !session.sessions.some((s) => s.id === sid)) return;
+  saveDraft(sid, {
+    text: inputBar.value?.getText?.() ?? "",
+    files: [...attachedFiles.value],
+    snippet: textSnippet.value ? { ...textSnippet.value } : null,
+  });
+}
+
+/** 恢复某会话草稿（写入 InputBar + 附件 + 选区；无草稿则清空输入态） */
+function restoreDraft(sid: string | null | undefined) {
+  // 消费该会话待合并润色结果：用户切回发起会话时，润色 pending 可能还没被 captureDraft 消费
+  // （润色完成时用户已切走，pending 登记在 composable；此处 saveDraft 让 saveDraft 合并润色文本）。
+  // 仅在有 pending 时消费——无条件 saveDraft 会为「无草稿会话」制造空条目，干扰 migrateNoneDraft 的「已有草稿」判断
+  // （军师 P2-2 竞态修复，2026-08-15）。
+  if (sid && hasPendingPolish(sid)) {
+    saveDraft(sid, getDraft(sid));
+  }
+  const d = getDraft(sid);
+  inputBar.value?.setText?.(d.text);
+  attachedFiles.value = d.files;
+  textSnippet.value = d.snippet;
+}
 
 // ── composer chips 组装（InputBar 纯展示，事件按 id 回映射）──
 interface ComposerChip {
@@ -423,8 +458,21 @@ watch(() => chat.pendingControlRequest, (cr) => {
     }
   }
 });
-  // 会话切换时同步 debug 日志到当前会话（stderr 槽位已移除——CC 遗留机制废除，方案 D4）
-  watch(() => session.activeSessionId, async (sid) => {
+// ── 草稿跟随会话（需求 B）：切换时先保存旧会话草稿（oldId），再恢复新会话草稿
+// watch 触发时 InputBar 仍是旧会话内容（尚未 setText），captureDraft 读到的正是旧会话草稿；
+// 随后 restoreDraft 用新会话草稿覆盖输入态。无 activeSessionId（空态）直接清空。
+// 首页无会话草稿的迁移不在此处（watch 无法区分「切历史会话」与「新建会话」——
+// 迁移放 useNewSession.handleNew 创建后，经 draft-migrated 事件回来恢复，见下方 chatCommand watch）。
+watch(
+  () => session.activeSessionId,
+  (sid, oldId) => {
+    captureDraft(oldId);
+    restoreDraft(sid);
+  }
+);
+
+// 会话切换时同步 debug 日志到当前会话（stderr 槽位已移除——CC 遗留机制废除，方案 D4）
+watch(() => session.activeSessionId, async (sid) => {
     if (!sid) return;
     debugLog.setSession(sid);
     // 从 DB 恢复持久化的日志
@@ -435,7 +483,6 @@ watch(() => chat.pendingControlRequest, (cr) => {
       }
     } catch { /* 静默，DB 加载失败不影响功能 */ }
   }, { immediate: true });
-
 // ── 待办记录卡（v2）：从 serve 消息历史 todowrite 工具卡提取，回合内渲染 ──
 /** 消息 id → 记录卡（todoRecords 索引；同消息多条 todowrite 取最后一条——收尾态通常单条，多条时展示最新） */
 const recordForMsg = computed(() => {
@@ -475,6 +522,12 @@ watch(() => chatCommand.value.ts, async (ts) => {
   if (!ts) return;
   const action = chatCommand.value.action;
   switch (action) {
+    case "draft-migrated": {
+      // 首页无会话草稿已迁移到新会话（useNewSession.handleNew 触发）——重新恢复输入态
+      // （迁移发生时本组件 watch 的 restoreDraft 已执行过、读到的是空，需显式再恢复一次）
+      restoreDraft(session.activeSessionId);
+      break;
+    }
     case "continue-session": {
       const others = session.sessions.filter(s => s.id !== session.activeSessionId);
       if (others.length > 0) {
@@ -721,6 +774,8 @@ async function onDeleteSessionConfirm() {
   if (!tgt) return;
   try { await stopSession(tgt.id); } catch { /* 无进程 */ }
   await session.deleteSession(tgt.id);
+  // 删除会话 → 清理其草稿（避免 Map 残留死会话条目）
+  clearDraft(tgt.id);
   chat.clearMessages();
   showStatus(t('status.sessionDeleted'));
 }
@@ -728,8 +783,14 @@ function onDeleteSessionCancel() { deleteSessionTarget.value = null; }
 
 /** 真正发送一条消息（office 附件确认通过后走这里；普通消息直接调用） */
 async function doSend(fullText: string, attachments: { name: string; path: string }[] | undefined, isMidProcessing: boolean) {
+  // 发送后输入态清空——顺序：先清 InputBar 文本 + 附件 + 选区，再 captureDraft，保证草稿存的是「空」。
+  // 时序说明：InputBar.send() 是 emit("send") 后才 input.value = ""，emit 同步栈内读 getText 会拿到发送文本；
+  // 附件/选区同理——若在 captureDraft 后才清，已发送的 chips 会残留成草稿（军师 P1-1，2026-08-15 审查发现）。
+  inputBar.value?.setText?.("");
   attachedFiles.value = [];
   textSnippet.value = null;
+  // 保存「空草稿」覆盖旧值（切回该会话时输入框应为空）
+  captureDraft(session.activeSessionId);
 
   // 只发附件无文字：给最小占位文本（serve promptPartsAsync 需要非空 text part；上屏显示附件名更友好）
   const effectiveText = fullText.trim() || (attachments?.length ? t("chat.attachOnly", { name: attachments[0].name }) : "");

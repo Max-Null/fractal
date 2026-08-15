@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch } from "vue";
 import { useRouter } from "vue-router";
 import { useI18n } from "vue-i18n";
 
@@ -10,6 +10,7 @@ import { useSettingsStore } from "@/stores/settings";
 import { stopSession } from "@/lib/electron-bridge";
 import { useNewSession } from "@/composables/useNewSession";
 import { useSessionSwitch } from "@/composables/useSessionSwitch";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import { emitChatCommand } from "@/composables/useCommandPalette";
 import { formatTokenCount } from "@/lib/utils";
 
@@ -27,6 +28,17 @@ const settings = useSettingsStore();
 
 const { handleNew } = useNewSession();
 const { switchTo } = useSessionSwitch();
+const { hasDraft, clearDraft, version: draftVersion } = useSessionDrafts();
+
+// 草稿版本号 → 本地响应式 tick：Map 非响应式，模板必须依赖 tick 才能在 saveDraft/clearDraft 后重渲染
+// （watch 空回调不触发重渲染——军师 P1-2，2026-08-15 审查发现）
+const draftTick = ref(0);
+watch(draftVersion, () => { draftTick.value++; });
+/** 会话是否有草稿（列表标记；活跃会话正在编辑不标记） */
+function hasDraftFor(id: string): boolean {
+  void draftTick.value; // 建立响应式依赖：版本号变化时本函数重算，标记才刷新
+  return id !== activeId.value && hasDraft(id);
+}
 
 /** 切换会话 */
 function switchByMode(id: string) {
@@ -77,6 +89,8 @@ async function handleDelete(id: string) {
   // 先终止该会话的 CC 进程（若有），避免后台残留进程
   try { await stopSession(id); } catch { /* 无进程则忽略 */ }
   await sessionStore.deleteSession(id);  // store 内赋值 activeSessionId 到下一个会话
+  // 删除会话 → 清理其草稿（hover 删除按钮路径不走 ChatPanel.onDeleteSessionConfirm，需在此补——军师 P2-1）
+  clearDraft(id);
   // 竞态 guard：异步期间可能已切到其他会话，重新判断
   if (wasActive && activeId.value === id) {
     const nextId = sessionStore.sessions[0]?.id;
@@ -170,12 +184,14 @@ async function handleDelete(id: string) {
         <div v-else class="truncate flex-1 min-w-0">
           <!-- "New Chat" 是 Rust 后端默认标题，前端按 i18n 显示 -->
           <span class="block truncate">{{ s.title === 'New Chat' || s.title === '新会话' ? $t('session.new') : s.title }}</span>
-          <span
-            v-if="s.totalTokens"
-            class="block text-[0.714rem] truncate"
-            :style="{ color: 'var(--text-muted)' }"
-          >
-            {{ formatTokenCount(s.totalTokens) }}
+          <span class="block truncate text-[0.714rem]" :style="{ color: 'var(--text-muted)' }">
+            <!-- 草稿标记：该会话有未发送草稿（文字/附件/选区任一）且非当前编辑会话 -->
+            <span
+              v-if="hasDraftFor(s.id)"
+              class="mr-1 font-medium"
+              :style="{ color: 'var(--accent)' }"
+            >{{ $t('session.draftBadge') }}</span>
+            <template v-if="s.totalTokens">{{ formatTokenCount(s.totalTokens) }}</template>
           </span>
         </div>
 

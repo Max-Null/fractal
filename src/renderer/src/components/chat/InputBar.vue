@@ -9,12 +9,16 @@ import { useI18n } from "vue-i18n";
 import { useSlashCommands } from "@/composables/useSlashCommands";
 import { useSettingsStore, type Effort } from "@/stores/settings";
 import { useChatStore } from "@/stores/chat";
+import { useSessionStore } from "@/stores/session";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import ContextIndicator from "./ContextIndicator.vue";
 import { polishMessage } from "@/lib/electron-bridge";
 
 const { t } = useI18n();
 const settings = useSettingsStore();
 const chat = useChatStore();
+const session = useSessionStore();
+const { getDraft, setPolishResult } = useSessionDrafts();
 
 /** chips 行数据（由 ChatPanel 组装：选区卡片 / 附件），纯展示、事件上报 */
 export interface ComposerChip {
@@ -213,7 +217,11 @@ function updateInputGradient() {
 }
 
 /** 外部设置输入框文本（FilePreview DOM 选择器等） */
-defineExpose({ setText: (text: string) => { input.value = text; autoResize(); } });
+defineExpose({
+  setText: (text: string) => { input.value = text; autoResize(); },
+  // 供 ChatPanel 切会话时保存当前输入框草稿（需求 B：草稿跟随会话）
+  getText: () => input.value,
+});
 
 // ══════════════════════════════════════════════════════════════
 // foot 操作行：agent / 模型（会话级选择器，对齐原型 v0.20/0.23）
@@ -356,6 +364,8 @@ let polishErrorTimer: ReturnType<typeof setTimeout> | null = null;
 async function polishInput() {
   const text = input.value.trim();
   if (!text || polishing.value) return;
+  // 记录发起会话：润色期间用户可能切换会话，完成后结果必须写回「发起会话」而非当前输入框（污染其他会话草稿）
+  const polishSessionId = session.activeSessionId;
   polishing.value = true;
   polishError.value = "";
   try {
@@ -365,8 +375,18 @@ async function polishInput() {
       .map((c) => ({ label: c.label, content: c.content ?? "", path: c.path ?? "" }));
     const result = await polishMessage(text, refs);
     if (result?.ok && result.text) {
-      input.value = result.text;
-      autoResize();
+      // 润色完成回填：仍在发起会话 → 直接写输入框；已切会话 → 润色结果登记到发起会话草稿
+      // （setPolishResult 存 pending，由 ChatPanel 下一次 captureDraft 合并——避免与切会话 watch 竞态覆盖）
+      if (session.activeSessionId === polishSessionId) {
+        input.value = result.text;
+        autoResize();
+      } else {
+        // 润色结果写入发起会话草稿（保留其附件/选区，替换文字），切回可见
+        // 守卫：发起会话可能在润色期间被删除——已删则不登记（军师 P2-3，2026-08-15 审查发现）
+        if (session.sessions.some((s) => s.id === polishSessionId)) {
+          setPolishResult(polishSessionId, result.text);
+        }
+      }
     } else {
       // 主进程返回 ok=false（理论不达，防御）
       polishError.value = "优化失败：DeepSeek 未返回结果";
@@ -1082,17 +1102,21 @@ async function polishInput() {
   cursor: default;
 }
 .polish-btn--busy {
-  /* 按钮本体不旋转（用户反馈：图标呼吸灯更好看）——旋转交给图标呼吸动画 */
+  /* 等待态强反馈：默认浅蓝底 → 实心蓝 + 白图标（与 hover 态同底色但持续），视觉反差大一眼看出「在处理」；
+     按钮本体不旋转（用户反馈：图标呼吸灯更好看）——旋转交给图标呼吸动画 */
   border-style: dashed;
-  border-color: var(--accent-line);
+  border-color: var(--accent);
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
-/* 呼吸灯：图标 opacity+scale 脉冲（0.4→1），按钮静止 */
+/* 呼吸灯：图标 opacity+scale 脉冲（0.25→1，幅度比 0.4→1 明显；周期 1.2s 比 1.4s 快），按钮静止 */
 .polish-btn--busy svg {
-  animation: polish-breathe 1.4s ease-in-out infinite;
+  animation: polish-breathe 1.2s ease-in-out infinite;
 }
 @keyframes polish-breathe {
   0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.4; transform: scale(0.85); }
+  50% { opacity: 0.25; transform: scale(0.7); }
 }
 /* 润色失败提示（composer 底部一行小字，3s 消失） */
 .polish-error {

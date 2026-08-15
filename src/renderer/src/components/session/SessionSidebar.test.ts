@@ -4,6 +4,7 @@ import { setActivePinia, createPinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { useSessionStore } from "@/stores/session";
 import { useChatStore } from "@/stores/chat";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import { useChatCommandBus, emitChatCommand } from "@/composables/useCommandPalette";
 import SessionSidebar from "./SessionSidebar.vue";
 
@@ -43,6 +44,7 @@ const i18n = createI18n({
         noSessions: "No sessions yet. Click + above to create one",
         noMatching: "No matching sessions",
         alreadyNew: "Already a new session",
+        draftBadge: "Draft",
       },
     },
   },
@@ -193,5 +195,32 @@ describe("SessionSidebar", () => {
     expect(mockCreateSession).toHaveBeenCalledTimes(1);
     expect(routerPush).toHaveBeenCalledWith("/chat");
     expect(chatCommand.value.action).not.toContain("show-status");
+  });
+
+  it("草稿标记：有草稿的会话显示 Draft，活跃会话与无草稿会话不显示", async () => {
+    const wrapper = mountSidebar();
+    const store = useSessionStore();
+    const drafts = useSessionDrafts();
+    drafts._resetForTest();
+    store.sessions.push(
+      { id: "s1", title: "有草稿", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
+      { id: "s2", title: "无草稿", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
+      { id: "s3", title: "活跃", createdAt: Date.now(), updatedAt: Date.now(), messageCount: 0, totalTokens: null, totalCost: null, mode: "cc" },
+    );
+    store.setActiveSession("s3");
+    drafts.saveDraft("s1", { text: "草稿一", files: [], snippet: null });
+    await wrapper.vm.$nextTick();
+
+    // s1 有草稿且非活跃 → 显示 Draft 标记
+    expect(wrapper.text()).toContain("Draft");
+    // 无草稿 s2 / 活跃 s3 不显示——用卡片文本定位（会话标题唯一）
+    // 卡片 s1 的标题行含 Draft，s2/s3 不含
+    const cards = wrapper.findAll("button");
+    const cardS1 = cards.find((c) => c.text().includes("有草稿"));
+    const cardS2 = cards.find((c) => c.text().includes("无草稿"));
+    const cardS3 = cards.find((c) => c.text().includes("活跃"));
+    expect(cardS1?.text()).toContain("Draft");
+    expect(cardS2?.text()).not.toContain("Draft");
+    expect(cardS3?.text()).not.toContain("Draft");
   });
 });

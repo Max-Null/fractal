@@ -305,7 +305,8 @@
     "clear": "Clear",
     "noSessions": "No sessions yet. Click + above to create one",
     "noMatching": "No matching sessions",
-    "loading": "Loading sessions…"
+    "loading": "Loading sessions…",
+    "draftBadge": "Draft"
   },
   "mode": {
     "plan": "Plan mode",

@@ -5,6 +5,8 @@ import { setActivePinia, createPinia } from "pinia";
 import { nextTick } from "vue";
 import InputBar from "./InputBar.vue";
 import { useSettingsStore } from "@/stores/settings";
+import { useSessionStore } from "@/stores/session";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 
 const i18n = createI18n({
   legacy: false,
@@ -371,6 +373,36 @@ describe("InputBar", () => {
         { label: "b.ts", content: "", path: "C:\\b.ts" },
       ],
     });
+  });
+
+  it("polish 期间切换会话：结果写入发起会话草稿而非当前输入框", async () => {
+    // 润色跨会话写回：发起会话 A → 润色异步期间切到 B → 完成时输入框不污染（B 保持自己的草稿），
+    // A 的草稿文字被替换为润色结果（保留 A 原有附件/选区）。
+    // 说明：切会话时输入框由 ChatPanel restoreDraft 清空/恢复——本测试直接 mount InputBar（无 ChatPanel），
+    // 手动模拟该行为（setText("")），聚焦验证「润色完成时跨会话写草稿」逻辑本身。
+    const sessionStore = useSessionStore();
+    const drafts = useSessionDrafts();
+    drafts._resetForTest();
+    // 预置会话（InputBar 润色写回守卫 session.sessions.some 要求会话存在——军师 P2-3）
+    sessionStore.sessions.push({ id: "ses-a", title: "A", createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" });
+    sessionStore.setActiveSession("ses-a");
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      invoke: (channel: string) =>
+        channel === "ai:polishMessage" ? Promise.resolve({ ok: true, text: "润色后-A" }) : Promise.resolve({}),
+      on: () => () => {},
+    };
+    const wrapper = mountInputBar();
+    await wrapper.find("textarea").setValue("润色前-A");
+    await wrapper.find("button[title='Polish message with AI']").trigger("click");
+    // 润色未完成：切到会话 B（模拟用户行为；ChatPanel 会 setText("") 清空输入框）
+    sessionStore.setActiveSession("ses-b");
+    await wrapper.find("textarea").setValue("");
+    await new Promise((r) => setTimeout(r, 0));
+    // 输入框保持 B 的（空）草稿——不被 A 的润色结果污染
+    expect((wrapper.find("textarea").element as HTMLTextAreaElement).value).toBe("");
+    // 润色结果已登记到 A（pending），经 saveDraft 合并可见——模拟 ChatPanel 下一次 captureDraft(A)
+    drafts.saveDraft("ses-a", { text: "", files: [], snippet: null });
+    expect(drafts.getDraft("ses-a").text).toBe("润色后-A");
   });
 
   // ── foot 操作按钮 ──

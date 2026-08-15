@@ -4,6 +4,8 @@ import { useNewSession } from "./useNewSession";
 import { useSessionStore } from "@/stores/session";
 import { useChatStore } from "@/stores/chat";
 import { useSettingsStore } from "@/stores/settings";
+import { useSessionDrafts } from "./useSessionDrafts";
+import { emitChatCommand, useChatCommandBus } from "@/composables/useCommandPalette";
 
 // mock vue-router：useNewSession 内部 router.push("/chat")
 const mockRouterPush = vi.fn();
@@ -50,6 +52,8 @@ describe("useNewSession", () => {
     mockRouterPush.mockClear();
     mockCreateSessionBackend.mockReset();
     mockBackendOk();
+    // chatCommand 是模块级 ref 跨用例共享——重置避免上个用例的 draft-migrated 残留污染断言
+    emitChatCommand("");
   });
 
   it("当前会话无消息 → current-empty（不创建、不跳转）", async () => {
@@ -93,5 +97,37 @@ describe("useNewSession", () => {
     expect(res).toBe("created");
     expect(mockCreateSessionBackend).toHaveBeenCalledTimes(1);
     expect(session.activeSessionId).toBe("s-new");
+  });
+
+  it("首页无会话草稿：新建成功后迁移到新会话并发 draft-migrated 事件", async () => {
+    const drafts = useSessionDrafts();
+    drafts._resetForTest();
+    const chat = useChatStore();
+    const { chatCommand } = useChatCommandBus();
+    chat.messages.push(userMsg());
+    // 首页草稿（NONE 槽）预置
+    drafts.saveDraft(null, { text: "首页草稿", files: [], snippet: null });
+
+    const { handleNew } = useNewSession();
+    const res = await handleNew();
+    expect(res).toBe("created");
+    // NONE 槽草稿迁移到新会话（s-new 是 mock createSession 返回的 id）
+    expect(drafts.getDraft("s-new").text).toBe("首页草稿");
+    expect(drafts.hasDraft(null)).toBe(false);
+    // draft-migrated 事件发出（ChatPanel 收到后重新恢复输入态）
+    expect(chatCommand.value.action).toBe("draft-migrated");
+  });
+
+  it("无首页草稿：新建不迁移、不发 draft-migrated 事件", async () => {
+    const drafts = useSessionDrafts();
+    drafts._resetForTest();
+    const chat = useChatStore();
+    const { chatCommand } = useChatCommandBus();
+    chat.messages.push(userMsg());
+
+    const { handleNew } = useNewSession();
+    await handleNew();
+    expect(drafts.hasDraft(null)).toBe(false);
+    expect(chatCommand.value.action).not.toBe("draft-migrated");
   });
 });

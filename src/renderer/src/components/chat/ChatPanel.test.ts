@@ -1,11 +1,14 @@
 // ChatPanel 弹窗测试：serve 原生 question.asked（提问弹窗提交）+ permission.asked（总是允许按钮）
 // 子组件全部 stub，仅验证弹窗交互与 bridge 调用参数
+import { defineComponent } from "vue";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { mount, type VueWrapper } from "@vue/test-utils";
 import { createPinia, setActivePinia, type Pinia } from "pinia";
 import { createI18n } from "vue-i18n";
 import { useChatStore } from "@/stores/chat";
-import { useSessionStore } from "@/stores/session";
+import { useSessionStore, type Session } from "@/stores/session";
+import { emitChatCommand, useChatCommandBus } from "@/composables/useCommandPalette";
+import { useSessionDrafts } from "@/composables/useSessionDrafts";
 import ChatPanel from "./ChatPanel.vue";
 
 // mock electron-bridge：只关心 questionReply / respondPermission 的调用参数
@@ -118,12 +121,21 @@ const mockRouter = { push: vi.fn(), currentRoute: { value: { path: "/chat" } } }
 let pinia: Pinia;
 
 // InputBar stub：声明 send 事件，供 handleSend 附件传递用例触发；渲染 #left 插槽（诊断面板开关按钮）
-const InputBarStub = {
+// 支持 getText/setText（草稿跟随会话用例：切会话时 ChatPanel 经 defineExpose 读取/写入输入框文本）
+// defineComponent + 显式类型：options API 的 data/methods 交叉类型推断不到 this._text，必须显式声明
+const InputBarStub = defineComponent({
   name: "InputBarStub",
   props: ["chips"],
   emits: ["send"],
+  data() {
+    return { _text: "" as string };
+  },
+  methods: {
+    getText() { return (this as unknown as { _text: string })._text; },
+    setText(t: string) { (this as unknown as { _text: string })._text = t; },
+  },
   template: '<div class="input-bar-stub"><slot name="left" /></div>',
-};
+});
 
 function mountChatPanel(): VueWrapper {
   return mount(ChatPanel, {
@@ -1225,6 +1237,148 @@ describe("ChatPanel 弹窗", () => {
     // 每个锚点都带稳定 message-id（scrollToTimelineIndex 定位目标）
     const ids = wrapper.findAll('[data-role="user"]').map((el) => el.attributes("data-message-id"));
     expect(ids).toContain(chat.messages[0].id);
+  });
+
+  // ── 草稿跟随会话（需求 B：切换会话保留各自草稿——输入框文字 + 附件 + 选区片段）──
+  describe("草稿跟随会话", () => {
+    beforeEach(() => {
+      // useSessionDrafts 是模块级单例——跨用例必须清空，否则上个用例的草稿残留污染断言
+      useSessionDrafts()._resetForTest();
+    });
+    it("切走再切回：输入框文字 + 附件 + 选区片段各自恢复", async () => {
+      const session = useSessionStore();
+      // 预置会话到列表（captureDraft 守卫要求会话存在——军师 P2-1 加的「会话已删则跳过」）
+      const mk = (id: string): Session => ({ id, title: id, createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" });
+      session.sessions.push(mk("ses-1"), mk("ses-2"));
+      session.setActiveSession("ses-1");
+      const wrapper = mountChatPanel();
+      await flush();
+
+      // 在 ses-1 输入草稿：文字（经 stub setText）+ 附件（attach-files 事件）+ 选区（chatCommand selection:）
+      const inputBar = wrapper.findComponent(InputBarStub);
+      (inputBar.vm as unknown as { setText: (t: string) => void }).setText("草稿一");
+      wrapper.findComponent(InputBarStub).vm.$emit("files", [{ name: "a.txt", path: "H:\\a.txt" }]);
+      emitChatCommand("selection:选区.txt|选区内容");
+      await flush();
+      expect(wrapper.findComponent(InputBarStub).props("chips")).toHaveLength(2); // 附件 + 选区各 1
+
+      // 切到 ses-2：输入态应清空（无草稿），再切回 ses-1 恢复
+      session.setActiveSession("ses-2");
+      await flush();
+      expect((inputBar.vm as unknown as { getText: () => string }).getText()).toBe("");
+
+      session.setActiveSession("ses-1");
+      await flush();
+      expect((inputBar.vm as unknown as { getText: () => string }).getText()).toBe("草稿一");
+      expect(wrapper.findComponent(InputBarStub).props("chips")).toHaveLength(2);
+    });
+
+    it("发送后草稿清空：切回该会话输入框为空（不残留已发送内容）", async () => {
+      const session = useSessionStore();
+      // 预置会话到列表（captureDraft 守卫要求会话存在）
+      const mk = (id: string): Session => ({ id, title: id, createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" });
+      session.sessions.push(mk("ses-1"), mk("ses-2"));
+      session.setActiveSession("ses-1");
+      sendMessageMock.mockResolvedValue({ accepted: true });
+      const wrapper = mountChatPanel();
+      await flush();
+
+      // stub 输入文字 + 触发 send：doSend 内显式存「空草稿」（不依赖 InputBar 清空时序——真实 InputBar
+      // 是 emit("send") 后才 input.value = ""，emit 同步栈内读 getText 会读到发送文本，故实现改为显式空草稿）
+      (wrapper.findComponent(InputBarStub).vm as unknown as { setText: (t: string) => void }).setText("要发送的内容");
+      wrapper.findComponent(InputBarStub).vm.$emit("send", "要发送的内容");
+      // stub 不模拟 InputBar 清空（修复后实现不读 InputBar），直接验证发送后草稿记录为空
+      await flush();
+      // 发送后草稿应记录为空：切走切回不应恢复已发送内容
+      session.setActiveSession("ses-2");
+      await flush();
+      session.setActiveSession("ses-1");
+      await flush();
+      expect((wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText()).toBe("");
+    });
+
+    it("删除会话清理草稿：删除后切回不恢复", async () => {
+      const session = useSessionStore();
+      // 预置两个会话（delete-session 需要 active 在 sessions 列表内）
+      const mk = (id: string): Session => ({ id, title: id, createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" });
+      session.sessions.push(mk("ses-1"), mk("ses-2"));
+      session.setActiveSession("ses-1");
+      sendMessageMock.mockResolvedValue({ accepted: true });
+
+      const wrapper = mountChatPanel();
+      await flush();
+
+      (wrapper.findComponent(InputBarStub).vm as unknown as { setText: (t: string) => void }).setText("待删会话草稿");
+      wrapper.findComponent(InputBarStub).vm.$emit("files", [{ name: "a.txt", path: "H:\\a.txt" }]);
+      await flush();
+
+      // 命令面板触发 delete-session → ConfirmDialog 确认 → 删除（走 ChatPanel onDeleteSessionConfirm 清理草稿）
+      // 直接用共享 ref 赋值 + 显式递增 ts（emitChatCommand 用 Date.now() 可能与前序用例同毫秒导致 watch 不触发）
+      const { chatCommand } = useChatCommandBus();
+      chatCommand.value = { action: "delete-session", ts: Date.now() + 1 };
+      await flush();
+      await flush();
+      await wrapper.vm.$nextTick();
+      // 调试：确认事件已发出（chatCommand ref 值）
+      expect(chatCommand.value.action).toBe("delete-session");
+      expect(chatCommand.value.ts).toBeGreaterThan(0);
+      // 两个 ConfirmDialog 实例（office 确认 + 删除确认）——findAllComponents 取 open=true 的那个
+      const dialogs = wrapper.findAllComponents(ConfirmDialogStub);
+      expect(dialogs.length).toBeGreaterThanOrEqual(2);
+      const dialog = dialogs.find((d) => d.props("open")) ?? dialogs[dialogs.length - 1];
+      expect(dialog.props("open")).toBe(true);
+      expect(dialog.exists()).toBe(true);
+      expect(dialog.props("open")).toBe(true);
+      await dialog.vm.$emit("confirm");
+      await flush();
+
+      // 删除后 ses-1 草稿应已清理：切到 ses-2 再切回（无此会话，restoreDraft 空）——不残留
+      session.setActiveSession("ses-2");
+      await flush();
+      session.setActiveSession("ses-1");
+      await flush();
+      expect((wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText()).toBe("");
+      expect(wrapper.findComponent(InputBarStub).props("chips")).toHaveLength(0);
+    });
+
+    it("首页无会话草稿：新建会话时迁移到新会话（切历史会话再新建不丢首页输入）", async () => {
+      const session = useSessionStore();
+      const drafts = useSessionDrafts();
+      drafts._resetForTest();
+      // 预置会话（captureDraft 守卫要求会话存在）
+      const mk = (id: string): Session => ({ id, title: id, createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" });
+      session.sessions.push(mk("ses-old"), mk("ses-old2"), mk("ses-new"));
+      // 初始无会话（首页）：输入草稿
+      const wrapper = mountChatPanel();
+      await flush();
+      (wrapper.findComponent(InputBarStub).vm as unknown as { setText: (t: string) => void }).setText("首页草稿");
+      await flush();
+
+      // 切到历史会话（无草稿）→ 草稿存 NONE 槽；切历史会话不消耗 NONE（迁移只发生在新建动作）
+      session.setActiveSession("ses-old");
+      await flush();
+      expect(drafts.hasDraft(null)).toBe(true);
+      // 切到另一个历史会话：NONE 槽仍在（不被消费）
+      session.setActiveSession("ses-old2");
+      await flush();
+      expect(drafts.hasDraft(null)).toBe(true);
+
+      // 新建会话（模拟 useNewSession.handleNew 成功后的动作：setActiveSession 到新会话 + draft-migrated 事件）
+      session.setActiveSession("ses-new");
+      await flush();
+      // handleNew 里 createSession 后 migrateNoneDraft + emitChatCommand("draft-migrated")
+      const migrated = drafts.migrateNoneDraft("ses-new");
+      expect(migrated).toBe(true);
+      // 显式递增 ts：chatCommand 是模块级 ref，Date.now() 可能与上条用例同毫秒导致 watch 不触发（2026-08-10 已知坑）
+      const { chatCommand } = useChatCommandBus();
+      chatCommand.value = { action: "draft-migrated", ts: Date.now() + 1 };
+      await flush();
+
+      // 新会话输入框恢复首页草稿
+      expect((wrapper.findComponent(InputBarStub).vm as unknown as { getText: () => string }).getText()).toBe("首页草稿");
+      // NONE 槽已清空
+      expect(drafts.hasDraft(null)).toBe(false);
+    });
   });
 });
 
