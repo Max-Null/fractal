@@ -155,4 +155,27 @@ describe("useSessionDrafts", () => {
     expect(parsed["ses-new"].text).toBe("首页草稿");
     expect(parsed["__draft_none__"]).toBeUndefined();
   });
+
+  // ── 润色状态按会话隔离（2026-08-15 用户反馈：按钮状态跟随会话）──
+
+  it("setPolishState/isPolishing：状态按会话隔离，互不影响", () => {
+    drafts.setPolishState("ses-a", true);
+    expect(drafts.isPolishing("ses-a")).toBe(true);
+    // B 会话不受 A 影响
+    expect(drafts.isPolishing("ses-b")).toBe(false);
+    drafts.setPolishState("ses-a", false);
+    expect(drafts.isPolishing("ses-a")).toBe(false);
+  });
+
+  it("setPolishState 触发版本号自增（按钮 computed 依赖版本号重算）", () => {
+    const v0 = drafts.version();
+    drafts.setPolishState("ses-a", true);
+    expect(drafts.version()).toBeGreaterThan(v0);
+  });
+
+  it("润色状态不持久化（瞬态，重启后清除）", () => {
+    drafts.setPolishState("ses-a", true);
+    drafts._reloadFromStorageForTest();
+    expect(drafts.isPolishing("ses-a")).toBe(false);
+  });
 });

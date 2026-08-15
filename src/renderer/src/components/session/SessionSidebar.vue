@@ -28,7 +28,9 @@ const settings = useSettingsStore();
 
 const { handleNew } = useNewSession();
 const { switchTo } = useSessionSwitch();
-const { hasDraft, clearDraft, version: draftVersion } = useSessionDrafts();
+const { hasDraft, clearDraft, versionRef } = useSessionDrafts();
+// versionRef() 返回版本号 ref：Map 非响应式，靠版本号驱动重算（setPolishState/saveDraft 自增）
+const draftVersion = versionRef();
 
 // 草稿版本号 → 本地响应式 tick：Map 非响应式，模板必须依赖 tick 才能在 saveDraft/clearDraft 后重渲染
 // （watch 空回调不触发重渲染——军师 P1-2，2026-08-15 审查发现）

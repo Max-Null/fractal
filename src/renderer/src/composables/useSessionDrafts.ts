@@ -29,6 +29,9 @@ const draftsBySession = new Map<string, SessionDraft>();
  * 解决：InputBar 写回走 setPolishResult 存 pending，captureDraft 的 saveDraft 消费 pending——无论顺序，草稿最终是润色文本。
  * pending 是瞬态协调状态，**不持久化**（应用重启后无意义，清空即可）。 */
 const pendingPolish = new Map<string, string>();
+/** 各会话的润色进行中状态（sid → true）：切会话后润色按钮应跟随会话——A 润色中切到 B，B 按钮恢复正常；
+ * 切回 A 若仍在润色则继续显示处理中（2026-08-15 用户反馈）。与 pendingPolish 同为瞬态，不持久化。 */
+const polishingBySession = new Map<string, boolean>();
 const draftVersion = ref(0);
 
 // ── 持久化（2026-08-15 用户确认：草稿跟随会话需 localStorage 落盘，重启应用不丢失）──
@@ -106,6 +109,19 @@ function hasPendingPolish(sid: string | null | undefined): boolean {
   return pendingPolish.has(keyOf(sid));
 }
 
+/** 设置某会话润色进行中状态（InputBar 发起/结束时调用） */
+function setPolishState(sid: string | null | undefined, active: boolean): void {
+  const k = keyOf(sid);
+  if (active) polishingBySession.set(k, true);
+  else polishingBySession.delete(k);
+  draftVersion.value++;
+}
+
+/** 某会话是否正在润色（InputBar 按钮状态；无会话槽归 NONE） */
+function isPolishing(sid: string | null | undefined): boolean {
+  return polishingBySession.get(keyOf(sid)) ?? false;
+}
+
 /** 删除草稿（会话删除时清理；也支持清空 NONE 槽）——同时丢弃待合并润色结果 */
 function clearDraft(sid: string | null | undefined): void {
   const k = keyOf(sid);
@@ -162,6 +178,11 @@ function version(): number {
   return draftVersion.value;
 }
 
+/** 版本号 ref（响应式源）：消费方 computed 依赖它实现「非响应式 Map 上的响应式重算」 */
+function versionRef() {
+  return draftVersion;
+}
+
 export function useSessionDrafts() {
   return {
     saveDraft,
@@ -170,12 +191,16 @@ export function useSessionDrafts() {
     clearDraft,
     setPolishResult,
     hasPendingPolish,
+    setPolishState,
+    isPolishing,
     migrateNoneDraft,
     version,
+    versionRef,
     /** 测试辅助：清空全部草稿 + localStorage（避免单测间状态污染；生产不调用） */
     _resetForTest: () => {
       draftsBySession.clear();
       pendingPolish.clear();
+      polishingBySession.clear();
       try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
       draftVersion.value++;
     },
@@ -183,6 +208,7 @@ export function useSessionDrafts() {
     _reloadFromStorageForTest: () => {
       draftsBySession.clear();
       pendingPolish.clear();
+      polishingBySession.clear();
       loadFromStorage();
       draftVersion.value++;
     },

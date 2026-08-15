@@ -405,6 +405,51 @@ describe("InputBar", () => {
     expect(drafts.getDraft("ses-a").text).toBe("润色后-A");
   });
 
+  it("润色按钮状态跟随会话：A 润色中切到 B，B 按钮恢复正常；切回 A 继续显示处理中", async () => {
+    // 润色按钮 busy 状态按会话隔离（2026-08-15 用户反馈）：
+    // A 发起润色 → polishMessage 挂起（不 resolve）→ 切到 B → B 按钮可点（非 busy）→ 切回 A → A 按钮仍 busy
+    const sessionStore = useSessionStore();
+    const drafts = useSessionDrafts();
+    drafts._resetForTest();
+    sessionStore.sessions.push(
+      { id: "ses-a", title: "A", createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" },
+      { id: "ses-b", title: "B", createdAt: 0, updatedAt: 0, messageCount: 0, totalTokens: null, totalCost: null, mode: "default" },
+    );
+    sessionStore.setActiveSession("ses-a");
+    // polishMessage 永不 resolve（模拟长润色）——用 pending promise 控制
+    let resolvePolish: (v: unknown) => void = () => {};
+    (window as unknown as { electronBridge: { invoke: (c: string, a?: unknown) => Promise<unknown>; on: () => () => void } }).electronBridge = {
+      invoke: (channel: string) =>
+        channel === "ai:polishMessage" ? new Promise((res) => { resolvePolish = res; }) : Promise.resolve({}),
+      on: () => () => {},
+    };
+    const wrapper = mountInputBar();
+    await wrapper.find("textarea").setValue("润色-A");
+    await wrapper.find("button[title='Polish message with AI']").trigger("click");
+    await wrapper.vm.$nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    // A 会话：润色中 → 按钮 busy
+    expect(wrapper.find("button[title='Polish message with AI']").classes()).toContain("polish-btn--busy");
+
+    // 切到 B：按钮恢复正常（可点）
+    sessionStore.setActiveSession("ses-b");
+    await wrapper.vm.$nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrapper.find("button[title='Polish message with AI']").classes()).not.toContain("polish-btn--busy");
+
+    // 切回 A：按钮继续 busy（A 润色未完成）
+    sessionStore.setActiveSession("ses-a");
+    await wrapper.vm.$nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrapper.find("button[title='Polish message with AI']").classes()).toContain("polish-btn--busy");
+
+    // A 润色完成 → 按钮复位
+    resolvePolish({ ok: true, text: "完成" });
+    await wrapper.vm.$nextTick();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(wrapper.find("button[title='Polish message with AI']").classes()).not.toContain("polish-btn--busy");
+  });
+
   // ── foot 操作按钮 ──
 
   it("emits attach on 📎 button", async () => {

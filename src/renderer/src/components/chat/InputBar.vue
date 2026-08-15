@@ -18,7 +18,9 @@ const { t } = useI18n();
 const settings = useSettingsStore();
 const chat = useChatStore();
 const session = useSessionStore();
-const { getDraft, setPolishResult } = useSessionDrafts();
+const { getDraft, setPolishResult, setPolishState, isPolishing, versionRef } = useSessionDrafts();
+// versionRef() 返回版本号 ref（非响应式 Map 的响应式时钟——setPolishState 自增后 computed 失效重算）
+const draftVersion = versionRef();
 
 /** chips 行数据（由 ChatPanel 组装：选区卡片 / 附件），纯展示、事件上报 */
 export interface ComposerChip {
@@ -356,17 +358,23 @@ const canSend = computed(() => input.value.trim().length > 0 || props.chips.some
 // ══════════════════════════════════════════════════════════════
 // ✨ 优化输入消息（原型发送按钮左侧功能）：调引擎临时会话润色，结果替换输入框
 // ══════════════════════════════════════════════════════════════
-const polishing = ref(false);
+// 润色进行中状态按会话记录（composable）：切会话后按钮跟随当前会话——
+// A 润色中切到 B，B 按钮恢复正常可点；切回 A 若仍在润色则继续显示处理中（2026-08-15 用户反馈）
+// 注意：isPolishing 读非响应式 Map，computed 需依赖 draftVersion 才能在 setPolishState 后重算（同会话内完成时复位按钮）
+const polishing = computed(() => {
+  void draftVersion.value;
+  return isPolishing(session.activeSessionId);
+});
 // 润色失败提示（3s 自动消失；此前 try/finally 无 catch → 错误变未捕获 rejection，用户看不到原因）
 const polishError = ref("");
 let polishErrorTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function polishInput() {
   const text = input.value.trim();
-  if (!text || polishing.value) return;
+  if (!text || isPolishing(session.activeSessionId)) return;
   // 记录发起会话：润色期间用户可能切换会话，完成后结果必须写回「发起会话」而非当前输入框（污染其他会话草稿）
   const polishSessionId = session.activeSessionId;
-  polishing.value = true;
+  setPolishState(polishSessionId, true);
   polishError.value = "";
   try {
     // 带上用户显式引用的上下文（chips：选区片段 content / 附件 path）——优化结果有背景可参考（2026-08-08 用户确认方案）
@@ -397,7 +405,8 @@ async function polishInput() {
     polishError.value = msg;
     console.error("[polish] 润色失败:", err);
   } finally {
-    polishing.value = false;
+    // 按发起会话复位润色状态（用户可能已切到别的会话——不能复位当前会话的状态）
+    setPolishState(polishSessionId, false);
     // 错误提示 3s 自动消失
     if (polishErrorTimer) clearTimeout(polishErrorTimer);
     polishErrorTimer = setTimeout(() => { polishError.value = ""; }, 3000);
