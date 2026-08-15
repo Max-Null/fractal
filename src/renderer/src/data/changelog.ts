@@ -32,6 +32,92 @@ export const APP_VERSION: string = appPackage.version;
 // 按版本降序排列（最新在第一个）
 export const changelog: ChangelogEntry[] = [
   {
+    version: "1.2.0",
+    date: "2026-08-16",
+    sections: [
+      {
+        titleZh: "消息与输入体验",
+        titleEn: "Messaging & Input",
+        itemsZh: [
+          "繁忙时 Enter 行为设置：可配置 AI 繁忙时 Enter 排队等待 / 提示错误，前端排队队列 + dcp-message-id 标签剥离",
+          "草稿持久化到 localStorage，重启应用不丢失",
+          "草稿跟随会话：首页迁移、会话列表草稿标记、润色跨会话写回",
+          "润色改直连 DeepSeek API，会话进行时也能用",
+          "主动打断显示「已停止」温和提示，不再显示「错误: Aborted」",
+        ],
+        itemsEn: [
+          "Configurable Enter behavior while AI is busy: queue up or show an error, with a frontend queue and dcp-message-id tag stripping",
+          "Drafts persist to localStorage across app restarts",
+          "Drafts follow sessions: home migration, draft badges in the session list, polish writes back across sessions",
+          "Polish now calls the DeepSeek API directly, usable while a session is running",
+          "Interrupting shows a gentle \"Stopped\" message instead of \"Error: Aborted\"",
+        ],
+      },
+      {
+        titleZh: "上下文与诊断",
+        titleEn: "Context & Diagnostics",
+        itemsZh: [
+          "上下文面板接入 ACP 插件真实数据，支持一键解压查看内容",
+          "诊断面板 v1.2：引擎日志关键词高亮与搜索，上下文口径统一（消息级 tokens）",
+        ],
+        itemsEn: [
+          "Context panel now shows real ACP plugin data with one-click decompress",
+          "Diagnostics v1.2: engine log keyword highlighting and search, unified context accounting",
+        ],
+      },
+      {
+        titleZh: "文件与内容",
+        titleEn: "Files & Content",
+        itemsZh: [
+          "不支持的文件类型右键添加时，路径直接插入输入框",
+          "文件修改卡片：diff 展示行号（VSCode 风格），兼容 camelCase 工具入参，长路径单行省略",
+          "文件预览面板按文件指纹判断会话编辑后自动刷新",
+        ],
+        itemsEn: [
+          "Right-clicking an unsupported file type inserts its path into the input box",
+          "File change cards: line numbers in diff view (VS Code style), camelCase tool input support, ellipsis for long paths",
+          "File preview auto-refreshes based on file fingerprints after the session edits files",
+        ],
+      },
+      {
+        titleZh: "通知与回合体验",
+        titleEn: "Notifications & Turn UX",
+        itemsZh: [
+          "回合完成计时修复：每回合独立计时，serve 重启后继续旧会话仍准确",
+          "点击系统通知激活分形窗口（最小化自动还原 + 置顶聚焦）",
+          "回答完成通知显示耗时时分秒格式化（12:03 / 1:00:00）",
+          "权限/提问通知文案区分：approval 显示权限请求，question 显示需要你的回复",
+        ],
+        itemsEn: [
+          "Turn duration fix: each turn is timed independently, accurate even after serve restart",
+          "Clicking a system notification activates the Fractal window (restores + focuses)",
+          "Reply-complete notifications show formatted duration (12:03 / 1:00:00)",
+          "Distinct notification copy for permission requests vs. AI questions",
+        ],
+      },
+      {
+        titleZh: "稳定性与引擎",
+        titleEn: "Stability & Engine",
+        itemsZh: [
+          "acceptEdits 权限模式正确映射（编辑/读取自动放行），启动与保存不再覆盖回 default",
+          "sidecar 升级 OpenCode 1.18.18（Kimi/xai 修复）",
+          "下载脚本校验改用官方 asset digest，镜像优先下载",
+          "skill 节点收起态显示实际使用的 skill 名",
+          "润色按钮状态按会话隔离；空会话点新建跳转复用，避免堆积空会话",
+          "修复安装版检查更新误报「开发模式不可用」",
+        ],
+        itemsEn: [
+          "acceptEdits permission mode maps correctly, no longer reverting to default on startup/save",
+          "Sidecar upgraded to OpenCode 1.18.18 (Kimi/xai fixes)",
+          "Download script validates official asset digests, mirror-first download",
+          "Collapsed skill nodes show the actual skill name used",
+          "Polish button state isolated per session; clicking New on an empty session reuses it",
+          "Fixed installed builds reporting \"unavailable in dev mode\" when checking for updates",
+        ],
+      },
+    ],
+  },
+  {
     version: "1.1.2",
     date: "2026-08-14",
     sections: [
